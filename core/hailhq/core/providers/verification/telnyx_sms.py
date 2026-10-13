@@ -10,7 +10,7 @@ import logging
 import re
 
 import httpx
-from hailhq.core.providers.telnyx import TelnyxClient
+from hailhq.core.providers.telnyx import TelnyxClient, path_id
 from hailhq.core.providers.verification.base import (
     DraftResult,
     Problem,
@@ -206,7 +206,9 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         """Unlink a number from its 10DLC campaign before it is released.
         Never raises."""
         try:
-            await self._api.request("DELETE", f"/10dlc/phoneNumberCampaign/{e164}")
+            await self._api.request(
+                "DELETE", f"/10dlc/phone_number_campaigns/{path_id(e164)}"
+            )
         except httpx.HTTPStatusError as exc:
             logger.warning("10DLC unlink failed: status=%s", exc.response.status_code)
         except (httpx.HTTPError, ValueError) as exc:

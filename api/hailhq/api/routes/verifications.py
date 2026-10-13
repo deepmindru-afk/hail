@@ -252,15 +252,17 @@ async def _settle_sms_approval(
         return status
     if not await attach_org_numbers(db, row, provider):
         return ProviderStatus(state="pending")
-    await write_audit_log(
-        row.organization_id,
-        None,
-        "verification.sms_attached",
-        "carrier_verification",
-        row.id,
-        {"numbers": len(await registered_numbers(db, row))},
-        actor_kind="system",
-    )
+    count = len(await registered_numbers(db, row))
+    if count:
+        await write_audit_log(
+            row.organization_id,
+            None,
+            "verification.sms_attached",
+            "carrier_verification",
+            row.id,
+            {"numbers": count},
+            actor_kind="system",
+        )
     return status
 
 

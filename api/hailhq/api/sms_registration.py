@@ -77,8 +77,8 @@ async def approved_registration(
                 CarrierVerification.purpose == "sms",
                 CarrierVerification.state == "approved",
             )
-            # One live row per carrier is the rule, but nothing in the
-            # schema enforces it: never fail a purchase over a duplicate.
+            # carrier_verifications_live_uniq allows one live row per
+            # (org, carrier, country, type, purpose); limit(1) is defensive.
             .order_by(CarrierVerification.approved_at.desc())
             .limit(1)
         )

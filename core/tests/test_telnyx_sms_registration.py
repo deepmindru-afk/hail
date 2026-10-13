@@ -307,6 +307,24 @@ async def test_attach_posts_and_conflict_is_success() -> None:
         )
 
 
+async def test_detach_deletes_the_number_campaign_link() -> None:
+    calls = []
+
+    def handler(req):
+        calls.append((req.method, req.url.raw_path))
+        return httpx.Response(200, json={})
+
+    await _provider(handler).detach_number("+15125550100")
+    assert calls == [("DELETE", b"/v2/10dlc/phone_number_campaigns/%2B15125550100")]
+
+
+async def test_detach_not_linked_does_not_raise() -> None:
+    def handler(req):
+        return httpx.Response(404, json={})
+
+    await _provider(handler).detach_number("+15125550100")
+
+
 async def test_discard_order_and_never_raises() -> None:
     calls = []
     codes = {"campaign": 500}

@@ -1349,7 +1349,14 @@ async def test_number_activated_later_is_attached(
     vid = (await _post_sms(client, key)).json()["id"]
     sms_carrier.remote_status = ProviderStatus(state="approved")
     verifications_routes._last_polled.clear()
-    await client.get(f"/verifications/{vid}", headers=_auth(key))
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "approved"
+    # Nothing was attached at approval: no sms_attached audit row.
+    assert (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "verification.sms_attached")
+        )
+    ).first() is None
     number = await _us_number(async_session, org_id, "+15125550177", resource="PN7")
     await sms_registration.attach_if_registered(
         async_session,
