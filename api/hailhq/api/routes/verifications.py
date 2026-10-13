@@ -288,6 +288,7 @@ async def approved_purchase_handle(
                 CarrierVerification.provider == provider_name,
                 CarrierVerification.country_code == country_code,
                 CarrierVerification.number_type == number_type,
+                CarrierVerification.purpose == "number",
                 CarrierVerification.state == "approved",
             )
         )

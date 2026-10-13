@@ -214,6 +214,7 @@ async def rejected_registration(
                 CarrierVerification.provider == number.provider,
                 CarrierVerification.country_code == number.country_code,
                 CarrierVerification.number_type == number.number_type,
+                CarrierVerification.purpose == "number",
                 CarrierVerification.state == "approved",
             )
         )

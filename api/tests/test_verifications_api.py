@@ -1208,3 +1208,44 @@ async def test_sms_fees_endpoint(client, org_and_key, sms_carrier) -> None:
         "person": {"filing_cents": 1950, "monthly_cents": 200},
         "business": {"filing_cents": 6100, "monthly_cents": 1000},
     }
+
+
+async def test_sms_registration_rejects_non_us(
+    client, org_and_key, sms_carrier
+) -> None:
+    _, _, key = org_and_key
+    resp = await _post_sms(client, key, country_code="GB")
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "country_code"]
+
+
+async def test_sms_registration_rejects_non_local(
+    client, org_and_key, sms_carrier
+) -> None:
+    _, _, key = org_and_key
+    resp = await _post_sms(client, key, number_type="mobile")
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "country_code"]
+
+
+async def test_approved_sms_row_is_not_a_number_purchase_handle(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _post_sms(client, key)).json()["id"]
+    row = (
+        await async_session.execute(
+            select(CarrierVerification).where(CarrierVerification.id == uuid.UUID(vid))
+        )
+    ).scalar_one()
+    row.state = "approved"
+    await async_session.commit()
+    handle = await verifications_routes.approved_purchase_handle(
+        async_session,
+        lambda name, purpose="number": sms_carrier,
+        org_id,
+        "fake",
+        "US",
+        "local",
+    )
+    assert handle is None
