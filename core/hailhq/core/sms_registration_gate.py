@@ -28,11 +28,30 @@ def is_us(e164: str) -> bool:
     return region in (None, "US")
 
 
-def _approved_registration_ids():
+def approved_registration_ids(organization_id: UUID):
+    """Subquery: ids of the org's approved US SMS registrations."""
     return select(CarrierVerification.id).where(
+        CarrierVerification.organization_id == organization_id,
         CarrierVerification.purpose == "sms",
         CarrierVerification.state == "approved",
     )
+
+
+async def on_approved_registration(
+    db: AsyncSession, organization_id: UUID, number: PhoneNumber | None
+) -> bool:
+    """True when ``number`` is on an approved US SMS registration of the
+    org."""
+    if number is None or number.sms_registration_id is None:
+        return False
+    found = (
+        await db.execute(
+            approved_registration_ids(organization_id).where(
+                CarrierVerification.id == number.sms_registration_id
+            )
+        )
+    ).scalar_one_or_none()
+    return found is not None
 
 
 async def us_registration_block(
@@ -42,17 +61,9 @@ async def us_registration_block(
         return None  # a Canadian long code, or a text to outside the US
     if from_number.number_type == "toll_free":
         return None
-    if from_number.sms_registration_id is None:
-        return BLOCK_MESSAGE
-    approved = (
-        await db.execute(
-            _approved_registration_ids().where(
-                CarrierVerification.id == from_number.sms_registration_id,
-                CarrierVerification.organization_id == organization_id,
-            )
-        )
-    ).scalar_one_or_none()
-    return None if approved else BLOCK_MESSAGE
+    if await on_approved_registration(db, organization_id, from_number):
+        return None
+    return BLOCK_MESSAGE
 
 
 async def registered_sms_number(
@@ -69,9 +80,7 @@ async def registered_sms_number(
                 PhoneNumber.provisioning_state == "active",
                 PhoneNumber.capabilities.any("sms"),
                 PhoneNumber.sms_registration_id.in_(
-                    _approved_registration_ids().where(
-                        CarrierVerification.organization_id == organization_id
-                    )
+                    approved_registration_ids(organization_id)
                 ),
             )
             .order_by(PhoneNumber.created_at.asc())

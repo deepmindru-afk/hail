@@ -20,6 +20,7 @@ from hailhq.core.config import settings
 from hailhq.core.db import get_session
 from hailhq.core.models import (
     Agent,
+    CarrierVerification,
     AuditLog,
     Call,
     Email,
@@ -1072,3 +1073,144 @@ async def test_send_sms_needs_us_sms_registration(
         )
     ).scalar_one()
     assert audit.payload["reason"] == BLOCK_MESSAGE
+
+
+async def _register_one(session: AsyncSession, number: PhoneNumber) -> None:
+    """Put just ``number`` on a new approved US SMS registration."""
+    row = CarrierVerification(
+        organization_id=number.organization_id,
+        provider=number.provider,
+        country_code="US",
+        number_type="local",
+        subject_type="business",
+        purpose="sms",
+        state="approved",
+        provider_refs={},
+        requirements_version="x",
+    )
+    session.add(row)
+    await session.flush()
+    number.sms_registration_id = row.id
+    await session.commit()
+
+
+async def test_us_text_prefers_a_registered_number(async_session, add_phone_number):
+    org = uuid.uuid4()
+    await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550061",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550062",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    got = await resolve_sms_number(async_session, org, None, None, "+14155550199")
+    assert got.id == registered.id
+    # A text to outside the US keeps the oldest number.
+    got = await resolve_sms_number(async_session, org, None, None, "+447700900123")
+    assert got.e164 == "+14155550061"
+
+
+async def test_us_text_skips_an_unregistered_dialed_number(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    agent = Agent(organization_id=org, name="A", system_prompt="x", sms_enabled=True)
+    async_session.add(agent)
+    await async_session.commit()
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550071",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550072",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    got = await resolve_sms_number(async_session, org, agent.id, dialed, "+14155550199")
+    assert got.id == registered.id
+    await async_session.refresh(dialed)
+    assert dialed.sms_agent_id is None  # the dialed number was not taken
+
+
+async def test_us_text_keeps_a_registered_dialed_number(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    agent = Agent(organization_id=org, name="A", system_prompt="x", sms_enabled=True)
+    async_session.add(agent)
+    await async_session.commit()
+    older = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550081",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550082",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, older)
+    row_id = older.sms_registration_id
+    dialed.sms_registration_id = row_id
+    await async_session.commit()
+    got = await resolve_sms_number(async_session, org, agent.id, dialed, "+14155550199")
+    assert got.id == dialed.id
+
+
+async def test_us_text_without_registered_numbers_keeps_the_old_order(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550091",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    got = await resolve_sms_number(async_session, org, None, dialed, "+14155550199")
+    assert got.id == dialed.id
+
+
+async def test_send_sms_texts_from_the_registered_number(
+    client, async_session, sms_mock, add_phone_number
+):
+    org = uuid.uuid4()
+    # The dialed number (the call's from number here) is not registered.
+    call = await _insert_live_call(
+        async_session, org, add_phone_number, register_sms=False
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550098",
+        provider_resource_id="PN_R",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    body = _sms_payload(call.id)
+    resp = await client.post(
+        "/internal/agent/send-sms", content=body, headers=_signed(body)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True, resp.text
+    sent = (await async_session.execute(select(Sms))).scalar_one()
+    assert sent.from_e164 == "+14155550098"

@@ -34,7 +34,11 @@ async def registered_numbers(
                     PhoneNumber.capabilities.any("sms"),
                     PhoneNumber.provider_resource_id.is_not(None),
                 )
-                .order_by(PhoneNumber.acquired_at.nulls_last(), PhoneNumber.id)
+                .order_by(
+                    PhoneNumber.acquired_at.nulls_last(),
+                    PhoneNumber.created_at,
+                    PhoneNumber.id,
+                )
             )
         )
         .scalars()

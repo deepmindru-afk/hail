@@ -13,6 +13,12 @@ from uuid import UUID
 
 from hailhq.core.db import org_lock
 from hailhq.core.models import Agent, PhoneNumber
+from hailhq.core.sms_registration_gate import (
+    approved_registration_ids,
+    is_us,
+    on_approved_registration,
+    registered_sms_number,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,6 +96,7 @@ async def resolve_sms_number(
     organization_id: UUID,
     agent_id: UUID | None,
     dialed: PhoneNumber | None,
+    to_e164: str | None = None,
 ) -> PhoneNumber | None:
     """The org number an agent texts from. Order:
 
@@ -101,9 +108,37 @@ async def resolve_sms_number(
        ``sms_enabled``, else used unbound.
     4. None.
 
+    For a US recipient (``to_e164``) whose dialed number is not on an
+    approved US SMS registration, the same order is tried first among
+    registered numbers only: the send gate lets a US text leave only those.
+    With none, the order above applies to every number.
+
     A number routed to another agent is never taken. Every automatic bind sets
     ``db.info["auto_bound_sms_number_id"]``; an unbound use sets nothing.
     """
+    if (
+        to_e164 is not None
+        and is_us(to_e164)
+        and not await on_approved_registration(db, organization_id, dialed)
+    ):
+        registered = await _resolve_sms_number(
+            db, organization_id, agent_id, None, registered_only=True
+        )
+        if registered is not None:
+            return registered
+    return await _resolve_sms_number(db, organization_id, agent_id, dialed)
+
+
+async def _resolve_sms_number(
+    db: AsyncSession,
+    organization_id: UUID,
+    agent_id: UUID | None,
+    dialed: PhoneNumber | None,
+    *,
+    registered_only: bool = False,
+) -> PhoneNumber | None:
+    """One pass of :func:`resolve_sms_number`. ``registered_only`` limits
+    every step to numbers on an approved US SMS registration."""
     if agent_id is None:
         if (
             dialed is not None
@@ -111,6 +146,8 @@ async def resolve_sms_number(
             and "sms" in dialed.capabilities
         ):
             return dialed
+        if registered_only:
+            return await registered_sms_number(db, organization_id)
         return await resolve_org_number(db, organization_id, None, capability="sms")
     if (
         dialed is not None
@@ -142,6 +179,12 @@ async def resolve_sms_number(
         .order_by(PhoneNumber.created_at)
         .limit(1)
     )
+    if registered_only:
+        base = base.where(
+            PhoneNumber.sms_registration_id.in_(
+                approved_registration_ids(organization_id)
+            )
+        )
     routed = (
         await db.execute(base.where(PhoneNumber.sms_agent_id == agent_id))
     ).scalar_one_or_none()

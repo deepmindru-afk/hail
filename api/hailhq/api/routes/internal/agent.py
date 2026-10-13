@@ -317,7 +317,7 @@ async def agent_send_sms(
         if call.direction == "inbound" and call.to_number_id is not None
         else None
     )
-    from_number = await resolve_sms_number(db, org, call.agent_id, dialed)
+    from_number = await resolve_sms_number(db, org, call.agent_id, dialed, counterpart)
     if from_number is None:
         return AgentSendResponse(ok=False, spoken=_SPOKEN_SMS_UNCONFIGURED)
 
