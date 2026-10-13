@@ -30,7 +30,7 @@ CLI: `hail agents create "Front desk" --prompt-file ./front-desk.md`, then
 `hail numbers route <number-id> --calls <agent-id> --texts <agent-id>`.
 Restrict tools with `hail agents update <id> --tools end_call,send_sms`; allow
 all again with `hail agents update <id> --all-tools`.
-MCP: `list_agents`, `create_agent`, `route_number`, and `place_call(agent_id=...)`.
+MCP: `list_agents`, `get_agent`, `create_agent`, `update_agent`, `delete_agent`, `route_number`, and `place_call(agent_id=...)`.
 SDK: `client.agents.create(...)`, `client.numbers.route(...)`.
 
 Schemas: `AgentCreate`, `AgentUpdate`, `AgentResponse`, `PhoneNumberRoutingUpdate`
@@ -55,8 +55,8 @@ curl -X PATCH "$HAIL_API_URL/v1/agents/$AGENT_ID" -H "Authorization: Bearer $HAI
 
 CLI: `hail agents update <id> --handover "member:<user-id>=sales questions"`
 (repeat the flag for more people; `--no-handover` clears the list).
-MCP sets contacts at creation only: `create_agent(handover_contacts=[{"contact_id": "...", "note": "..."}])`.
-There is no MCP update tool; change them with the CLI or the API.
+MCP: `create_agent(handover_contacts=[{"contact_id": "...", "note": "..."}])` sets the list;
+`update_agent(agent_id, handover_contacts=[...])` replaces it, and `[]` removes every contact.
 
 - Up to 10 people. Each needs a phone number in a country Hail sells
   numbers in. A team member must belong to the organization; one who leaves
