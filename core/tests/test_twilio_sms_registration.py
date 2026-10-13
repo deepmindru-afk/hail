@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from hailhq.core.providers.verification.base import Address
 from hailhq.core.providers.verification.twilio_sms import TwilioSmsRegistrationProvider
 
@@ -310,15 +312,91 @@ async def test_attach_number_adds_missing_number_to_service() -> None:
     assert any(n.endswith("phone_numbers.create") for n, _ in p._client.calls)
 
 
-async def test_discard_deletes_in_reverse_order_and_ignores_missing() -> None:
+def _raise(exc):
+    def _f():
+        raise exc
+
+    return _f
+
+
+def _tw(status, msg="boom", code=None):
     from twilio.base.exceptions import TwilioRestException
 
-    r = _ok_responses()
-    r["us_app_to_person.delete"] = lambda: (_ for _ in ()).throw(
-        TwilioRestException(404, "u", msg="gone")
+    return TwilioRestException(status, "u", msg=msg, code=code)
+
+
+def _calls(p, suffix):
+    return [kw for n, kw in p._client.calls if n.endswith(suffix)]
+
+
+async def _draft(p, subject="business", **extra):
+    fields = {**FIELDS, **extra}
+    if subject == "person":
+        fields.update(
+            first_name="Ada",
+            last_name="Lovelace",
+            email="ada@example.com",
+            mobile_phone_number="+15125550199",
+        )
+    req = await p.requirements("US", "local", subject)
+    return await p.create_draft(
+        organization_id="org1",
+        contact_email="ops@hail.so",
+        requirements=req,
+        fields=fields,
+        address=ADDRESS,
+        documents={},
+        messaging_service_sid="MG9",
     )
-    r["brand_registrations.delete"] = True
-    r["trust_products.delete"] = True
+
+
+async def test_business_draft_policies_end_users_and_updates() -> None:
+    p = _provider()
+    await _draft(p)
+    profile = _calls(p, "customer_profiles.create")[0]
+    assert profile["policy_sid"] == "RNdfbf3fae0e1107f8aded0e7cead80bf5"
+    trust = _calls(p, "trust_products.create")[0]
+    assert trust["policy_sid"] == "RNb0d4771c2c98518d916a3d4cd70a8f8b"
+    users = {kw["type"]: kw["attributes"] for kw in _calls(p, "end_users.create")}
+    assert set(users) == {
+        "customer_profile_business_information",
+        "authorized_representative_1",
+        "us_a2p_messaging_profile_information",
+    }
+    assert {"business_name", "business_registration_number", "website_url"} <= set(
+        users["customer_profile_business_information"]
+    )
+    assert {"first_name", "last_name", "email", "phone_number"} <= set(
+        users["authorized_representative_1"]
+    )
+    assert set(users["us_a2p_messaging_profile_information"]) == {"company_type"}
+    updates = [kw for n, kw in p._client.calls if n.endswith(".update")]
+    assert updates == [{"status": "pending-review"}] * 2
+
+
+async def test_person_draft_policies_and_sole_proprietor_attributes() -> None:
+    p = _provider()
+    await _draft(p, "person")
+    assert _calls(p, "customer_profiles.create")[0]["policy_sid"] == (
+        "RN806dd6cd175f314e1f96a9727ee271f4"
+    )
+    assert _calls(p, "trust_products.create")[0]["policy_sid"] == (
+        "RN670d5d2e282a6130ae063b234b6019c8"
+    )
+    users = _calls(p, "end_users.create")
+    assert [u["type"] for u in users] == ["sole_proprietor_information"]
+    assert set(users[0]["attributes"]) == {
+        "brand_name",
+        "mobile_phone_number",
+        "vertical",
+    }
+    assert not _calls(p, "customer_profiles_evaluations.create")
+
+
+async def test_discard_order_and_404_does_not_stop_next() -> None:
+    r = _ok_responses()
+    r["us_app_to_person.delete"] = _raise(_tw(404))
+    r["trust_products.delete"] = _raise(_tw(500))
     r["customer_profiles.delete"] = True
     p = _provider(r)
     await p.discard(
@@ -330,5 +408,154 @@ async def test_discard_deletes_in_reverse_order_and_ignores_missing() -> None:
             "campaign_sid": "QE1",
         }
     )
-    names = [n.rsplit(".", 1)[-1] for n, _ in p._client.calls]
-    assert names == ["delete"] * 4
+    names = [n for n, _ in p._client.calls]
+    assert names == [
+        "messaging.v1.services.(MG1).us_app_to_person.(QE1).delete",
+        "trusthub.v1.trust_products.(BU2).delete",
+        "trusthub.v1.customer_profiles.(BU1).delete",
+    ]
+
+
+async def test_discard_never_raises_on_other_errors() -> None:
+    r = _ok_responses()
+    r["trust_products.delete"] = _raise(RuntimeError("x"))
+    r["customer_profiles.delete"] = True
+    p = _provider(r)
+    await p.discard({"profile_sid": "BU1", "trust_sid": "BU2", "brand_sid": "BN1"})
+    assert len(p._client.calls) == 2
+
+
+async def test_draft_cleans_up_on_non_twilio_error() -> None:
+    from hailhq.core.providers.verification.base import VerificationProviderError
+
+    r = _ok_responses()
+    r["brand_registrations.create"] = _raise(RuntimeError("x"))
+    r["trust_products.delete"] = True
+    r["customer_profiles.delete"] = True
+    p = _provider(r)
+    with pytest.raises(VerificationProviderError):
+        await _draft(p)
+    names = [n for n, _ in p._client.calls if n.endswith(".delete")]
+    assert names == [
+        "trusthub.v1.trust_products.(BU2).delete",
+        "trusthub.v1.customer_profiles.(BU1).delete",
+    ]
+
+
+async def test_draft_4xx_becomes_neutral_problem() -> None:
+    r = _ok_responses()
+    r["brand_registrations.create"] = _raise(_tw(400, "EIN 12-3456789 not found"))
+    r["trust_products.delete"] = True
+    r["customer_profiles.delete"] = True
+    draft = await _draft(_provider(r))
+    assert draft.refs == {}
+    assert [pr.message for pr in draft.problems] == ["Check the tax ID (EIN)."]
+    assert "12-3456789" not in repr(draft.problems)
+
+
+async def test_draft_4xx_unknown_message_is_generic() -> None:
+    r = _ok_responses()
+    r["brand_registrations.create"] = _raise(_tw(400, "Twilio internal thing"))
+    draft = await _draft(_provider(r))
+    assert draft.problems[0].message.startswith("The carrier refused a detail")
+
+
+async def test_draft_5xx_raises_provider_error() -> None:
+    from hailhq.core.providers.verification.base import VerificationProviderError
+
+    r = _ok_responses()
+    r["brand_registrations.create"] = _raise(_tw(503))
+    with pytest.raises(VerificationProviderError):
+        await _draft(_provider(r))
+
+
+async def test_draft_noncompliant_evaluation_is_problem() -> None:
+    r = _ok_responses()
+    r["customer_profiles_evaluations.create"] = SimpleNamespace(
+        status="noncompliant",
+        results=[{"fields": [{"passed": False, "failure_reason": "bad website"}]}],
+    )
+    draft = await _draft(_provider(r))
+    assert [pr.message for pr in draft.problems] == ["Check the website address."]
+
+
+@pytest.mark.parametrize("brand_status", ["FAILED", "SUSPENDED"])
+async def test_status_brand_failed_or_suspended_is_rejected(brand_status) -> None:
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(
+        status=brand_status, identity_status="UNVERIFIED", brand_feedback=None
+    )
+    st = await _provider(r).status(
+        {"brand_sid": "BN1", "messaging_service_sid": "MG1", "campaign": {}}
+    )
+    assert st.state == "rejected" and st.reason
+
+
+async def test_status_campaign_failed_without_errors_has_generic_reason() -> None:
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(
+        status="APPROVED", identity_status="VERIFIED", brand_feedback=None
+    )
+    r["us_app_to_person.fetch"] = SimpleNamespace(
+        sid="QE1", campaign_status="FAILED", errors=[]
+    )
+    st = await _provider(r).status(
+        {
+            "brand_sid": "BN1",
+            "messaging_service_sid": "MG1",
+            "campaign_sid": "QE1",
+            "subject_type": "business",
+            "campaign": {},
+        }
+    )
+    assert st.state == "rejected" and st.reason
+
+
+async def test_attach_number_already_present_does_not_create() -> None:
+    r = _ok_responses()
+    r["phone_numbers.list"] = [SimpleNamespace(sid="PN1")]
+    p = _provider(r)
+    await p.attach_number(
+        {"messaging_service_sid": "MG1", "subject_type": "business"},
+        provider_resource_id="PN1",
+        e164="+15125550100",
+    )
+    assert not _calls(p, "phone_numbers.create")
+
+
+async def test_attach_number_21710_is_success() -> None:
+    r = _ok_responses()
+    r["phone_numbers.list"] = []
+    r["phone_numbers.create"] = _raise(_tw(409, "dup", code=21710))
+    await _provider(r).attach_number(
+        {"messaging_service_sid": "MG1", "subject_type": "business"},
+        provider_resource_id="PN1",
+        e164="+15125550100",
+    )
+
+
+async def test_attach_number_other_error_raises() -> None:
+    from hailhq.core.providers.verification.base import VerificationProviderError
+
+    r = _ok_responses()
+    r["phone_numbers.list"] = []
+    r["phone_numbers.create"] = _raise(_tw(500, code=1))
+    with pytest.raises(VerificationProviderError):
+        await _provider(r).attach_number(
+            {"messaging_service_sid": "MG1", "subject_type": "business"},
+            provider_resource_id="PN1",
+            e164="+15125550100",
+        )
+
+
+async def test_attach_number_person_holds_one_number(caplog) -> None:
+    r = _ok_responses()
+    r["phone_numbers.list"] = [SimpleNamespace(sid="PN0")]
+    p = _provider(r)
+    await p.attach_number(
+        {"messaging_service_sid": "MG1", "subject_type": "person"},
+        provider_resource_id="PN1",
+        e164="+15125550100",
+    )
+    assert not _calls(p, "phone_numbers.create")
+    assert "+1512" not in caplog.text

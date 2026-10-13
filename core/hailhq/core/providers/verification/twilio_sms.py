@@ -83,14 +83,6 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             problems.append(
                 Problem(field="ein", message="Nine digits, like 12-3456789.")
             )
-        if subject_type == "person" and fields.get("mobile_phone_number"):
-            if self._is_hail_number(fields["mobile_phone_number"]):
-                problems.append(
-                    Problem(
-                        field="mobile_phone_number",
-                        message="Use your own mobile number, not a Hail number.",
-                    )
-                )
         if address is None:
             problems.append(Problem(field="address", message="An address is required."))
         return problems
@@ -108,6 +100,15 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
     ) -> DraftResult:
         subject_type = requirements.subject_type
         problems = self._validate(fields, address, subject_type)
+        mobile = fields.get("mobile_phone_number")
+        if subject_type == "person" and mobile:
+            if await asyncio.to_thread(self._is_hail_number, mobile):
+                problems.append(
+                    Problem(
+                        field="mobile_phone_number",
+                        message="Use your own mobile number, not a Hail number.",
+                    )
+                )
         if problems:
             return DraftResult(refs={}, problems=problems)
         text = campaign_text(fields, subject_type)
@@ -123,12 +124,17 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                 subject_type,
                 messaging_service_sid,
             )
-        except TwilioRestException as exc:
+        except Exception as exc:
             await self.discard(refs)
-            if 400 <= (exc.status or 0) < 500 and exc.msg:
-                return DraftResult(
-                    refs={}, problems=[Problem(field="", message=str(exc.msg))]
+            if isinstance(exc, TwilioRestException):
+                logger.warning(
+                    "10DLC draft failed: status=%s code=%s", exc.status, exc.code
                 )
+                if 400 <= (exc.status or 0) < 500:
+                    return DraftResult(
+                        refs={},
+                        problems=[Problem(field="", message=_safe_message(exc.msg))],
+                    )
             raise VerificationProviderError("Twilio request failed") from exc
         return DraftResult(refs=refs)
 
@@ -334,7 +340,12 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             if any(getattr(p, "sid", None) == provider_resource_id for p in present):
                 return
             if refs.get("subject_type") == "person" and present:
-                return  # a person's campaign holds one number
+                # A person's campaign holds one number.
+                logger.warning(
+                    "10DLC: service %s already holds a number",
+                    refs["messaging_service_sid"],
+                )
+                return
             svc.phone_numbers.create(phone_number_sid=provider_resource_id)
 
         try:
@@ -345,35 +356,42 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             raise VerificationProviderError("Twilio request failed") from exc
 
     async def discard(self, refs) -> None:
-        steps = []
-        if refs.get("campaign_sid") and refs.get("messaging_service_sid"):
-            steps.append(
-                self._client.messaging.v1.services(refs["messaging_service_sid"])
+        # A brand cannot be deleted through the API; it is left behind.
+        ms = refs.get("messaging_service_sid")
+        client = self._client
+        steps = [
+            (
+                "campaign_sid",
+                lambda: client.messaging.v1.services(ms)
                 .us_app_to_person(refs["campaign_sid"])
-                .delete
-            )
-        if refs.get("brand_sid"):
-            steps.append(
-                self._client.messaging.v1.a2p.brand_registrations(
-                    refs["brand_sid"]
-                ).delete
-            )
-        if refs.get("trust_sid"):
-            steps.append(
-                self._client.trusthub.v1.trust_products(refs["trust_sid"]).delete
-            )
-        if refs.get("profile_sid"):
-            steps.append(
-                self._client.trusthub.v1.customer_profiles(refs["profile_sid"]).delete
-            )
-        for step in steps:
+                .delete(),
+            ),
+            (
+                "trust_sid",
+                lambda: client.trusthub.v1.trust_products(refs["trust_sid"]).delete(),
+            ),
+            (
+                "profile_sid",
+                lambda: client.trusthub.v1.customer_profiles(
+                    refs["profile_sid"]
+                ).delete(),
+            ),
+        ]
+        for key, step in steps:
+            if not refs.get(key) or (key == "campaign_sid" and not ms):
+                continue
             try:
                 await asyncio.to_thread(step)
             except TwilioRestException as exc:
                 if exc.status != 404:
-                    logger.warning("10DLC discard step failed: %s", exc.msg)
+                    logger.warning(
+                        "10DLC discard failed: step=%s status=%s code=%s",
+                        key,
+                        exc.status,
+                        exc.code,
+                    )
             except Exception:
-                logger.warning("10DLC discard step failed", exc_info=True)
+                logger.warning("10DLC discard failed: step=%s", key)
 
 
 def _business_type(key: str) -> str:
@@ -405,3 +423,17 @@ def _evaluation_message(ev) -> str:
 def _brand_reason(brand) -> str:
     fb = getattr(brand, "brand_feedback", None) or []
     return "; ".join(str(f) for f in fb) or "the carrier refused the brand"
+
+
+def _safe_message(msg) -> str:
+    """A short neutral sentence; never the carrier's own text."""
+    low = (msg or "").lower()
+    for words, text in (
+        (("ein", "tax id", "registration number"), "Check the tax ID (EIN)."),
+        (("website", "url"), "Check the website address."),
+        (("address", "street", "postal", "zip"), "Check the address."),
+        (("phone", "mobile"), "Check the phone number."),
+    ):
+        if any(re.search(rf"\b{w}\b", low) for w in words):
+            return text
+    return "The carrier refused a detail. Check your entries and try again."
