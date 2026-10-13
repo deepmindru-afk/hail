@@ -10,8 +10,11 @@ name: costs-revalidate
 # Required repo secret:
 #   HAIL_INTERNAL_SECRET   — same value as HAIL_INTERNAL_SECRET on the VM
 #                            .env and in hail-website's Vercel env
-# Optional repo variable:
-#   COSTS_REVALIDATE_URL   — defaults to the production route below
+#
+# Security notes:
+#   - The target URL is fixed here, not a variable: a signed request must
+#     never be pointed somewhere else by a settings change.
+#   - `github.sha` lands in an env: block; the script reads it as "$VAR".
 
 on:
   push:
@@ -26,7 +29,7 @@ jobs:
   revalidate:
     runs-on: ubuntu-latest
     env:
-      REVALIDATE_URL: ${{ vars.COSTS_REVALIDATE_URL || 'https://hail.so/api/internal/costs/revalidate' }}
+      REVALIDATE_URL: https://hail.so/api/internal/costs/revalidate
       REVALIDATE_SHA: ${{ github.sha }}
     steps:
       - name: Tell hail.so the cost files changed
