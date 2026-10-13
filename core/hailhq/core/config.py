@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # attached to it when they route calls to an agent. Empty = Twilio
     # numbers cannot take calls.
     twilio_sip_trunk_sid: str = ""
+    # Hail's approved primary customer profile (Trust Hub, business identity
+    # "ISV Reseller or Partner"). Customers' 10DLC profiles are assigned to it.
+    twilio_primary_profile_sid: str = ""
     telnyx_api_key: str = ""
     telnyx_connection_id: str = ""
     telnyx_sip_username: str = ""
