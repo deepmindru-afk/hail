@@ -26,9 +26,13 @@ from hailhq.api.audit import actor_of, write_audit_log
 from hailhq.api.deps import Principal, get_current_principal
 from hailhq.api.errors import unprocessable
 from hailhq.api.ratelimit import GENERAL_RATE_LIMITED_RESPONSES
-from hailhq.api.sms_registration import attach_org_numbers, registered_numbers
+from hailhq.api.sms_registration import (
+    attach_org_numbers,
+    detach_org_numbers,
+    registered_numbers,
+)
 from hailhq.api.superadmin import require_superadmin
-from hailhq.core import sms_registration_fees
+from hailhq.core import sms_registration_fees, sms_setup
 from hailhq.core.billing import get_balance_cents
 from hailhq.core.config import settings
 from hailhq.core.db import get_session, org_lock
@@ -50,7 +54,7 @@ from hailhq.core.providers.verification import (
 )
 from hailhq.core.schemas import VerificationResponse
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -696,16 +700,10 @@ async def create_verification(
                     detail=f"filing costs ${fee_cents / 100:.2f}; add credit first",
                 )
         draft_kwargs["messaging_service_sid"] = (
-            await db.execute(
-                select(PhoneNumber.messaging_service_sid)
-                .where(
-                    PhoneNumber.organization_id == principal.organization_id,
-                    PhoneNumber.provider == provider_name,
-                    PhoneNumber.messaging_service_sid.is_not(None),
-                )
-                .limit(1)
+            await sms_setup.org_messaging_service_sid(
+                db, principal.organization_id, provider_name
             )
-        ).scalar_one_or_none()
+        )
 
     try:
         draft = await provider.create_draft(
@@ -1069,25 +1067,72 @@ async def cancel_verification(
     """Withdraw a verification that has not been sent for review, or dismiss
     a rejected one. The draft is discarded either way. One that is under
     review cannot be cancelled: wait for the result; if it is rejected,
-    dismiss it."""
+    dismiss it.
+
+    An approved US SMS registration (`purpose=sms`) can be cancelled too:
+    its numbers leave the campaign, the campaign is deleted at the carrier,
+    and US-to-US texts from those numbers get 422 again. Its monthly fee is
+    charged through the month of the cancellation, then stops."""
     row = await _org_row_or_404(db, principal, verification_id)
     if row.state in ("submitting", "submitted"):
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail="this verification is under review; wait for the result",
         )
-    if row.state not in ("awaiting_review", "rejected"):
+    approved_sms = row.state == "approved" and row.purpose == "sms"
+    if row.state not in ("awaiting_review", "rejected") and not approved_sms:
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail=f"cannot cancel a verification that is {row.state}",
         )
     provider = registry(row.provider, row.purpose)
+    if approved_sms:
+        # Serialize with purchases, routing and releases: they attach and
+        # detach numbers too.
+        await org_lock(db, row.organization_id)
+        await _detach_registration(db, row, provider)
     if provider is not None:
         await provider.discard(row.provider_refs)
+    now = datetime.now(timezone.utc)
     row.state, row.provider_refs = "cancelled", {}
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = row.cancelled_at = now
     await db.commit()
+    if approved_sms:
+        actor_user_id, actor_kind = actor_of(principal)
+        await write_audit_log(
+            row.organization_id,
+            principal.api_key_id,
+            "verification.cancel",
+            "carrier_verification",
+            row.id,
+            {"purpose": row.purpose, "state_before": "approved"},
+            actor_user_id=actor_user_id,
+            actor_kind=actor_kind,
+        )
     return _out(row, registry)
+
+
+async def _detach_registration(
+    db: AsyncSession, row: CarrierVerification, provider: VerificationProvider | None
+) -> None:
+    """Take every number off an approved SMS registration that is being
+    cancelled. A number that left the registration's own messaging service
+    (a person's Twilio campaign) goes back to the organization's service."""
+    if isinstance(provider, SmsRegistrationProvider):
+        for number in await detach_org_numbers(db, row, provider):
+            try:
+                await sms_setup.ensure_sms(db, number)
+            except sms_setup.SmsSetupError:
+                logger.warning(
+                    "number %s: SMS setup failed after leaving its registration; "
+                    "POST /numbers/{id}/enable-sms repairs it",
+                    number.id,
+                )
+    await db.execute(
+        update(PhoneNumber)
+        .where(PhoneNumber.sms_registration_id == row.id)
+        .values(sms_registration_id=None)
+    )
 
 
 class ConfirmRequest(BaseModel):

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from twilio.request_validator import RequestValidator
 
-from .conftest import insert_org_and_key  # noqa: F401
+from .conftest import approve_us_sms, insert_org_and_key  # noqa: F401
 
 STATUS_AUTH_TOKEN = "test-twilio-auth-token"
 STATUS_URL = "http://t/sms/status"
@@ -68,22 +68,7 @@ async def _seed_dedicated_number(
 
 
 async def _approve_sms(async_session, org_id, provider="twilio") -> None:
-    from hailhq.core.models import CarrierVerification
-
-    async_session.add(
-        CarrierVerification(
-            organization_id=org_id,
-            provider=provider,
-            country_code="US",
-            number_type="local",
-            subject_type="business",
-            purpose="sms",
-            state="approved",
-            provider_refs={"campaign_sid": "QE1"},
-            requirements_version="x",
-        )
-    )
-    await async_session.commit()
+    await approve_us_sms(async_session, org_id, provider)
 
 
 async def test_create_sms_requires_auth(client) -> None:
@@ -913,6 +898,65 @@ async def test_us_to_us_passes_when_registered(
         "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
     )
     assert resp.status_code == 201, resp.text
+
+
+async def test_number_not_on_the_registration_is_422(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    # The org is registered, but this number was bought after and never
+    # joined the campaign.
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id)
+    await _seed_dedicated_number(
+        async_session, org_id, e164="+14155558888", register_sms=False
+    )
+    resp = await client.post(
+        "/sms",
+        json=_us_text(**{"from": "+14155558888"}),
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "SMS registration" in resp.text
+
+
+async def test_no_from_prefers_a_registered_number(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    org_id, _, key = org_and_key
+    # The oldest number is not registered; the newer one is.
+    await _seed_dedicated_number(
+        async_session, org_id, e164="+14155558888", register_sms=False
+    )
+    await _seed_dedicated_number(
+        async_session, org_id, e164="+14155557777", register_sms=False
+    )
+    from hailhq.core.models import CarrierVerification, PhoneNumber
+
+    row = CarrierVerification(
+        organization_id=org_id,
+        provider="twilio",
+        country_code="US",
+        number_type="local",
+        subject_type="business",
+        purpose="sms",
+        state="approved",
+        provider_refs={},
+        requirements_version="x",
+    )
+    async_session.add(row)
+    await async_session.flush()
+    newer = (
+        await async_session.execute(
+            select(PhoneNumber).where(PhoneNumber.e164 == "+14155557777")
+        )
+    ).scalar_one()
+    newer.sms_registration_id = row.id
+    await async_session.commit()
+    resp = await client.post(
+        "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["from_e164"] == "+14155557777"
 
 
 async def test_registration_is_per_carrier(

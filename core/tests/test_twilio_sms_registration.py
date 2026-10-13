@@ -93,12 +93,33 @@ ADDRESS = Address(
 )
 
 
-def _provider(responses=None):
+class FakeSms:
+    """The Twilio SMS adapter: records service and attach calls."""
+
+    def __init__(self, attach_error=None):
+        self.ensured: list[dict] = []
+        self.attached: list[tuple[str, str]] = []
+        self.attach_error = attach_error
+
+    async def ensure_messaging_service(self, organization_id, existing_sid, name=None):
+        self.ensured.append(
+            {"org": organization_id, "existing_sid": existing_sid, "name": name}
+        )
+        return existing_sid or ("MG2" if name else "MG1")
+
+    async def attach_number(self, messaging_service_sid, provider_resource_id):
+        if self.attach_error is not None:
+            raise self.attach_error
+        self.attached.append((messaging_service_sid, provider_resource_id))
+
+
+def _provider(responses=None, sms=None):
     return TwilioSmsRegistrationProvider(
         account_sid="AC1",
         auth_token="t",
         client=Recorder(responses or _ok_responses()),
         primary_profile_sid="BU0",
+        sms_provider=sms or FakeSms(),
     )
 
 
@@ -157,8 +178,17 @@ async def test_person_draft_uses_sole_proprietor_and_sends_otp() -> None:
         kw for n, kw in p._client.calls if n.endswith("brand_registrations.create")
     )
     assert brand["brand_type"] == "SOLE_PROPRIETOR"
-    assert any(n.endswith("brand_registration_otps.create") for n, _ in p._client.calls)
-    assert draft.refs["messaging_service_sid"] == "MG1"  # created when none exists
+    # Twilio texts the code when the brand is approved; none is asked for here.
+    assert not any(
+        n.endswith("brand_registration_otps.create") for n, _ in p._client.calls
+    )
+    assert "otp_sent_at" not in draft.refs
+    # A person's campaign gets its own service, made by the SMS adapter.
+    assert draft.refs["messaging_service_sid"] == "MG2"
+    assert p._sms.ensured == [
+        {"org": "org1", "existing_sid": None, "name": "hail-org-org1-person"}
+    ]
+    assert not _calls(p, "services.create")
 
 
 async def test_person_draft_refuses_hail_number_as_mobile(monkeypatch) -> None:
@@ -298,19 +328,6 @@ async def test_status_rejected_carries_carrier_reason() -> None:
     )
     assert st.state == "rejected"
     assert "sufficient business information" in st.reason
-
-
-async def test_attach_number_adds_missing_number_to_service() -> None:
-    r = _ok_responses()
-    r["phone_numbers.list"] = []
-    r["phone_numbers.create"] = SimpleNamespace(sid="PN1")
-    p = _provider(r)
-    await p.attach_number(
-        {"messaging_service_sid": "MG1", "subject_type": "business"},
-        provider_resource_id="PN1",
-        e164="+15125550100",
-    )
-    assert any(n.endswith("phone_numbers.create") for n, _ in p._client.calls)
 
 
 def _raise(exc):
@@ -533,37 +550,31 @@ async def test_status_campaign_failed_without_errors_has_generic_reason() -> Non
     assert st.state == "rejected" and st.reason
 
 
-async def test_attach_number_already_present_does_not_create() -> None:
-    r = _ok_responses()
-    r["phone_numbers.list"] = [SimpleNamespace(sid="PN1")]
-    p = _provider(r)
+async def test_business_draft_uses_the_org_service() -> None:
+    p = _provider()
+    draft = await _draft(p)
+    assert draft.refs["messaging_service_sid"] == "MG9"
+    assert p._sms.ensured == [{"org": "org1", "existing_sid": "MG9", "name": None}]
+
+
+async def test_attach_number_puts_the_number_in_the_service() -> None:
+    p = _provider()
     await p.attach_number(
         {"messaging_service_sid": "MG1", "subject_type": "business"},
         provider_resource_id="PN1",
         e164="+15125550100",
     )
-    assert not _calls(p, "phone_numbers.create")
+    assert p._sms.attached == [("MG1", "PN1")]
+    assert not _calls(p, "phone_numbers.list")
 
 
-async def test_attach_number_21710_is_success() -> None:
-    r = _ok_responses()
-    r["phone_numbers.list"] = []
-    r["phone_numbers.create"] = _raise(_tw(409, "dup", code=21710))
-    await _provider(r).attach_number(
-        {"messaging_service_sid": "MG1", "subject_type": "business"},
-        provider_resource_id="PN1",
-        e164="+15125550100",
-    )
-
-
-async def test_attach_number_other_error_raises() -> None:
+async def test_attach_number_refused_by_carrier_raises() -> None:
+    from hailhq.core.providers.sms.base import SmsProvisioningError
     from hailhq.core.providers.verification.base import VerificationProviderError
 
-    r = _ok_responses()
-    r["phone_numbers.list"] = []
-    r["phone_numbers.create"] = _raise(_tw(500, code=1))
+    p = _provider(sms=FakeSms(attach_error=SmsProvisioningError("no")))
     with pytest.raises(VerificationProviderError):
-        await _provider(r).attach_number(
+        await p.attach_number(
             {"messaging_service_sid": "MG1", "subject_type": "business"},
             provider_resource_id="PN1",
             e164="+15125550100",
@@ -571,16 +582,58 @@ async def test_attach_number_other_error_raises() -> None:
 
 
 async def test_attach_number_person_holds_one_number(caplog) -> None:
+    from hailhq.core.providers.verification.base import VerificationProviderError
+
     r = _ok_responses()
     r["phone_numbers.list"] = [SimpleNamespace(sid="PN0")]
     p = _provider(r)
+    with pytest.raises(VerificationProviderError):
+        await p.attach_number(
+            {"messaging_service_sid": "MG2", "subject_type": "person"},
+            provider_resource_id="PN1",
+            e164="+15125550100",
+        )
+    assert p._sms.attached == []
+    assert "+1512" not in caplog.text
+
+
+@pytest.mark.parametrize("present", [[], [SimpleNamespace(sid="PN1")]])
+async def test_attach_number_person_empty_or_same_number(present) -> None:
+    r = _ok_responses()
+    r["phone_numbers.list"] = present
+    p = _provider(r)
     await p.attach_number(
-        {"messaging_service_sid": "MG1", "subject_type": "person"},
+        {"messaging_service_sid": "MG2", "subject_type": "person"},
         provider_resource_id="PN1",
         e164="+15125550100",
     )
-    assert not _calls(p, "phone_numbers.create")
-    assert "+1512" not in caplog.text
+    assert p._sms.attached == [("MG2", "PN1")]
+
+
+async def test_detach_person_number_leaves_the_person_service() -> None:
+    r = _ok_responses()
+    r["phone_numbers.delete"] = _raise(_tw(404))
+    p = _provider(r)
+    left = await p.detach_number(
+        {"messaging_service_sid": "MG2", "subject_type": "person"},
+        provider_resource_id="PN1",
+        e164="+15125550100",
+    )
+    assert left is True
+    assert [n for n, _ in p._client.calls] == [
+        "messaging.v1.services.(MG2).phone_numbers.(PN1).delete"
+    ]
+
+
+async def test_detach_business_number_stays_in_the_org_service() -> None:
+    p = _provider()
+    left = await p.detach_number(
+        {"messaging_service_sid": "MG1", "subject_type": "business"},
+        provider_resource_id="PN1",
+        e164="+15125550100",
+    )
+    assert left is False
+    assert p._client.calls == []
 
 
 def test_needs_the_primary_profile_sid(monkeypatch) -> None:
@@ -598,6 +651,25 @@ async def test_business_draft_assigns_the_primary_profile() -> None:
     await _draft(p)
     assigned = [kw["object_sid"] for kw in _calls(p, "entity_assignments.create")]
     assert "BU0" in assigned
+
+
+async def test_person_first_poll_after_approval_sends_no_code() -> None:
+    # Twilio texts the first code when the brand is approved.
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(
+        status="APPROVED", identity_status="UNVERIFIED", brand_feedback=None
+    )
+    p = _provider(r)
+    refs = {
+        "brand_sid": "BN1",
+        "messaging_service_sid": "MG2",
+        "subject_type": "person",
+        "campaign": _campaign("SOLE_PROPRIETOR"),
+    }
+    st = await p.status(refs)
+    assert st.state == "pending"
+    assert not _calls(p, "brand_registration_otps.create")
+    assert refs["otp_sent_at"]
 
 
 @pytest.mark.parametrize(("age_hours", "sends"), [(25, 1), (1, 0)])

@@ -566,6 +566,18 @@ class PhoneNumber(Base):
         JSONB, server_default=text("'{}'::jsonb"), nullable=False
     )
     messaging_service_sid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The US SMS registration (carrier_verifications, purpose='sms') whose
+    # campaign holds this number. US-to-US texts need it approved.
+    sms_registration_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "carrier_verifications.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="phone_numbers_sms_registration_id_fkey",
+        ),
+        nullable=True,
+    )
     acquired_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     released_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -1724,6 +1736,9 @@ class CarrierVerification(Base):
     )
     submitted_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    # When it was cancelled. An SMS registration's monthly fee is billed
+    # through the month of this date.
+    cancelled_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
 
     __table_args__ = (
         CheckConstraint(

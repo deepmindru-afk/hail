@@ -7,9 +7,11 @@ from uuid import uuid4
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from hailhq.core.config import settings
-from hailhq.core.models import CarrierVerification, Sms, SmsEvent, Suppression
+from hailhq.core.models import Sms, SmsEvent, Suppression
 from hailhq.core.providers.sms import ProviderSmsResult
 from sqlalchemy import select
+
+from .conftest import approve_us_sms
 
 
 async def telnyx_number(db, org, add_phone_number):
@@ -50,20 +52,7 @@ async def test_sms_sender_routes_to_telnyx(
     org, _, key = org_and_key
     number = await telnyx_number(async_session, org, add_phone_number)
     # US-to-US texts from a long code need an approved SMS registration.
-    async_session.add(
-        CarrierVerification(
-            organization_id=org,
-            provider="telnyx",
-            country_code="US",
-            number_type="local",
-            subject_type="business",
-            purpose="sms",
-            state="approved",
-            provider_refs={"campaign_id": "C1"},
-            requirements_version="x",
-        )
-    )
-    await async_session.commit()
+    await approve_us_sms(async_session, org, "telnyx")
     monkeypatch.setattr(settings, "telnyx_api_key", "test")
     monkeypatch.setattr(settings, "telnyx_public_key", "configured")
     send = AsyncMock(

@@ -43,13 +43,16 @@ from hailhq.core.carrier_offer import NumberQuotesResponse
 from hailhq.core.carrier_routing import CARRIERS, carrier
 from hailhq.core.db import get_session, org_lock
 from hailhq.core.livekit import LiveKitClient
-from hailhq.core.models import Agent, NumberOffer, PhoneNumber
+from hailhq.core.models import Agent, CarrierVerification, NumberOffer, PhoneNumber
 from hailhq.core.number_offers import (
     PROVIDERS,
     discover_offers,
     rank_offers,
 )
-from hailhq.core.providers.verification import get_verification_provider
+from hailhq.core.providers.verification import (
+    SmsRegistrationProvider,
+    get_verification_provider,
+)
 from hailhq.core.providers.voice import CarrierNotConfigured
 from hailhq.core.schemas import (
     NumberAcquireRequest,
@@ -183,21 +186,17 @@ def _reject_if_released(number: PhoneNumber) -> None:
 
 
 async def _unlink_from_sms_registration(db: AsyncSession, number: PhoneNumber) -> None:
-    """Telnyx keeps a released number linked to its 10DLC campaign; unlink it
-    first. Best effort (the plug-in logs failures). Twilio needs nothing."""
-    if number.provider != "telnyx" or number.country_code != "US":
+    """Take a number being released off its US SMS registration (Telnyx keeps
+    a released number linked to its campaign). Best effort: the plug-in
+    logs failures."""
+    if number.sms_registration_id is None:
         return
-    if number.number_type != "local":
+    row = await db.get(CarrierVerification, number.sms_registration_id)
+    plugin = get_verification_provider(number.provider, "sms")
+    if row is None or not isinstance(plugin, SmsRegistrationProvider):
+        number.sms_registration_id = None
         return
-    if number.organization_id is None:
-        return
-    if not await sms_registration.approved_registration(
-        db, number.organization_id, "telnyx"
-    ):
-        return
-    plugin = get_verification_provider("telnyx", "sms")
-    if plugin is not None:
-        await plugin.detach_number(number.e164)
+    await sms_registration.detach_number(row, plugin, number)
 
 
 async def release_org_number(
@@ -623,10 +622,13 @@ async def enable_sms(
         except sms_setup.SmsSetupError as exc:
             raise _sms_setup_http_error(exc) from exc
         # Repairs a number whose attach to the org's approved SMS
-        # registration failed.
+        # registration failed. Under the org lock: a person's registration
+        # takes one number, so two attaches at once must not both pass.
+        await org_lock(db, principal.organization_id)
         await sms_registration.attach_if_registered(
             db, number, get_verification_provider
         )
+        await db.commit()
         return PhoneNumberResponse.model_validate(number)
 
     # Serialize with purchases, routing and releases in this org (see

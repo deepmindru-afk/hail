@@ -4609,7 +4609,16 @@ paths:
 
         review cannot be cancelled: wait for the result; if it is rejected,
 
-        dismiss it."
+        dismiss it.
+
+
+        An approved US SMS registration (`purpose=sms`) can be cancelled too:
+
+        its numbers leave the campaign, the campaign is deleted at the carrier,
+
+        and US-to-US texts from those numbers get 422 again. Its monthly fee is
+
+        charged through the month of the cancellation, then stops."
       operationId: cancel_verification
       parameters:
         - name: verification_id

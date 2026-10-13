@@ -6,7 +6,7 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ### Added
 
-- US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. A person registering through Telnyx confirms with the PIN Telnyx texts them (`POST /verifications/{id}/confirm`, `hail numbers confirm-sms`, MCP `confirm_verification`); `confirmation` on a verification says when. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need an approved registration (422 otherwise). New env: `TWILIO_PRIMARY_PROFILE_SID`.
+- US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. A person registering through Telnyx confirms with the PIN Telnyx texts them (`POST /verifications/{id}/confirm`, `hail numbers confirm-sms`, MCP `confirm_verification`); `confirmation` on a verification says when. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need the sending number on an approved registration (422 otherwise); `POST /sms` without `from` prefers such a number. An approved registration can be cancelled (`DELETE /verifications/{id}`, `hail numbers cancel-sms`, MCP `cancel_verification`); its monthly fee stops after the month of the cancellation. New env: `TWILIO_PRIMARY_PROFILE_SID`. Migrations 0057, 0058.
 
 ## [0.27.0] — 2026-10-13
 

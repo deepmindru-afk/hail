@@ -548,3 +548,41 @@ func TestNumberConfirmSms_RejectsBadInput(t *testing.T) {
 		})
 	}
 }
+
+func TestNumberCancelSms_DeletesTheVerification(t *testing.T) {
+	const vid = "11111111-1111-1111-1111-111111111111"
+	var gotRoute string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRoute = r.Method + " " + r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + vid + `","state":"cancelled","purpose":"sms","country_code":"US","number_type":"local","provider":"twilio","subject_type":"business","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+	}))
+	t.Cleanup(srv.Close)
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		"numbers", "cancel-sms", vid,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotRoute != "DELETE /v1/verifications/"+vid {
+		t.Errorf("route = %q", gotRoute)
+	}
+	if !strings.Contains(stdout, "cancelled") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestNumberCancelSms_RejectsBadID(t *testing.T) {
+	srv := newFakeServer(t, http.StatusOK, nil)
+	_, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		"numbers", "cancel-sms", "xyz",
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if hits := atomic.LoadInt32(&srv.hits); hits != 0 {
+		t.Errorf("expected 0 HTTP calls, got %d", hits)
+	}
+}

@@ -41,7 +41,8 @@ Exposes the following tools to the calling agent:
   carrier (irreversible once submitted; needs ``attest_authorized=True``)
 * ``list_verifications`` — the org's verifications and their states
 * ``get_verification`` — one verification; poll it until ``approved``
-* ``cancel_verification`` — cancel or dismiss (``awaiting_review``/``rejected`` only)
+* ``cancel_verification`` — cancel or dismiss (``awaiting_review``/``rejected``, or an
+  approved US SMS registration)
 * ``confirm_verification`` — enter the code the carrier texted a person
   (when a registration shows ``confirmation: "code"``)
 
@@ -2530,7 +2531,10 @@ def register_tools(
         a rejected one (needed before submitting a new one for the same
         country and number type). The draft is discarded.
 
-        Works only in state ``awaiting_review`` or ``rejected``. A
+        Works in state ``awaiting_review`` or ``rejected``, and for an
+        ``approved`` US SMS registration (``purpose: "sms"``): its numbers
+        leave the campaign, US-to-US texts from them fail again, and its
+        monthly fee stops after the current month. Ask the user first. A
         ``submitting`` or ``submitted`` verification is under review and
         cannot be cancelled (409): wait for the result with get_verification.
 

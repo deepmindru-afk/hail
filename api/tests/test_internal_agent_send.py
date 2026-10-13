@@ -22,7 +22,6 @@ from hailhq.core.models import (
     Agent,
     AuditLog,
     Call,
-    CarrierVerification,
     Email,
     EmailDomain,
     Organization,
@@ -34,6 +33,8 @@ from hailhq.core.models import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from .conftest import approve_us_sms
 
 HMAC_SECRET = "test-internal-secret"
 
@@ -66,32 +67,7 @@ def add_phone_number(add_phone_number):
 
 
 async def _approve_sms(session: AsyncSession, org_id, provider: str) -> None:
-    exists = (
-        await session.execute(
-            select(CarrierVerification.id).where(
-                CarrierVerification.organization_id == org_id,
-                CarrierVerification.provider == provider,
-                CarrierVerification.purpose == "sms",
-                CarrierVerification.state == "approved",
-            )
-        )
-    ).first()
-    if exists:
-        return
-    session.add(
-        CarrierVerification(
-            organization_id=org_id,
-            provider=provider,
-            country_code="US",
-            number_type="local",
-            subject_type="business",
-            purpose="sms",
-            state="approved",
-            provider_refs={"campaign_sid": "QE1"},
-            requirements_version="x",
-        )
-    )
-    await session.commit()
+    await approve_us_sms(session, org_id, provider)
 
 
 async def _insert_live_call(

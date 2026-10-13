@@ -288,7 +288,8 @@ class SmsRegistrationProvider(VerificationProvider):
     service (Twilio) or messaging profile (Telnyx) id, when one exists.
     ``status`` creates the campaign once the brand is approved and reports
     'approved' only when the campaign is approved. ``attach_number`` puts
-    one of the organization's US long codes on the approved campaign."""
+    one of the organization's US long codes on the approved campaign;
+    ``detach_number`` takes it off."""
 
     purpose = "sms"
 
@@ -296,7 +297,18 @@ class SmsRegistrationProvider(VerificationProvider):
     async def attach_number(
         self, refs: dict, *, provider_resource_id: str, e164: str
     ) -> None:
-        """Attach a number to the approved campaign. Idempotent."""
+        """Attach a number to the approved campaign. Idempotent. A plug-in
+        that keeps the campaign on a messaging service stores its id in
+        ``refs['messaging_service_sid']``; the number is then in it."""
+
+    async def detach_number(
+        self, refs: dict, *, provider_resource_id: str, e164: str
+    ) -> bool:
+        """Take a number off the campaign (before a release, or when the
+        registration is cancelled). Best effort; never raises. True when the
+        number also left its messaging service, so the caller clears
+        ``messaging_service_sid`` and may set the number up again."""
+        return False
 
     async def confirm(self, refs: dict, code: str) -> list[Problem]:
         """Submit the confirmation code the carrier texted to the person.

@@ -77,7 +77,7 @@ Same flow as above with `purpose=sms`: each organization registers its own US A2
 | `cancelled`       | Customer withdrew or dismissed.                                           |
 
 - **Fee debit.** The carrier fee is debited from prepaid credit at filing. The ledger row in `account_credits` has `ref = sms_registration:<id>`. The shared self-hosted key (`HAIL_API_KEY`) is not debited.
-- **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it, each on its own. The row is approved even when a number fails; the failure is logged with the number id and counted in the `verification.sms_attached` audit row (`failed`). `POST /numbers/{id}/enable-sms` attaches that number again. Until approval, texts from a US long code to a US number return 422.
+- **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it, each on its own, and records each one in `phone_numbers.sms_registration_id`. The send gate lets a US-to-US text leave a long code only when that column points at an approved registration; `POST /sms` without `from` prefers such a number. A person's registration holds one number: on Twilio it sits in its own messaging service (`hail-org-<org>-person`) that holds only that number. The row is approved even when a number fails; the failure is logged with the number id and counted in the `verification.sms_attached` audit row (`failed`). `POST /numbers/{id}/enable-sms` attaches that number again. Until approval, texts from a US long code to a US number return 422.
 - **Person confirm step.** A person's brand waits on the person. The row shows `confirmation`: `code` (Telnyx texts a PIN; the person enters it in Hail), `reply` (Twilio texts them; they answer that text), or `null`. A code goes to `POST /verifications/{id}/confirm`; on success Hail marks `identity_verified` in the refs and files the campaign at once. A wrong or expired code is 422 on `code`; anything else is 409. After 5 wrong codes the route returns 429 without calling the carrier, until a new code is sent (`refs.confirm_attempts` resets to 0). Telnyx sends a new PIN when the last one is over 24 hours old (on the next poll). The code is never stored or logged; the `verification.confirm` audit row holds `{"ok", "attempts"}`, never the code.
 
   ```bash
@@ -97,7 +97,8 @@ Same flow as above with `purpose=sms`: each organization registers its own US A2
 - `awaiting_review` → `cancelled`, draft discarded at the carrier.
 - `rejected` → `cancelled` (dismiss), draft discarded.
 - `submitting`, `submitted` → **409** `this verification is under review; wait for the result`. The carrier keeps a draft it is reviewing, so cancelling would leave the customer's documents at the carrier with nothing pointing at them.
-- `approved`, `cancelled` → 409.
+- `approved` with `purpose=sms` → `cancelled`. Each number on it (`phone_numbers.sms_registration_id`) leaves the campaign (Telnyx unlink; a person's Twilio number leaves the person's service and is set up in the org's service again), then the campaign, brand, bundle and profile are discarded. `cancelled_at` is set; the website rater bills the monthly fee through that month. Audit row `verification.cancel`.
+- `approved` with `purpose=number`, `cancelled` → 409.
 
 ## Superadmin routes
 

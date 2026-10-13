@@ -1,4 +1,6 @@
-"""Put an organization's US long codes on its approved SMS registration."""
+"""Put an organization's US long codes on its approved SMS registration, and
+take them off again. ``PhoneNumber.sms_registration_id`` records which
+numbers are on which registration; the send gate reads it."""
 
 from __future__ import annotations
 
@@ -17,7 +19,8 @@ async def registered_numbers(
     db: AsyncSession, row: CarrierVerification
 ) -> list[PhoneNumber]:
     """The org's active US long codes on the row's carrier that belong on the
-    registration, oldest first. A person's registration takes one number."""
+    registration, oldest first. A person's registration takes one number:
+    the one already on it, else the oldest number on no registration."""
     numbers = (
         (
             await db.execute(
@@ -38,33 +41,84 @@ async def registered_numbers(
         .all()
     )
     if row.subject_type == "person":
-        return list(numbers[:1])
+        on = [n for n in numbers if n.sms_registration_id == row.id]
+        free = [n for n in numbers if n.sms_registration_id is None]
+        return on[:1] or free[:1]
     return list(numbers)
+
+
+async def _attach(
+    row: CarrierVerification, provider: SmsRegistrationProvider, number: PhoneNumber
+) -> bool:
+    """Attach one number and record it. A failure is logged with the number
+    id. True when the number is now on the registration."""
+    try:
+        await provider.attach_number(
+            row.provider_refs,
+            provider_resource_id=number.provider_resource_id,
+            e164=number.e164,
+        )
+    except Exception:
+        logger.warning(
+            "SMS registration attach failed for number %s", number.id, exc_info=True
+        )
+        return False
+    number.sms_registration_id = row.id
+    service = (row.provider_refs or {}).get("messaging_service_sid")
+    if service:
+        number.messaging_service_sid = service
+    return True
 
 
 async def attach_org_numbers(
     db: AsyncSession, row: CarrierVerification, provider: SmsRegistrationProvider
 ) -> int:
-    """Attach every active US long code of the organization on this carrier,
-    each on its own: one failure does not stop the rest. A failure is logged
-    with the number id. Returns how many were attached."""
+    """Attach every number that belongs on the registration, each on its
+    own: one failure does not stop the rest. Returns how many were
+    attached."""
     attached = 0
     for number in await registered_numbers(db, row):
-        try:
-            await provider.attach_number(
-                row.provider_refs,
-                provider_resource_id=number.provider_resource_id,
-                e164=number.e164,
-            )
-        except Exception:
-            logger.warning(
-                "SMS registration attach failed for number %s",
-                number.id,
-                exc_info=True,
-            )
-            continue
-        attached += 1
+        attached += await _attach(row, provider, number)
     return attached
+
+
+async def detach_org_numbers(
+    db: AsyncSession, row: CarrierVerification, provider: SmsRegistrationProvider
+) -> list[PhoneNumber]:
+    """Take every number off the registration. Returns the numbers that
+    left their messaging service; the caller sets them up again."""
+    numbers = (
+        (
+            await db.execute(
+                select(PhoneNumber).where(PhoneNumber.sms_registration_id == row.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    moved = []
+    for number in numbers:
+        if await detach_number(row, provider, number):
+            moved.append(number)
+    return moved
+
+
+async def detach_number(
+    row: CarrierVerification, provider: SmsRegistrationProvider, number: PhoneNumber
+) -> bool:
+    """Take one number off the registration. True when it also left its
+    messaging service (``messaging_service_sid`` is then cleared)."""
+    left_service = False
+    if number.provider_resource_id is not None:
+        left_service = await provider.detach_number(
+            row.provider_refs or {},
+            provider_resource_id=number.provider_resource_id,
+            e164=number.e164,
+        )
+    number.sms_registration_id = None
+    if left_service:
+        number.messaging_service_sid = None
+    return left_service
 
 
 async def approved_registration(
@@ -101,14 +155,5 @@ async def attach_if_registered(db: AsyncSession, number: PhoneNumber, registry) 
     if not isinstance(provider, SmsRegistrationProvider):
         return
     if number.id not in {n.id for n in await registered_numbers(db, row)}:
-        return  # a person's registration holds its first number only
-    try:
-        await provider.attach_number(
-            row.provider_refs,
-            provider_resource_id=number.provider_resource_id,
-            e164=number.e164,
-        )
-    except Exception:
-        logger.warning(
-            "SMS registration attach failed for number %s", number.id, exc_info=True
-        )
+        return  # a person's registration holds one number only
+    await _attach(row, provider, number)

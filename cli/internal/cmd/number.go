@@ -42,6 +42,7 @@ existing number doesn't support.`,
 	cmd.AddCommand(newNumberRouteCmd(opts))
 	cmd.AddCommand(newNumberRegisterSmsCmd(opts))
 	cmd.AddCommand(newNumberConfirmSmsCmd(opts))
+	cmd.AddCommand(newNumberCancelSmsCmd(opts))
 	return cmd
 }
 
@@ -593,5 +594,51 @@ texted to the person's mobile to POST /v1/verifications/{id}/confirm.`,
 		},
 	}
 	cmd.Flags().StringVar(&code, "code", "", "The code the carrier texted (4 to 10 characters)")
+	return cmd
+}
+
+// --------------------------------------------------------------------------- //
+// cancel-sms
+// --------------------------------------------------------------------------- //
+
+func newNumberCancelSmsCmd(opts *Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cancel-sms <verification-id>",
+		Short: "Cancel a US SMS registration (stops its monthly fee)",
+		Long: `hail numbers cancel-sms — cancel a US SMS registration.
+
+Calls DELETE /v1/verifications/{id}. An approved registration is cancelled at
+once: its numbers leave the campaign and US-to-US texts from them return 422.
+The monthly fee is charged through the month of the cancellation, then stops.
+A registration not yet sent for review, or a rejected one, is withdrawn.`,
+		Example: `  hail numbers cancel-sms 11111111-1111-1111-1111-111111111111`,
+		Args:    argsOrHelp(1, "<verification-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("verification id must be a full UUID")
+			}
+			apiClient, err := opts.newClient()
+			if err != nil {
+				return err
+			}
+			resp, err := apiClient.CancelVerificationWithResponse(
+				cmd.Context(),
+				openapi_types.UUID(id),
+				&client.CancelVerificationParams{},
+			)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			if resp.HTTPResponse.StatusCode != http.StatusOK || resp.JSON200 == nil {
+				return apiError(resp.HTTPResponse.StatusCode, resp.Body)
+			}
+			if opts.JSON {
+				return printJSON(opts.Stdout, resp.JSON200)
+			}
+			fmt.Fprintf(opts.Stdout, "✓ SMS registration %s: %s\n", resp.JSON200.Id.String(), resp.JSON200.State)
+			return nil
+		},
+	}
 	return cmd
 }

@@ -11,6 +11,8 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from hailhq.core.config import settings
+from hailhq.core.providers.sms.base import SmsProvisioningError
+from hailhq.core.providers.sms.twilio import TwilioSmsProvider
 from hailhq.core.providers.verification.base import (
     DraftResult,
     Problem,
@@ -20,7 +22,7 @@ from hailhq.core.providers.verification.base import (
     VerificationProviderError,
 )
 from hailhq.core.providers.verification.sms_form import campaign_text, sms_requirements
-from twilio.base.exceptions import TwilioRestException
+from twilio.base.exceptions import TwilioException, TwilioRestException
 from twilio.rest import Client as TwilioClient
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,7 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         auth_token=None,
         client=None,
         primary_profile_sid=None,
+        sms_provider=None,
     ) -> None:
         self._primary_profile_sid = (
             primary_profile_sid or settings.twilio_primary_profile_sid
@@ -61,6 +64,11 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                 )
             client = TwilioClient(self.account_sid, token)
         self._client = client
+        # Messaging services are made and filled by the SMS adapter, the
+        # same code that sets up every number (sms_setup).
+        self._sms = sms_provider or TwilioSmsProvider(
+            self.account_sid, token, client=client
+        )
 
     # -- requirements ------------------------------------------------------
 
@@ -131,7 +139,16 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             return DraftResult(refs={}, problems=problems)
         text = campaign_text(fields, subject_type)
         refs: dict = {"subject_type": subject_type, "campaign": text.__dict__}
+        person = subject_type == "person"
         try:
+            # A company's campaign covers the organization's service. A
+            # person's campaign may hold one number, so it gets a service of
+            # its own that holds only that number.
+            refs["messaging_service_sid"] = await self._sms.ensure_messaging_service(
+                organization_id=organization_id,
+                existing_sid=None if person else messaging_service_sid,
+                name=_person_service_name(organization_id) if person else None,
+            )
             await asyncio.to_thread(
                 self._build,
                 refs,
@@ -140,7 +157,6 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                 fields,
                 address,
                 subject_type,
-                messaging_service_sid,
             )
         except Exception as exc:
             await self.discard(refs)
@@ -164,7 +180,6 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         fields,
         address,
         subject_type,
-        messaging_service_sid,
     ) -> None:
         th = self._client.trusthub.v1
         person = subject_type == "person"
@@ -296,19 +311,8 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         if person:
             brand_kwargs["brand_type"] = "SOLE_PROPRIETOR"
         brand = self._client.messaging.v1.a2p.brand_registrations.create(**brand_kwargs)
+        # A person's code is texted by Twilio when the brand is approved.
         refs["brand_sid"] = brand.sid
-        if person:
-            self._client.messaging.v1.a2p.brand_registrations(
-                brand.sid
-            ).brand_registration_otps.create()
-            refs["otp_sent_at"] = datetime.now(timezone.utc).isoformat()
-
-        if messaging_service_sid is None:
-            svc = self._client.messaging.v1.services.create(
-                friendly_name=f"hail-org-{organization_id}"
-            )
-            messaging_service_sid = svc.sid
-        refs["messaging_service_sid"] = messaging_service_sid
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -377,10 +381,15 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
 
     def _resend_otp_if_old(self, refs) -> None:
         """Send the person's confirmation code again when the last one is
-        over a day old (or its time is unknown). The caller saves refs."""
+        over a day old. Twilio texts the first code itself when the brand is
+        approved, so the first poll that sees an approved, unconfirmed brand
+        only notes the time. The caller saves refs."""
         now = datetime.now(timezone.utc)
         sent = refs.get("otp_sent_at")
-        if sent and now - datetime.fromisoformat(sent) < _OTP_RESEND_AFTER:
+        if not sent:
+            refs["otp_sent_at"] = now.isoformat()
+            return
+        if now - datetime.fromisoformat(sent) < _OTP_RESEND_AFTER:
             return
         self._client.messaging.v1.a2p.brand_registrations(
             refs["brand_sid"]
@@ -391,27 +400,54 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         return {}
 
     async def attach_number(self, refs, *, provider_resource_id, e164) -> None:
-        svc = self._client.messaging.v1.services(refs["messaging_service_sid"])
-
-        def _attach():
-            present = svc.phone_numbers.list(limit=50)
-            if any(getattr(p, "sid", None) == provider_resource_id for p in present):
-                return
-            if refs.get("subject_type") == "person" and present:
-                # A person's campaign holds one number.
-                logger.warning(
-                    "10DLC: service %s already holds a number",
-                    refs["messaging_service_sid"],
+        """Put the number in the campaign's messaging service (moved from
+        another service when it sits in one). A person's service holds only
+        their one number: another number already in it is refused."""
+        service = refs["messaging_service_sid"]
+        if refs.get("subject_type") == "person":
+            try:
+                present = await asyncio.to_thread(
+                    self._client.messaging.v1.services(service).phone_numbers.list,
+                    limit=20,
                 )
-                return
-            svc.phone_numbers.create(phone_number_sid=provider_resource_id)
-
+            except TwilioException as exc:
+                raise VerificationProviderError("Twilio request failed") from exc
+            if any(getattr(p, "sid", None) != provider_resource_id for p in present):
+                logger.warning("10DLC: service %s already holds a number", service)
+                raise VerificationProviderError(
+                    "a person's registration holds one number"
+                )
         try:
-            await asyncio.to_thread(_attach)
-        except TwilioRestException as exc:
-            if exc.code == 21710:  # already in this service
-                return
+            await self._sms.attach_number(
+                messaging_service_sid=service,
+                provider_resource_id=provider_resource_id,
+            )
+        except SmsProvisioningError as exc:
             raise VerificationProviderError("Twilio request failed") from exc
+
+    async def detach_number(self, refs, *, provider_resource_id, e164) -> bool:
+        """A company's campaign covers the organization's service, which the
+        number stays in. A person's number leaves the person's own service;
+        True tells the caller to set it up in the organization's again."""
+        service = refs.get("messaging_service_sid")
+        if refs.get("subject_type") != "person" or not service:
+            return False
+        try:
+            await asyncio.to_thread(
+                self._client.messaging.v1.services(service)
+                .phone_numbers(provider_resource_id)
+                .delete
+            )
+        except TwilioRestException as exc:
+            if exc.status != 404:
+                logger.warning(
+                    "10DLC detach failed: status=%s code=%s", exc.status, exc.code
+                )
+                return False
+        except Exception:
+            logger.warning("10DLC detach failed")
+            return False
+        return True
 
     async def discard(self, refs) -> None:
         # A brand cannot be deleted through the API; it is left behind.
@@ -450,6 +486,11 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                     )
             except Exception:
                 logger.warning("10DLC discard failed: step=%s", key)
+
+
+def _person_service_name(organization_id) -> str:
+    """The messaging service of a person's campaign: one number only."""
+    return f"hail-org-{organization_id}-person"
 
 
 def _business_type(key: str) -> str:
