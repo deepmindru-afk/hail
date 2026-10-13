@@ -1,0 +1,51 @@
+name: costs-revalidate
+
+# After a merge that changes costs/, tell hail.so to drop its cached copy of
+# the cost files. hail-website reads them from raw.githubusercontent.com with
+# a 24-hour fetch cache (lib/telephony-costs.ts); without this call the
+# console picker and the marketing prices show a merged change up to a day
+# later. The request is signed with the X-Hail-Signature scheme every
+# /api/internal/* route on hail-website checks (lib/hail-internal.ts).
+#
+# Required repo secret:
+#   HAIL_INTERNAL_SECRET   — same value as HAIL_INTERNAL_SECRET on the VM
+#                            .env and in hail-website's Vercel env
+# Optional repo variable:
+#   COSTS_REVALIDATE_URL   — defaults to the production route below
+
+on:
+  push:
+    branches: [main]
+    paths: ["costs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  revalidate:
+    runs-on: ubuntu-latest
+    env:
+      REVALIDATE_URL: ${{ vars.COSTS_REVALIDATE_URL || 'https://hail.so/api/internal/costs/revalidate' }}
+      REVALIDATE_SHA: ${{ github.sha }}
+    steps:
+      - name: Tell hail.so the cost files changed
+        env:
+          HAIL_INTERNAL_SECRET: ${{ secrets.HAIL_INTERNAL_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HAIL_INTERNAL_SECRET" ]; then
+            echo "::error::HAIL_INTERNAL_SECRET is not set (Settings → Secrets → Actions)"
+            exit 1
+          fi
+          body="{\"sha\":\"$REVALIDATE_SHA\"}"
+          sig="$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$HAIL_INTERNAL_SECRET" | awk '{print $NF}')"
+          code="$(curl -sS -o response.json -w '%{http_code}' -X POST "$REVALIDATE_URL" \
+            -H 'Content-Type: application/json' \
+            -H "X-Hail-Signature: sha256=$sig" \
+            --data-binary "$body")"
+          cat response.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::$REVALIDATE_URL answered HTTP $code"
+            exit 1
+          fi
