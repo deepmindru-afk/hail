@@ -659,3 +659,75 @@ def test_didww_out_of_stock_is_not_gone():
     by = {n["number_type"]: n for n in numbers}
     assert by["mobile"] == previous and report["vanished"] == []
     assert report["unobserved"] == ["CO:mobile"]
+
+
+def test_twilio_marks_a_country_it_no_longer_prices_as_gone():
+    """Bulgaria sat in the catalog at $3.00 since July while Twilio sold no
+    Bulgarian number: absent from the account listing, and the Pricing API
+    answers with no prices at all. That country is observed gone. A country
+    the Pricing API still prices (Uganda) stays unobserved: the account may
+    only lack it."""
+    countries = [{"country_code": "GB", "country": "United Kingdom"}]
+    types = {"GB": ["local"]}
+    assert sync.twilio_observed_keys(countries, types, unsold={"BG"}) == {
+        "GB:local",
+        "BG:local",
+        "BG:mobile",
+        "BG:toll_free",
+        "BG:national",
+    }
+
+    calls: list[str] = []
+
+    class FakeHttp:
+        def get(self, url, **kw):
+            calls.append(url)
+            if url.endswith("/AvailablePhoneNumbers.json"):
+                return {"countries": countries}
+            if url.endswith("/AvailablePhoneNumbers/GB.json"):
+                return {"subresource_uris": {"local": "x"}}
+            if url.endswith("/Countries/GB"):
+                return {
+                    "phone_number_prices": [
+                        {"number_type": "local", "current_price": "1.15"}
+                    ]
+                }
+            if url.endswith("/Countries/BG"):
+                return {
+                    "country": None,
+                    "phone_number_prices": None,
+                    "price_unit": None,
+                }
+            if url.endswith("/Countries/UG"):
+                return {
+                    "phone_number_prices": [
+                        {"number_type": "local", "current_price": "40.00"}
+                    ]
+                }
+            if "/AvailablePhoneNumbers/GB/Local.json" in url:
+                return {"available_phone_numbers": []}
+            if "RegulatoryCompliance/Regulations" in url:
+                return {"results": [], "meta": {}}
+            raise AssertionError(url)
+
+    rows, skipped, observed = sync.fetch_twilio(
+        FakeHttp(), "AC1", {"GB": "44"}, catalog_countries={"GB", "BG", "UG"}
+    )
+    assert rows == [] and skipped == ["GB:local: no numbers offered to this account"]
+    assert observed == {
+        "GB:local",
+        "BG:local",
+        "BG:mobile",
+        "BG:toll_free",
+        "BG:national",
+    }
+    # One pricing lookup per catalog country outside the listing, none twice.
+    assert [u for u in calls if u.endswith("/Countries/BG")] == [
+        "https://pricing.twilio.com/v1/PhoneNumbers/Countries/BG"
+    ]
+    assert sum(u.endswith("/Countries/UG") for u in calls) == 1
+    existing = [
+        {"country_code": "BG", "number_type": "local"},
+        {"country_code": "UG", "number_type": "local"},
+    ]
+    assert sync.unobserved_keys(existing, skipped, observed) == {"GB:local", "UG:local"}

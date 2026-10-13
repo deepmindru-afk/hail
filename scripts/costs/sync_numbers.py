@@ -39,7 +39,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import requests
 
@@ -244,26 +244,49 @@ def map_twilio(
 
 
 def twilio_observed_keys(
-    countries: list[dict], types_by_country: dict[str, list[str]]
+    countries: list[dict],
+    types_by_country: dict[str, list[str]],
+    unsold: Iterable[str] = (),
 ) -> set[str]:
     """The "ISO:type" pairs the account's listing enumerated. Twilio's
     AvailablePhoneNumbers list is scoped to the account's geographic
     permissions: a country it is not enabled for is simply absent, which
-    says nothing about what Twilio sells. Only these keys were observed."""
-    return {
+    says nothing about what Twilio sells. Only these keys were observed.
+
+    ``unsold`` names catalog countries outside the listing for which the
+    Pricing API has no prices at all. Twilio sells nothing there, so every
+    key of theirs counts as observed: absent from the rows, they vanish."""
+    keys = {
         f"{c['country_code']}:{t}"
         for c in countries
         for t in types_by_country.get(c["country_code"], [])
         if t in NUMBER_TYPES
     }
+    keys |= {f"{iso}:{t}" for iso in unsold for t in NUMBER_TYPES}
+    return keys
 
 
 def fetch_twilio(
-    http: Http, account_sid: str, dial_codes: dict[str, str]
+    http: Http,
+    account_sid: str,
+    dial_codes: dict[str, str],
+    catalog_countries: Iterable[str] = (),
 ) -> tuple[list[dict], list[str], set[str]]:
-    """Rows, skipped lines, and the keys the account could see at all."""
+    """Rows, skipped lines, and the keys the account could see at all.
+
+    ``catalog_countries`` are the countries the catalog on disk has. One
+    outside the account listing is asked the Pricing API: no prices at all
+    means Twilio stopped selling there (Bulgaria, 2026-10), and its rows
+    are observed gone rather than kept at a price nobody can buy."""
     base = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/AvailablePhoneNumbers"
     countries = http.get(f"{base}.json")["countries"]
+    listed = {c["country_code"] for c in countries}
+    unsold: set[str] = set()
+    for iso in sorted(set(catalog_countries) - listed):
+        progress(f"twilio {iso} (not in the account listing)")
+        prices = http.get(f"https://pricing.twilio.com/v1/PhoneNumbers/Countries/{iso}")
+        if not prices.get("phone_number_prices"):
+            unsold.add(iso)
     types_by_country: dict[str, list[str]] = {}
     samples: dict[tuple[str, str], list[dict]] = {}
     capabilities: dict[tuple[str, str], dict[str, bool]] = {}
@@ -319,7 +342,7 @@ def fetch_twilio(
         dial_codes,
         capabilities,
     )
-    return rows, skipped, twilio_observed_keys(countries, types_by_country)
+    return rows, skipped, twilio_observed_keys(countries, types_by_country, unsold)
 
 
 # -- Telnyx -------------------------------------------------------------------
@@ -811,7 +834,12 @@ def run_provider(
             )
             return False
         session.auth = (sid, tok)
-        rows, skipped, observed = fetch_twilio(http_factory(session), sid, dial_codes)
+        rows, skipped, observed = fetch_twilio(
+            http_factory(session),
+            sid,
+            dial_codes,
+            catalog_countries={n["country_code"] for n in existing},
+        )
     elif provider == "telnyx":
         key = config.get("TELNYX_API_KEY")
         if not key:
