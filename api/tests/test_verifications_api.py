@@ -6,6 +6,7 @@ A fake carrier stands in for Twilio so nothing here depends on it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from types import SimpleNamespace
@@ -114,6 +115,12 @@ class FakeSmsCarrier(SmsRegistrationProvider):
         # and reports pending, like the real plug-ins.
         self.campaign_key: str | None = None
         self.campaigns_created = 0
+        # Set both to hold the first status() call: it sets ``entered`` and
+        # waits for ``release``.
+        self.entered: asyncio.Event | None = None
+        self.release: asyncio.Event | None = None
+        # Seconds create_draft waits, so two filings overlap.
+        self.draft_delay = 0.0
 
     async def requirements(self, country_code, number_type, subject_type):
         return Requirements(
@@ -132,6 +139,8 @@ class FakeSmsCarrier(SmsRegistrationProvider):
 
     async def create_draft(self, *, messaging_service_sid=None, **kwargs):
         self.drafts.append({**kwargs, "messaging_service_sid": messaging_service_sid})
+        if self.draft_delay:
+            await asyncio.sleep(self.draft_delay)
         if self.problems:
             return DraftResult(refs={}, problems=self.problems)
         return DraftResult(refs={"brand_sid": f"BN{len(self.drafts)}"})
@@ -143,6 +152,9 @@ class FakeSmsCarrier(SmsRegistrationProvider):
         self.submitted.append(refs)
 
     async def status(self, refs):
+        if self.release is not None and not self.entered.is_set():
+            self.entered.set()
+            await self.release.wait()
         if self.campaign_key and self.campaign_key not in refs:
             self.campaigns_created += 1
             refs[self.campaign_key] = "QE1"
@@ -1302,7 +1314,7 @@ async def test_approval_attaches_every_us_long_code(
             select(AuditLog).where(AuditLog.action == "verification.sms_attached")
         )
     ).scalar_one()
-    assert audit.payload == {"numbers": 2}
+    assert audit.payload == {"numbers": 2, "failed": 0}
 
 
 async def test_person_registration_attaches_the_first_number_only(
@@ -1320,23 +1332,83 @@ async def test_person_registration_attaches_the_first_number_only(
     assert len(sms_carrier.attached) == 1
 
 
-async def test_attach_failure_keeps_row_submitted_and_retries(
-    client, org_and_key, sms_carrier, async_session
+async def test_attach_failure_still_approves_and_logs_the_number(
+    client, org_and_key, sms_carrier, async_session, caplog
 ) -> None:
     org_id, _, key = org_and_key
     await _set_balance(async_session, org_id, 10_000)
-    await _us_number(async_session, org_id)
+    number = await _us_number(async_session, org_id)
     vid = (await _post_sms(client, key)).json()["id"]
     sms_carrier.remote_status = ProviderStatus(state="approved")
     sms_carrier.attach_error = RuntimeError("carrier down")
     verifications_routes._last_polled.clear()
-    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
-    assert resp.json()["state"] == "submitted"
-    sms_carrier.attach_error = None
+    with caplog.at_level("WARNING", logger="hailhq.api.sms_registration"):
+        resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "approved"
+    assert sms_carrier.attached == []
+    assert any(str(number.id) in r.getMessage() for r in caplog.records)
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "verification.sms_attached")
+        )
+    ).scalar_one()
+    assert audit.payload == {"numbers": 0, "failed": 1}
+
+
+async def test_one_bad_number_does_not_stop_the_others(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    await _us_number(async_session, org_id, "+15125550100", resource="PN1")
+    await _us_number(async_session, org_id, "+15125550101", resource="PN2")
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(state="approved")
+    real_attach = sms_carrier.attach_number
+
+    async def attach(refs, *, provider_resource_id, e164):
+        if provider_resource_id == "PN1":
+            raise RuntimeError("carrier refused")
+        await real_attach(refs, provider_resource_id=provider_resource_id, e164=e164)
+
+    sms_carrier.attach_number = attach
     verifications_routes._last_polled.clear()
     resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
     assert resp.json()["state"] == "approved"
-    assert len(sms_carrier.attached) == 1
+    assert [r for _, r, _ in sms_carrier.attached] == ["PN2"]
+
+
+async def test_enable_sms_attaches_to_the_approved_registration(
+    client, org_and_key, sms_carrier, async_session, sms_mock, monkeypatch
+) -> None:
+    # The repair path for a number whose attach failed at approval: the
+    # number already has its messaging service.
+    from hailhq.api.routes import numbers as numbers_routes
+
+    org_id, _, key = org_and_key
+    number = await _us_number(async_session, org_id, provider="twilio")
+    async_session.add(
+        CarrierVerification(
+            organization_id=org_id,
+            provider="twilio",
+            purpose="sms",
+            country_code="US",
+            number_type="local",
+            subject_type="business",
+            state="approved",
+            provider_refs={"campaign_sid": "QE1", "messaging_service_sid": "MG1"},
+            requirements_version="1",
+        )
+    )
+    await async_session.commit()
+    monkeypatch.setattr(
+        numbers_routes,
+        "get_verification_provider",
+        lambda name, purpose="number": sms_carrier if purpose == "sms" else None,
+    )
+    resp = await client.post(f"/numbers/{number.id}/enable-sms", headers=_auth(key))
+    assert resp.status_code == 200, resp.text
+    assert [r for _, r, _ in sms_carrier.attached] == ["PN1"]
 
 
 async def test_number_activated_later_is_attached(
@@ -1438,3 +1510,131 @@ async def test_telnyx_release_unlinks_the_number_from_the_campaign(
     assert resp.status_code == 204, resp.text
     plugin.detach_number.assert_awaited_once_with("+15125550100")
     release.assert_awaited_once()
+
+
+def _per_request_sessions(session_factory):
+    """Give each request its own session, so two requests run in two
+    transactions and the database locks are what order them."""
+    from hailhq.core.db import get_session
+
+    async def per_request_session():
+        async with session_factory() as s:
+            yield s
+
+    saved = app.dependency_overrides[get_session]
+    app.dependency_overrides[get_session] = per_request_session
+    return lambda: app.dependency_overrides.__setitem__(get_session, saved)
+
+
+async def test_overlapping_polls_create_one_campaign(
+    client, org_and_key, sms_carrier, async_session, session_factory
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.campaign_key = "campaign_sid"
+    sms_carrier.entered = asyncio.Event()
+    sms_carrier.release = asyncio.Event()
+    restore = _per_request_sessions(session_factory)
+    try:
+        first = asyncio.create_task(
+            client.get(f"/verifications/{vid}", headers=_auth(key))
+        )
+        await asyncio.wait_for(sms_carrier.entered.wait(), 5)
+        # The first poll holds the row: the second skips the carrier call.
+        second = await asyncio.wait_for(
+            client.get(f"/verifications/{vid}", headers=_auth(key)), 5
+        )
+        assert second.status_code == 200, second.text
+        sms_carrier.release.set()
+        assert (await first).status_code == 200
+    finally:
+        sms_carrier.release.set()
+        restore()
+    assert sms_carrier.campaigns_created == 1
+    assert (await _stored_refs(async_session, vid))["campaign_sid"] == "QE1"
+
+
+async def test_overlapping_filings_register_one_brand(
+    client, org_and_key, sms_carrier, async_session, session_factory
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 20_000)
+    sms_carrier.draft_delay = 0.2
+    restore = _per_request_sessions(session_factory)
+    try:
+        r1, r2 = await asyncio.gather(_post_sms(client, key), _post_sms(client, key))
+    finally:
+        restore()
+    assert sorted([r1.status_code, r2.status_code]) == [201, 409]
+    assert len(sms_carrier.drafts) == 1
+
+
+async def test_sms_carrier_defaults_to_the_one_of_the_us_numbers(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    await _us_number(async_session, org_id)
+    resp = await client.get(
+        "/verifications/requirements",
+        params={"country_code": "US", "number_type": "local", "purpose": "sms"},
+        headers=_auth(key),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["provider"] == "fake"
+    resp = await _post_sms(client, key, provider="")
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["provider"] == "fake"
+
+
+async def test_sms_without_us_numbers_needs_one_first(
+    client, org_and_key, sms_carrier
+) -> None:
+    _, _, key = org_and_key
+    resp = await _post_sms(client, key, provider="")
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"][0]
+    assert detail["loc"] == ["body", "provider"]
+    assert detail["msg"] == "Buy a US number first, then register it for texting."
+    resp = await client.get(
+        "/verifications/requirements",
+        params={"country_code": "US", "number_type": "local", "purpose": "sms"},
+        headers=_auth(key),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["query", "provider"]
+
+
+async def test_sms_with_us_numbers_on_two_carriers_must_name_one(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _us_number(async_session, org_id, "+15125550100", resource="PN1")
+    await _us_number(
+        async_session, org_id, "+15125550101", provider="telnyx", resource="PN2"
+    )
+    resp = await _post_sms(client, key, provider="")
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"][0]
+    assert detail["loc"] == ["body", "provider"]
+    assert detail["msg"] == (
+        "Your US numbers are with more than one carrier. Name the carrier."
+    )
+    assert sms_carrier.drafts == []
+
+
+async def test_shared_key_filing_writes_no_debit(
+    client, sms_carrier, async_session, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "hail_api_key", "hail-test-shared-secret")
+    resp = await _post_sms(client, "hail-test-shared-secret")
+    assert resp.status_code == 201, resp.text
+    debit = (
+        await async_session.execute(
+            select(AccountCredit).where(
+                AccountCredit.ref == f"sms_registration:{resp.json()['id']}"
+            )
+        )
+    ).first()
+    assert debit is None

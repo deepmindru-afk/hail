@@ -598,8 +598,9 @@ async def enable_sms(
     a texts agent is assigned, so this call is only needed to repair a number
     whose setup failed, or an older one whose service lacks the inbound
     text settings. Idempotent — an already-enabled number gets those settings
-    set again and returns its current state. Fails with 422 for a released number or one that lacks
-    sms capability.
+    set again and returns its current state. A US long code is also put on
+    the org's approved US SMS registration. Fails with 422 for a released
+    number or one that lacks sms capability.
     """
     number = await _get_org_number_or_404(db, number_id, principal.organization_id)
 
@@ -621,6 +622,11 @@ async def enable_sms(
             await sms_setup.refresh_sms(number)
         except sms_setup.SmsSetupError as exc:
             raise _sms_setup_http_error(exc) from exc
+        # Repairs a number whose attach to the org's approved SMS
+        # registration failed.
+        await sms_registration.attach_if_registered(
+            db, number, get_verification_provider
+        )
         return PhoneNumberResponse.model_validate(number)
 
     # Serialize with purchases, routing and releases in this org (see

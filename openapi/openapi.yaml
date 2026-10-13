@@ -2316,8 +2316,9 @@ paths:
         a texts agent is assigned, so this call is only needed to repair a number\n\
         whose setup failed, or an older one whose service lacks the inbound\ntext\
         \ settings. Idempotent \u2014 an already-enabled number gets those settings\n\
-        set again and returns its current state. Fails with 422 for a released number\
-        \ or one that lacks\nsms capability."
+        set again and returns its current state. A US long code is also put on\nthe\
+        \ org's approved US SMS registration. Fails with 422 for a released\nnumber\
+        \ or one that lacks sms capability."
       operationId: enable_sms_v1_numbers__number_id__enable_sms_post
       parameters:
         - name: number_id
@@ -4251,7 +4252,9 @@ paths:
 
         an address is needed. `purpose=number` (default) is for buying a number;
 
-        `purpose=sms` is for registering to send SMS in the US. Build your form
+        `purpose=sms` is for registering to send SMS in the US; without
+
+        `provider` it uses the carrier of your US numbers. Build your form
 
         from it."
       operationId: get_verification_requirements
@@ -4350,7 +4353,8 @@ paths:
         in the US; `sms` takes `country_code=US` and `number_type=local` and charges
 
         the filing fee), `country_code`, `number_type`, `subject_type`, `provider`
-        (optional),
+
+        (optional; for `sms` it defaults to the carrier of your US numbers),
 
         `fields` (JSON object), `address` (JSON object, when required), `documents`
 

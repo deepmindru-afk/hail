@@ -31,7 +31,7 @@ from hailhq.api.superadmin import require_superadmin
 from hailhq.core import sms_registration_fees
 from hailhq.core.billing import get_balance_cents
 from hailhq.core.config import settings
-from hailhq.core.db import get_session
+from hailhq.core.db import get_session, org_lock
 from hailhq.core.models import AccountCredit, CarrierVerification, PhoneNumber
 from hailhq.core.providers.verification import (
     Address,
@@ -88,11 +88,6 @@ def get_default_provider_name() -> str | None:
     return default_verification_provider_name()
 
 
-def get_default_sms_provider_name() -> str | None:
-    """Carrier used for SMS registration when a request names none."""
-    return default_verification_provider_name("sms")
-
-
 def _resolve_provider_name(name: str | None, default: str | None) -> str:
     resolved = name or default
     if not resolved:
@@ -101,6 +96,43 @@ def _resolve_provider_name(name: str | None, default: str | None) -> str:
             detail="no verification provider is configured",
         )
     return resolved
+
+
+async def _sms_provider_name(
+    db: AsyncSession, organization_id: UUID, name: str | None, where: str
+) -> str:
+    """The carrier for an SMS registration: the one named, else the carrier
+    of the org's active US long codes that can text."""
+    if name:
+        return name
+    carriers = (
+        (
+            await db.execute(
+                select(PhoneNumber.provider)
+                .where(
+                    PhoneNumber.organization_id == organization_id,
+                    PhoneNumber.provisioning_state == "active",
+                    PhoneNumber.country_code == "US",
+                    PhoneNumber.number_type == "local",
+                    PhoneNumber.capabilities.any("sms"),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not carriers:
+        raise unprocessable(
+            "Buy a US number first, then register it for texting.",
+            loc=[where, "provider"],
+        )
+    if len(carriers) > 1:
+        raise unprocessable(
+            "Your US numbers are with more than one carrier. Name the carrier.",
+            loc=[where, "provider"],
+        )
+    return carriers[0]
 
 
 router = APIRouter(
@@ -243,24 +275,25 @@ async def _settle_sms_approval(
     status: ProviderStatus | None,
     registry: Registry,
 ) -> ProviderStatus | None:
-    """For an SMS registration the carrier approved, attach the org's numbers
-    first. Until that succeeds the row stays 'submitted' (status 'pending')."""
+    """For an SMS registration the carrier approved, attach the org's numbers.
+    The row is approved even when a number fails to attach: that number is
+    logged, and attach_if_registered or POST /numbers/{id}/enable-sms
+    attaches it later."""
     if status is None or status.state != "approved" or row.purpose != "sms":
         return status
     provider = registry(row.provider, "sms")
     if not isinstance(provider, SmsRegistrationProvider):
         return status
-    if not await attach_org_numbers(db, row, provider):
-        return ProviderStatus(state="pending")
-    count = len(await registered_numbers(db, row))
-    if count:
+    attached = await attach_org_numbers(db, row, provider)
+    failed = len(await registered_numbers(db, row)) - attached
+    if attached or failed:
         await write_audit_log(
             row.organization_id,
             None,
             "verification.sms_attached",
             "carrier_verification",
             row.id,
-            {"numbers": count},
+            {"numbers": attached, "failed": failed},
             actor_kind="system",
         )
     return status
@@ -285,6 +318,25 @@ async def _poll_and_apply(
     return changed
 
 
+async def _lock_for_poll(db: AsyncSession, row: CarrierVerification) -> bool:
+    """Lock an SMS registration row before asking the carrier about it, and
+    re-read it. False when another poll holds the lock: that poll is in
+    flight, so this one skips the row. An SMS plug-in creates the campaign
+    inside status(), so two polls at once would create two campaigns. The
+    lock is held until the caller commits."""
+    if row.purpose != "sms":
+        return True
+    locked = (
+        await db.execute(
+            select(CarrierVerification)
+            .where(CarrierVerification.id == row.id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    return locked is not None
+
+
 async def _refresh(
     db: AsyncSession, row: CarrierVerification, registry: Registry
 ) -> None:
@@ -297,11 +349,17 @@ async def _refresh(
     was_submitting = row.state == "submitting"
     if not _pollable(row):
         return
+    if not await _lock_for_poll(db, row):
+        return
+    if not _pollable(row):  # another poll settled it before the lock
+        await db.commit()
+        return
     before = copy.deepcopy(row.provider_refs)
     status = await _fetch_status(row, registry)
-    if not await _poll_and_apply(db, row, status, registry, before):
+    changed = await _poll_and_apply(db, row, status, registry, before)
+    await db.commit()  # also ends the row lock
+    if not changed:
         return
-    await db.commit()
     if was_submitting and row.state in ("submitted", "approved", "rejected"):
         # approved_by is set only by a superadmin's approve; an automatic
         # submit (creation or the sweeper) that was cut off has none.
@@ -365,24 +423,30 @@ async def approved_purchase_handle(
 )
 async def get_requirements(
     principal: Annotated[Principal, Depends(get_current_principal)],
+    db: Annotated[AsyncSession, Depends(get_session)],
     registry: Annotated[Registry, Depends(get_verification_registry)],
     country_code: Annotated[str, Query(min_length=2, max_length=2)],
     number_type: str,
     default_provider: Annotated[str | None, Depends(get_default_provider_name)],
-    default_sms_provider: Annotated[str | None, Depends(get_default_sms_provider_name)],
     subject_type: SubjectType = "person",
     provider: str | None = None,
     purpose: str = "number",
 ) -> Requirements:
     """What the carrier needs from you: the fields, the documents, and whether
     an address is needed. `purpose=number` (default) is for buying a number;
-    `purpose=sms` is for registering to send SMS in the US. Build your form
+    `purpose=sms` is for registering to send SMS in the US; without
+    `provider` it uses the carrier of your US numbers. Build your form
     from it."""
     if purpose not in PURPOSES:
         raise unprocessable("unknown purpose", loc=["query", "purpose"])
-    default = default_sms_provider if purpose == "sms" else default_provider
+    if purpose == "sms":
+        name = await _sms_provider_name(
+            db, principal.organization_id, provider, "query"
+        )
+    else:
+        name = _resolve_provider_name(provider, default_provider)
     return await _requirements(
-        _provider_or_404(registry, _resolve_provider_name(provider, default), purpose),
+        _provider_or_404(registry, name, purpose),
         country_code,
         number_type,
         subject_type,
@@ -489,13 +553,13 @@ async def create_verification(
     db: Annotated[AsyncSession, Depends(get_session)],
     registry: Annotated[Registry, Depends(get_verification_registry)],
     default_provider: Annotated[str | None, Depends(get_default_provider_name)],
-    default_sms_provider: Annotated[str | None, Depends(get_default_sms_provider_name)],
 ) -> VerificationResponse:
     """Submit your details and documents (multipart/form-data).
 
     Parts: `purpose` (`number`, the default, or `sms` to register to send SMS
     in the US; `sms` takes `country_code=US` and `number_type=local` and charges
-    the filing fee), `country_code`, `number_type`, `subject_type`, `provider` (optional),
+    the filing fee), `country_code`, `number_type`, `subject_type`, `provider`
+    (optional; for `sms` it defaults to the carrier of your US numbers),
     `fields` (JSON object), `address` (JSON object, when required), `documents`
     (JSON object: slot name to `{"option": ..., "fields": {...}}`), and one file
     part per slot named `file.<slot>`. Get the slot and field names from
@@ -534,11 +598,19 @@ async def create_verification(
             "SMS registration is for US local numbers", loc=["body", "country_code"]
         )
 
-    provider_name = _resolve_provider_name(
-        sub.provider, default_sms_provider if sub.purpose == "sms" else default_provider
-    )
+    if sub.purpose == "sms":
+        provider_name = await _sms_provider_name(
+            db, principal.organization_id, sub.provider, "body"
+        )
+    else:
+        provider_name = _resolve_provider_name(sub.provider, default_provider)
     provider = _provider_or_404(registry, provider_name, sub.purpose)
 
+    if sub.purpose == "sms":
+        # Held until the row is saved: a second filing at the same time
+        # waits here, then sees the first row and gets 409 before any
+        # carrier call (two filings would register two brands).
+        await org_lock(db, principal.organization_id)
     existing = (
         await db.execute(
             select(CarrierVerification).where(
@@ -646,7 +718,8 @@ async def create_verification(
     )
     db.add(row)
     try:
-        if fee_cents:
+        # The shared self-hosted key is not billed (as in number_orders).
+        if fee_cents and principal.auth_kind != "shared":
             await db.flush()  # row.id is a server default
             db.add(
                 AccountCredit(
@@ -895,15 +968,15 @@ async def list_verifications(
     # Ask the carrier about rows not asked in the last minute, all at once.
     # Only the carrier calls run concurrently; the session is used in order.
     now = time.monotonic()
-    due = [r for r in rows if _poll_due(r, now)]
+    asked = [r for r in rows if _poll_due(r, now)]
+    # SMS rows are locked and re-read first (see _lock_for_poll).
+    due = [r for r in asked if await _lock_for_poll(db, r) and _pollable(r)]
     before = [copy.deepcopy(r.provider_refs) for r in due]
     statuses = await asyncio.gather(*(_fetch_status(r, registry) for r in due))
-    changed = [
+    for r, s, b in zip(due, statuses, before):
         await _poll_and_apply(db, r, s, registry, b)
-        for r, s, b in zip(due, statuses, before)
-    ]
-    if any(changed):
-        await db.commit()
+    if asked:
+        await db.commit()  # saves changes and ends the row locks
     return [VerificationResponse.model_validate(r) for r in rows]
 
 

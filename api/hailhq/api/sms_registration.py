@@ -44,10 +44,11 @@ async def registered_numbers(
 
 async def attach_org_numbers(
     db: AsyncSession, row: CarrierVerification, provider: SmsRegistrationProvider
-) -> bool:
-    """Attach every active US long code of the organization on this carrier.
-    Stops at the first failure and returns False; the next pass tries again
-    (attach is idempotent at the carrier)."""
+) -> int:
+    """Attach every active US long code of the organization on this carrier,
+    each on its own: one failure does not stop the rest. A failure is logged
+    with the number id. Returns how many were attached."""
+    attached = 0
     for number in await registered_numbers(db, row):
         try:
             await provider.attach_number(
@@ -61,8 +62,9 @@ async def attach_org_numbers(
                 number.id,
                 exc_info=True,
             )
-            return False
-    return True
+            continue
+        attached += 1
+    return attached
 
 
 async def approved_registration(
