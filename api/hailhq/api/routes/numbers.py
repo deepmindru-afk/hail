@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi import status as http_status
+from hailhq.api import sms_registration
 from hailhq.api.audit import actor_of, write_audit_log
 from hailhq.api.deps import Principal, get_current_principal
 from hailhq.api.errors import unprocessable
@@ -48,6 +49,7 @@ from hailhq.core.number_offers import (
     discover_offers,
     rank_offers,
 )
+from hailhq.core.providers.verification import get_verification_provider
 from hailhq.core.providers.voice import CarrierNotConfigured
 from hailhq.core.schemas import (
     NumberAcquireRequest,
@@ -180,6 +182,22 @@ def _reject_if_released(number: PhoneNumber) -> None:
         )
 
 
+async def _unlink_from_sms_registration(db: AsyncSession, number: PhoneNumber) -> None:
+    """Telnyx keeps a released number linked to its 10DLC campaign; unlink it
+    first. Best effort (the plug-in logs failures). Twilio needs nothing."""
+    if number.provider != "telnyx" or number.country_code != "US":
+        return
+    if number.organization_id is None:
+        return
+    if not await sms_registration.approved_registration(
+        db, number.organization_id, "telnyx"
+    ):
+        return
+    plugin = get_verification_provider("telnyx", "sms")
+    if plugin is not None:
+        await plugin.detach_number(number.e164)
+
+
 async def release_org_number(
     db: AsyncSession, number: PhoneNumber, lk: LiveKitClient | None = None
 ) -> PhoneNumber:
@@ -246,6 +264,7 @@ async def release_org_number(
         number.inbound_registered_at = None
     number.voice_agent_id = None
     number.sms_agent_id = None
+    await _unlink_from_sms_registration(db, number)
     try:
         await carrier(number.provider).release(number.provider_resource_id)
     except Exception as exc:
@@ -435,6 +454,9 @@ async def route_number(
         except sms_setup.SmsSetupError as exc:
             await db.rollback()
             raise _sms_setup_http_error(exc) from exc
+        await sms_registration.attach_if_registered(
+            db, number, get_verification_provider
+        )
 
     try:
         if "voice_agent_id" in fields:
@@ -610,6 +632,7 @@ async def enable_sms(
         await sms_setup.ensure_sms(db, number)
     except sms_setup.SmsSetupError as exc:
         raise _sms_setup_http_error(exc) from exc
+    await sms_registration.attach_if_registered(db, number, get_verification_provider)
     await db.commit()
     return PhoneNumberResponse.model_validate(number)
 

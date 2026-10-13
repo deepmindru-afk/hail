@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from hailhq.api.audit import write_audit_log
 from hailhq.api.deps import Principal
 from hailhq.api.errors import unprocessable
+from hailhq.api import sms_registration
 from hailhq.api.funds import BILLING_URL
 from hailhq.core import sms_setup, telephony_catalog
 from hailhq.core.billing import get_balance_cents, monthly_fee_ref
@@ -24,6 +25,7 @@ from hailhq.core.models import (
     PhoneNumber,
 )
 from hailhq.core.number_offers import CarrierOffer, discover_offers
+from hailhq.core.providers.verification import get_verification_provider
 from hailhq.core.providers.voice import (
     CarrierPreOrderError,
     CarrierRequestError,
@@ -150,6 +152,9 @@ async def finish_order(
             await org_lock(db, number.organization_id)
             await db.refresh(number)
             await sms_setup.ensure_sms(db, number)
+            await sms_registration.attach_if_registered(
+                db, number, get_verification_provider
+            )
             await db.commit()
         except sms_setup.SmsSetupError as exc:
             await db.rollback()

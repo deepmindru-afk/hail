@@ -11,6 +11,7 @@ so no part is ever spooled to a temporary file.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import time
@@ -25,6 +26,7 @@ from hailhq.api.audit import actor_of, write_audit_log
 from hailhq.api.deps import Principal, get_current_principal
 from hailhq.api.errors import unprocessable
 from hailhq.api.ratelimit import GENERAL_RATE_LIMITED_RESPONSES
+from hailhq.api.sms_registration import attach_org_numbers, registered_numbers
 from hailhq.api.superadmin import require_superadmin
 from hailhq.core import sms_registration_fees
 from hailhq.core.billing import get_balance_cents
@@ -37,6 +39,7 @@ from hailhq.core.providers.verification import (
     Problem,
     ProviderStatus,
     Requirements,
+    SmsRegistrationProvider,
     SubjectType,
     UnsupportedSubjectType,
     UploadedFile,
@@ -50,6 +53,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 logger = logging.getLogger(__name__)
@@ -233,6 +237,52 @@ def _apply_status(row: CarrierVerification, status: ProviderStatus | None) -> bo
     return True
 
 
+async def _settle_sms_approval(
+    db: AsyncSession,
+    row: CarrierVerification,
+    status: ProviderStatus | None,
+    registry: Registry,
+) -> ProviderStatus | None:
+    """For an SMS registration the carrier approved, attach the org's numbers
+    first. Until that succeeds the row stays 'submitted' (status 'pending')."""
+    if status is None or status.state != "approved" or row.purpose != "sms":
+        return status
+    provider = registry(row.provider, "sms")
+    if not isinstance(provider, SmsRegistrationProvider):
+        return status
+    if not await attach_org_numbers(db, row, provider):
+        return ProviderStatus(state="pending")
+    await write_audit_log(
+        row.organization_id,
+        None,
+        "verification.sms_attached",
+        "carrier_verification",
+        row.id,
+        {"numbers": len(await registered_numbers(db, row))},
+        actor_kind="system",
+    )
+    return status
+
+
+async def _poll_and_apply(
+    db: AsyncSession,
+    row: CarrierVerification,
+    status: ProviderStatus | None,
+    registry: Registry,
+    refs_before: dict,
+) -> bool:
+    """Apply a fetched status. True when the row needs a commit: its state
+    changed, or the plug-in wrote new ids into ``provider_refs`` (an SMS
+    plug-in creates the campaign inside status() and stores its id there;
+    the JSONB column does not track in-place changes, so mark it)."""
+    status = await _settle_sms_approval(db, row, status, registry)
+    changed = _apply_status(row, status)
+    if row.provider_refs != refs_before:
+        flag_modified(row, "provider_refs")
+        changed = True
+    return changed
+
+
 async def _refresh(
     db: AsyncSession, row: CarrierVerification, registry: Registry
 ) -> None:
@@ -245,7 +295,9 @@ async def _refresh(
     was_submitting = row.state == "submitting"
     if not _pollable(row):
         return
-    if not _apply_status(row, await _fetch_status(row, registry)):
+    before = copy.deepcopy(row.provider_refs)
+    status = await _fetch_status(row, registry)
+    if not await _poll_and_apply(db, row, status, registry, before):
         return
     await db.commit()
     if was_submitting and row.state in ("submitted", "approved", "rejected"):
@@ -842,8 +894,12 @@ async def list_verifications(
     # Only the carrier calls run concurrently; the session is used in order.
     now = time.monotonic()
     due = [r for r in rows if _poll_due(r, now)]
+    before = [copy.deepcopy(r.provider_refs) for r in due]
     statuses = await asyncio.gather(*(_fetch_status(r, registry) for r in due))
-    changed = [_apply_status(r, s) for r, s in zip(due, statuses)]
+    changed = [
+        await _poll_and_apply(db, r, s, registry, b)
+        for r, s, b in zip(due, statuses, before)
+    ]
     if any(changed):
         await db.commit()
     return [VerificationResponse.model_validate(r) for r in rows]

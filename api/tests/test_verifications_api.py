@@ -20,7 +20,12 @@ from hailhq.api.routes.verifications import (
 from hailhq.api.superadmin import require_superadmin
 from hailhq.core import sms_registration_fees, telephony_catalog
 from hailhq.core.config import settings
-from hailhq.core.models import AccountCredit, AuditLog, CarrierVerification
+from hailhq.core.models import (
+    AccountCredit,
+    AuditLog,
+    CarrierVerification,
+    PhoneNumber,
+)
 from hailhq.core.providers.verification import (
     DocumentOption,
     DocumentSlot,
@@ -104,6 +109,11 @@ class FakeSmsCarrier(SmsRegistrationProvider):
         self.attached: list[tuple[dict, str, str]] = []
         self.attach_error: Exception | None = None
         self.problems: list[Problem] = []
+        # Set to "campaign_sid" (Twilio) or "campaign_id" (Telnyx): status()
+        # then creates the campaign once, writes its id into refs in place
+        # and reports pending, like the real plug-ins.
+        self.campaign_key: str | None = None
+        self.campaigns_created = 0
 
     async def requirements(self, country_code, number_type, subject_type):
         return Requirements(
@@ -133,6 +143,10 @@ class FakeSmsCarrier(SmsRegistrationProvider):
         self.submitted.append(refs)
 
     async def status(self, refs):
+        if self.campaign_key and self.campaign_key not in refs:
+            self.campaigns_created += 1
+            refs[self.campaign_key] = "QE1"
+            return ProviderStatus(state="pending")
         return self.remote_status
 
     async def purchase_handle(self, refs):
@@ -1249,3 +1263,171 @@ async def test_approved_sms_row_is_not_a_number_purchase_handle(
         "local",
     )
     assert handle is None
+
+
+async def _us_number(
+    async_session, org_id, e164="+15125550100", provider="fake", resource="PN1"
+) -> PhoneNumber:
+    n = PhoneNumber(
+        organization_id=org_id,
+        e164=e164,
+        country_code="US",
+        number_type="local",
+        capabilities=["voice", "sms"],
+        provider=provider,
+        provider_resource_id=resource,
+        provisioning_state="active",
+        messaging_service_sid="MG1",
+    )
+    async_session.add(n)
+    await async_session.commit()
+    return n
+
+
+async def test_approval_attaches_every_us_long_code(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    await _us_number(async_session, org_id, "+15125550100", resource="PN1")
+    await _us_number(async_session, org_id, "+15125550101", resource="PN2")
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(state="approved")
+    verifications_routes._last_polled.clear()
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "approved"
+    assert sorted(r for _, r, _ in sms_carrier.attached) == ["PN1", "PN2"]
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "verification.sms_attached")
+        )
+    ).scalar_one()
+    assert audit.payload == {"numbers": 2}
+
+
+async def test_person_registration_attaches_the_first_number_only(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    await _us_number(async_session, org_id, "+15125550100", resource="PN1")
+    await _us_number(async_session, org_id, "+15125550101", resource="PN2")
+    vid = (await _post_sms(client, key, subject_type="person")).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(state="approved")
+    verifications_routes._last_polled.clear()
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "approved"
+    assert len(sms_carrier.attached) == 1
+
+
+async def test_attach_failure_keeps_row_submitted_and_retries(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    await _us_number(async_session, org_id)
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(state="approved")
+    sms_carrier.attach_error = RuntimeError("carrier down")
+    verifications_routes._last_polled.clear()
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "submitted"
+    sms_carrier.attach_error = None
+    verifications_routes._last_polled.clear()
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "approved"
+    assert len(sms_carrier.attached) == 1
+
+
+async def test_number_activated_later_is_attached(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    from hailhq.api import sms_registration
+
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(state="approved")
+    verifications_routes._last_polled.clear()
+    await client.get(f"/verifications/{vid}", headers=_auth(key))
+    number = await _us_number(async_session, org_id, "+15125550177", resource="PN7")
+    await sms_registration.attach_if_registered(
+        async_session,
+        number,
+        lambda n, p="number": sms_carrier if p == "sms" else None,
+    )
+    assert sms_carrier.attached[-1][1] == "PN7"
+
+
+async def _stored_refs(async_session, vid: str) -> dict:
+    return (
+        await async_session.execute(
+            select(CarrierVerification.provider_refs).where(
+                CarrierVerification.id == uuid.UUID(vid)
+            )
+        )
+    ).scalar_one()
+
+
+@pytest.mark.parametrize("campaign_key", ["campaign_sid", "campaign_id"])
+@pytest.mark.parametrize("via", ["get", "list"])
+async def test_campaign_id_written_during_a_poll_is_saved(
+    client, org_and_key, sms_carrier, async_session, campaign_key, via
+) -> None:
+    # The plug-ins create the campaign inside status() and write its id into
+    # refs in place. The id must reach the database, or every later poll
+    # creates (and pays for) another campaign.
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.campaign_key = campaign_key
+    sms_carrier.remote_status = ProviderStatus(state="pending")
+    url = f"/verifications/{vid}" if via == "get" else "/verifications"
+    for _ in range(2):
+        verifications_routes._last_polled.clear()
+        resp = await client.get(url, headers=_auth(key))
+        assert resp.status_code == 200, resp.text
+        assert (await _stored_refs(async_session, vid))[campaign_key] == "QE1"
+    assert sms_carrier.campaigns_created == 1
+
+
+async def test_telnyx_release_unlinks_the_number_from_the_campaign(
+    client, org_and_key, async_session, monkeypatch
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from hailhq.api.routes import numbers as numbers_routes
+
+    org_id, _, key = org_and_key
+    number = await _us_number(
+        async_session, org_id, provider="telnyx", resource=str(uuid.uuid4())
+    )
+    async_session.add(
+        CarrierVerification(
+            organization_id=org_id,
+            provider="telnyx",
+            purpose="sms",
+            country_code="US",
+            number_type="local",
+            subject_type="business",
+            state="approved",
+            provider_refs={"campaign_id": "C1"},
+            requirements_version="1",
+        )
+    )
+    await async_session.commit()
+    monkeypatch.setattr(settings, "telnyx_api_key", "test")
+    release = AsyncMock()
+    monkeypatch.setattr(
+        "hailhq.core.providers.telnyx.TelnyxClient.release_number", release
+    )
+    plugin = SimpleNamespace(detach_number=AsyncMock())
+    monkeypatch.setattr(
+        numbers_routes,
+        "get_verification_provider",
+        lambda name, purpose="number": plugin if purpose == "sms" else None,
+    )
+    resp = await client.delete(f"/numbers/{number.id}", headers=_auth(key))
+    assert resp.status_code == 204, resp.text
+    plugin.detach_number.assert_awaited_once_with("+15125550100")
+    release.assert_awaited_once()

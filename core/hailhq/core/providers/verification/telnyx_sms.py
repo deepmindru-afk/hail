@@ -202,6 +202,16 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
     async def purchase_handle(self, refs) -> dict:
         return {}
 
+    async def detach_number(self, e164: str) -> None:
+        """Unlink a number from its 10DLC campaign before it is released.
+        Never raises."""
+        try:
+            await self._api.request("DELETE", f"/10dlc/phoneNumberCampaign/{e164}")
+        except httpx.HTTPStatusError as exc:
+            logger.warning("10DLC unlink failed: status=%s", exc.response.status_code)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("10DLC unlink failed: %s", type(exc).__name__)
+
     async def attach_number(self, refs, *, provider_resource_id, e164) -> None:
         try:
             await self._api.request(
