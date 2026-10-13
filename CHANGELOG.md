@@ -4,6 +4,15 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-10-13
+
+An agent can buy numbers, manage agents and pass carrier verification over
+MCP, with a server-checked price lock. An agent can hand a live call to a person.
+
+Component versions cut alongside this release:
+**`cli-v0.26.0`** (Homebrew + GitHub Releases) and **`sdk-v0.19.0`** (PyPI).
+Migrations `0052` to `0056`.
+
 ### Added
 
 - `POST /numbers` takes an optional `expected_total_cents` (monthly plus setup, in cents). The order is refused with 409 and nothing is charged when the quoted total differs. Python SDK: `client.numbers.acquire(expected_total_cents=...)`. CLI: `hail numbers acquire --expected-total-cents`. Clients that omit it behave as before.
