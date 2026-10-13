@@ -4246,10 +4246,14 @@ paths:
         - verifications
       summary: Get Requirements
       description:
-        "What the carrier needs from you to buy this kind of number: the
-        fields,
+        "What the carrier needs from you: the fields, the documents, and
+        whether
 
-        the documents, and whether an address is needed. Build your form from it."
+        an address is needed. `purpose=number` (default) is for buying a number;
+
+        `purpose=sms` is for registering to send SMS in the US. Build your form
+
+        from it."
       operationId: get_verification_requirements
       parameters:
         - name: country_code
@@ -4284,6 +4288,13 @@ paths:
               - type: string
               - type: "null"
             title: Provider
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            type: string
+            default: number
+            title: Purpose
         - name: authorization
           in: header
           required: false
@@ -4334,7 +4345,12 @@ paths:
       description: 'Submit your details and documents (multipart/form-data).
 
 
-        Parts: `country_code`, `number_type`, `subject_type`, `provider` (optional),
+        Parts: `purpose` (`number`, the default, or `sms` to register to send SMS
+
+        in the US; `sms` takes `country_code=US` and `number_type=local` and charges
+
+        the filing fee), `country_code`, `number_type`, `subject_type`, `provider`
+        (optional),
 
         `fields` (JSON object), `address` (JSON object, when required), `documents`
 
@@ -4398,9 +4414,20 @@ paths:
       tags:
         - verifications
       summary: List Verifications
-      description: Your organization's verifications, newest first.
+      description:
+        "Your organization's verifications, newest first. Pass `purpose`
+
+        (`number` or `sms`) to list only that kind."
       operationId: list_verifications
       parameters:
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Purpose
         - name: authorization
           in: header
           required: false
@@ -4419,6 +4446,65 @@ paths:
                 items:
                   $ref: "#/components/schemas/VerificationResponse"
                 title: Response List Verifications
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /v1/verifications/sms-fees:
+    get:
+      tags:
+        - verifications
+      summary: Get Sms Fees
+      description:
+        "Fees for US SMS registration, per carrier and subject type, in
+        cents.
+
+        Passed through at cost."
+      operationId: get_sms_registration_fees
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    $ref: "#/components/schemas/SmsFee"
+                title: Response Get Sms Registration Fees
         "429":
           description:
             Rate limited. This caller exceeded the general request-rate
@@ -8131,6 +8217,21 @@ components:
         - to
         - body
       title: SmsCreate
+    SmsFee:
+      properties:
+        filing_cents:
+          type: integer
+          title: Filing Cents
+          description: Charged once when the registration is filed.
+        monthly_cents:
+          type: integer
+          title: Monthly Cents
+          description: Charged each month while approved.
+      type: object
+      required:
+        - filing_cents
+        - monthly_cents
+      title: SmsFee
     SmsListResponse:
       properties:
         items:
@@ -8378,6 +8479,12 @@ components:
           type: string
           title: Subject Type
           description: "'person' or 'business'."
+        purpose:
+          type: string
+          title: Purpose
+          description:
+            "'number': permission to buy a number in this country. 'sms':
+            registration to text US numbers from a US number."
         state:
           type: string
           title: State
@@ -8421,6 +8528,7 @@ components:
         - country_code
         - number_type
         - subject_type
+        - purpose
         - state
         - created_at
         - updated_at

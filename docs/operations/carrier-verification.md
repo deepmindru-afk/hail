@@ -54,6 +54,33 @@ curl -s -X POST "$HAIL_API_URL/verifications" -H "Authorization: Bearer $HAIL_AP
 curl -s "$HAIL_API_URL/verifications" -H "Authorization: Bearer $HAIL_API_KEY"
 ```
 
+## US SMS registration (`purpose=sms`)
+
+Runnable example:
+
+```bash
+curl -s -X POST "$HAIL_API_URL/verifications" -H "Authorization: Bearer $HAIL_API_KEY" \
+  -F purpose=sms -F country_code=US -F number_type=local -F subject_type=business -F provider=twilio \
+  -F 'fields={"legal_name":"Acme Inc","business_type":"PRIVATE_PROFIT","ein":"12-3456789","industry":"RETAIL","website":"https://acme.example","rep_name":"Ada Lovelace","rep_email":"ada@acme.example","rep_phone":"+15125550100","rep_title":"CEO","campaign_description":"Order updates for customers who bought on our site.","sample_1":"Acme: your order 123 shipped. Reply STOP to opt out.","sample_2":"Acme: your order 123 was delivered. Reply STOP to opt out.","opt_in_description":"Customers tick a box at checkout.","has_links":"NO"}' \
+  -F 'address={"customer_name":"Acme Inc","street":"1 Main St","city":"Austin","region":"TX","postal_code":"78701","country_code":"US"}'
+```
+
+Same flow as above with `purpose=sms`: each organization registers its own US A2P 10DLC brand and campaign. Design: [`docs/superpowers/specs/2026-10-13-us-sms-registration-design.md`](../superpowers/specs/2026-10-13-us-sms-registration-design.md). Fees: `GET /verifications/sms-fees`. CLI: `hail numbers register-sms`.
+
+| State             | Meaning                                                                   |
+| ----------------- | ------------------------------------------------------------------------- |
+| `awaiting_review` | Profile and brand created at the carrier, not yet submitted.              |
+| `submitting`      | Hail is submitting the brand.                                             |
+| `submitted`       | Brand in vetting, or brand approved and campaign in carrier review.       |
+| `approved`        | Campaign approved. Numbers attached. US texting works.                    |
+| `rejected`        | Brand or campaign refused. `rejection_reason` carries the carrier's text. |
+| `cancelled`       | Customer withdrew or dismissed.                                           |
+
+- **Fee debit.** The carrier fee is debited from prepaid credit at filing. The ledger row in `account_credits` has `ref = sms_registration:<id>`.
+- **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it. Until then, texts from a US long code to a US number return 422.
+- **`TWILIO_PRIMARY_PROFILE_SID`.** The approved Trust Hub primary profile (business identity ISV Reseller or Partner) that every Twilio brand is created under.
+- **`HAIL_SMS_REGISTRATION_GATE`.** Default on. `false` turns the 422 check off for one release.
+
 ## Cancel rules
 
 `DELETE /verifications/{id}`:

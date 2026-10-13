@@ -606,6 +606,45 @@ func (e FieldSpecKind) Valid() bool {
 	}
 }
 
+// Defines values for ForwardTargetResponsePendingReason.
+const (
+	AccountUnverified ForwardTargetResponsePendingReason = "account_unverified"
+	ConfirmLink       ForwardTargetResponsePendingReason = "confirm_link"
+)
+
+// Valid indicates whether the value is a known member of the ForwardTargetResponsePendingReason enum.
+func (e ForwardTargetResponsePendingReason) Valid() bool {
+	switch e {
+	case AccountUnverified:
+		return true
+	case ConfirmLink:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ForwardTargetResponseStatus.
+const (
+	ForwardTargetResponseStatusPending  ForwardTargetResponseStatus = "pending"
+	ForwardTargetResponseStatusStopped  ForwardTargetResponseStatus = "stopped"
+	ForwardTargetResponseStatusVerified ForwardTargetResponseStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the ForwardTargetResponseStatus enum.
+func (e ForwardTargetResponseStatus) Valid() bool {
+	switch e {
+	case ForwardTargetResponseStatusPending:
+		return true
+	case ForwardTargetResponseStatusStopped:
+		return true
+	case ForwardTargetResponseStatusVerified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NumberAcquireRequestNumberType.
 const (
 	NumberAcquireRequestNumberTypeLocal    NumberAcquireRequestNumberType = "local"
@@ -1328,28 +1367,28 @@ func (e GetEmailStatsV1EmailsStatsGetParamsBucket) Valid() bool {
 
 // Defines values for ListSmsV1SmsGetParamsStatus.
 const (
-	Delivered   ListSmsV1SmsGetParamsStatus = "delivered"
-	Failed      ListSmsV1SmsGetParamsStatus = "failed"
-	Queued      ListSmsV1SmsGetParamsStatus = "queued"
-	Received    ListSmsV1SmsGetParamsStatus = "received"
-	Sent        ListSmsV1SmsGetParamsStatus = "sent"
-	Undelivered ListSmsV1SmsGetParamsStatus = "undelivered"
+	ListSmsV1SmsGetParamsStatusDelivered   ListSmsV1SmsGetParamsStatus = "delivered"
+	ListSmsV1SmsGetParamsStatusFailed      ListSmsV1SmsGetParamsStatus = "failed"
+	ListSmsV1SmsGetParamsStatusQueued      ListSmsV1SmsGetParamsStatus = "queued"
+	ListSmsV1SmsGetParamsStatusReceived    ListSmsV1SmsGetParamsStatus = "received"
+	ListSmsV1SmsGetParamsStatusSent        ListSmsV1SmsGetParamsStatus = "sent"
+	ListSmsV1SmsGetParamsStatusUndelivered ListSmsV1SmsGetParamsStatus = "undelivered"
 )
 
 // Valid indicates whether the value is a known member of the ListSmsV1SmsGetParamsStatus enum.
 func (e ListSmsV1SmsGetParamsStatus) Valid() bool {
 	switch e {
-	case Delivered:
+	case ListSmsV1SmsGetParamsStatusDelivered:
 		return true
-	case Failed:
+	case ListSmsV1SmsGetParamsStatusFailed:
 		return true
-	case Queued:
+	case ListSmsV1SmsGetParamsStatusQueued:
 		return true
-	case Received:
+	case ListSmsV1SmsGetParamsStatusReceived:
 		return true
-	case Sent:
+	case ListSmsV1SmsGetParamsStatusSent:
 		return true
-	case Undelivered:
+	case ListSmsV1SmsGetParamsStatusUndelivered:
 		return true
 	default:
 		return false
@@ -1963,7 +2002,7 @@ type EmailCreate struct {
 	// MessageType 'marketing' additionally requires a non-empty consent_source. Use 'informational' for transactional/service communications.
 	MessageType *EmailCreateMessageType `json:"message_type,omitempty"`
 
-	// Metadata Free-form JSON object attached to the email and echoed back on reads. Not interpreted by Hail.
+	// Metadata Free-form JSON object attached to the email and echoed back on reads. Not interpreted by Hail. The keys 'forwarded_from', 'forward_headers' and 'system_kind' are reserved for Hail's own queue bookkeeping and are rejected.
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
 	// RecipientConsent Attestation that you have obtained the lawful consent required to contact this recipient. Hail does not verify consent itself — you are responsible for a lawful basis under TCPA/ePrivacy/PECR/CAN-SPAM/GDPR as applicable. Rejected (422) if not true.
@@ -2065,7 +2104,7 @@ type EmailDomainPatch struct {
 	// ForwardRatePerHour Cap on forwarded messages per hour. Omit to leave unchanged.
 	ForwardRatePerHour *int `json:"forward_rate_per_hour,omitempty"`
 
-	// ForwardTo Email addresses to forward inbound mail to. Omit to leave unchanged.
+	// ForwardTo Email addresses to forward inbound mail to (at most 10). A new address that is not a verified member's login email gets a confirm link and receives nothing until it is clicked — see GET /forward-targets. Omit to leave unchanged.
 	ForwardTo *[]string `json:"forward_to,omitempty"`
 
 	// InboundEnabled Whether to accept inbound mail on this domain. Requires forward_to (or an existing one) when true. Omit to leave unchanged.
@@ -2558,6 +2597,44 @@ type FieldSpec struct {
 // FieldSpecKind Input kind: 'text', 'email', 'phone', or 'url'.
 type FieldSpecKind string
 
+// ForwardTargetListResponse defines model for ForwardTargetListResponse.
+type ForwardTargetListResponse struct {
+	// Items Every forward address ever configured for this organization.
+	Items []ForwardTargetResponse `json:"items"`
+}
+
+// ForwardTargetResponse One forward address of the organization and whether it may receive
+// forwards. Rows come from “email_forward_targets“; see
+// “hailhq.core.forward_targets“.
+type ForwardTargetResponse struct {
+	// Address Normalized (lower-cased) email address.
+	Address string `json:"address"`
+
+	// PendingReason Why a 'pending' address is not live. 'confirm_link': a confirm mail was sent and not yet clicked. 'account_unverified': the address is a member's login email whose account email is not verified yet; it goes live on the account verify click, no confirm mail. Null otherwise.
+	PendingReason *ForwardTargetResponsePendingReason `json:"pending_reason,omitempty"`
+
+	// Status 'verified' receives forwards. 'pending' was sent a confirm link that is not yet clicked. 'stopped' got a spam complaint and needs a new confirm link (POST /forward-targets/{address}/resend).
+	Status ForwardTargetResponseStatus `json:"status"`
+
+	// StoppedAt When forwarding was stopped, ISO 8601.
+	StoppedAt *time.Time `json:"stopped_at,omitempty"`
+
+	// StoppedReason Why forwarding was stopped, e.g. 'complaint'.
+	StoppedReason *string `json:"stopped_reason,omitempty"`
+
+	// TokenSentAt When the latest confirm link was sent, ISO 8601. Null once verified.
+	TokenSentAt *time.Time `json:"token_sent_at,omitempty"`
+
+	// VerifiedAt When the address was verified, ISO 8601.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+}
+
+// ForwardTargetResponsePendingReason Why a 'pending' address is not live. 'confirm_link': a confirm mail was sent and not yet clicked. 'account_unverified': the address is a member's login email whose account email is not verified yet; it goes live on the account verify click, no confirm mail. Null otherwise.
+type ForwardTargetResponsePendingReason string
+
+// ForwardTargetResponseStatus 'verified' receives forwards. 'pending' was sent a confirm link that is not yet clicked. 'stopped' got a spam complaint and needs a new confirm link (POST /forward-targets/{address}/resend).
+type ForwardTargetResponseStatus string
+
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
 	// Detail List of validation errors: each entry gives the field location (loc), the problem (msg), and the error type (type).
@@ -2928,6 +3005,15 @@ type SmsCreate struct {
 // SmsCreateMessageType 'marketing' additionally requires a non-empty consent_source. Use 'informational' for transactional/service communications.
 type SmsCreateMessageType string
 
+// SmsFee defines model for SmsFee.
+type SmsFee struct {
+	// FilingCents Charged once when the registration is filed.
+	FilingCents int `json:"filing_cents"`
+
+	// MonthlyCents Charged each month while approved.
+	MonthlyCents int `json:"monthly_cents"`
+}
+
 // SmsListResponse defines model for SmsListResponse.
 type SmsListResponse struct {
 	// Items Messages in this page, newest first.
@@ -3063,6 +3149,9 @@ type VerificationResponse struct {
 
 	// Provider The carrier this verification is with.
 	Provider string `json:"provider"`
+
+	// Purpose 'number': permission to buy a number in this country. 'sms': registration to text US numbers from a US number.
+	Purpose string `json:"purpose"`
 
 	// RejectionReason Why it was rejected. Null unless rejected.
 	RejectionReason *string `json:"rejection_reason,omitempty"`
@@ -3449,6 +3538,16 @@ type ListEventsV1EventsGetParams struct {
 	Authorization *string `json:"authorization,omitempty"`
 }
 
+// ListForwardTargetsV1ForwardTargetsGetParams defines parameters for ListForwardTargetsV1ForwardTargetsGet.
+type ListForwardTargetsV1ForwardTargetsGetParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// ResendForwardConfirmV1ForwardTargetsAddressResendPostParams defines parameters for ResendForwardConfirmV1ForwardTargetsAddressResendPost.
+type ResendForwardConfirmV1ForwardTargetsAddressResendPostParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
 // DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams defines parameters for DeleteMemberPhoneV1MembersUserIdPhoneDelete.
 type DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams struct {
 	Authorization *string `json:"authorization,omitempty"`
@@ -3574,6 +3673,7 @@ type UnsubscribeV1UnsubscribeGetParams struct {
 
 // ListVerificationsParams defines parameters for ListVerifications.
 type ListVerificationsParams struct {
+	Purpose       *string `form:"purpose,omitempty" json:"purpose,omitempty"`
 	Authorization *string `json:"authorization,omitempty"`
 }
 
@@ -3588,11 +3688,17 @@ type GetVerificationRequirementsParams struct {
 	NumberType    string                                        `form:"number_type" json:"number_type"`
 	SubjectType   *GetVerificationRequirementsParamsSubjectType `form:"subject_type,omitempty" json:"subject_type,omitempty"`
 	Provider      *string                                       `form:"provider,omitempty" json:"provider,omitempty"`
+	Purpose       *string                                       `form:"purpose,omitempty" json:"purpose,omitempty"`
 	Authorization *string                                       `json:"authorization,omitempty"`
 }
 
 // GetVerificationRequirementsParamsSubjectType defines parameters for GetVerificationRequirements.
 type GetVerificationRequirementsParamsSubjectType string
+
+// GetSmsRegistrationFeesParams defines parameters for GetSmsRegistrationFees.
+type GetSmsRegistrationFeesParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
 
 // CancelVerificationParams defines parameters for CancelVerification.
 type CancelVerificationParams struct {
@@ -4188,6 +4294,12 @@ type ClientInterface interface {
 	// ListEventsV1EventsGet request
 	ListEventsV1EventsGet(ctx context.Context, params *ListEventsV1EventsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListForwardTargetsV1ForwardTargetsGet request
+	ListForwardTargetsV1ForwardTargetsGet(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResendForwardConfirmV1ForwardTargetsAddressResendPost request
+	ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteMemberPhoneV1MembersUserIdPhoneDelete request
 	DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4280,6 +4392,9 @@ type ClientInterface interface {
 
 	// GetVerificationRequirements request
 	GetVerificationRequirements(ctx context.Context, params *GetVerificationRequirementsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSmsRegistrationFees request
+	GetSmsRegistrationFees(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CancelVerification request
 	CancelVerification(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4787,6 +4902,30 @@ func (c *Client) ListEventsV1EventsGet(ctx context.Context, params *ListEventsV1
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListForwardTargetsV1ForwardTargetsGet(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListForwardTargetsV1ForwardTargetsGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest(c.Server, address, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest(c.Server, userId, params)
 	if err != nil {
@@ -5185,6 +5324,18 @@ func (c *Client) CreateVerification(ctx context.Context, params *CreateVerificat
 
 func (c *Client) GetVerificationRequirements(ctx context.Context, params *GetVerificationRequirementsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetVerificationRequirementsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSmsRegistrationFees(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSmsRegistrationFeesRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7290,6 +7441,97 @@ func NewListEventsV1EventsGetRequest(server string, params *ListEventsV1EventsGe
 	return req, nil
 }
 
+// NewListForwardTargetsV1ForwardTargetsGetRequest generates requests for ListForwardTargetsV1ForwardTargetsGet
+func NewListForwardTargetsV1ForwardTargetsGetRequest(server string, params *ListForwardTargetsV1ForwardTargetsGetParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/forward-targets")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest generates requests for ResendForwardConfirmV1ForwardTargetsAddressResendPost
+func NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest(server string, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "address", address, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/forward-targets/%s/resend", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest generates requests for DeleteMemberPhoneV1MembersUserIdPhoneDelete
 func NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest(server string, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams) (*http.Request, error) {
 	var err error
@@ -8612,6 +8854,28 @@ func NewListVerificationsRequest(server string, params *ListVerificationsParams)
 		return nil, err
 	}
 
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -8755,7 +9019,65 @@ func NewGetVerificationRequirementsRequest(server string, params *GetVerificatio
 
 		}
 
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetSmsRegistrationFeesRequest generates requests for GetSmsRegistrationFees
+func NewGetSmsRegistrationFeesRequest(server string, params *GetSmsRegistrationFeesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/verifications/sms-fees")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -9560,6 +9882,12 @@ type ClientWithResponsesInterface interface {
 	// ListEventsV1EventsGetWithResponse request
 	ListEventsV1EventsGetWithResponse(ctx context.Context, params *ListEventsV1EventsGetParams, reqEditors ...RequestEditorFn) (*ListEventsV1EventsGetResponse, error)
 
+	// ListForwardTargetsV1ForwardTargetsGetWithResponse request
+	ListForwardTargetsV1ForwardTargetsGetWithResponse(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*ListForwardTargetsV1ForwardTargetsGetResponse, error)
+
+	// ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse request
+	ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error)
+
 	// DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse request
 	DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error)
 
@@ -9652,6 +9980,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetVerificationRequirementsWithResponse request
 	GetVerificationRequirementsWithResponse(ctx context.Context, params *GetVerificationRequirementsParams, reqEditors ...RequestEditorFn) (*GetVerificationRequirementsResponse, error)
+
+	// GetSmsRegistrationFeesWithResponse request
+	GetSmsRegistrationFeesWithResponse(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*GetSmsRegistrationFeesResponse, error)
 
 	// CancelVerificationWithResponse request
 	CancelVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*CancelVerificationResponse, error)
@@ -10400,6 +10731,52 @@ func (r ListEventsV1EventsGetResponse) StatusCode() int {
 	return 0
 }
 
+type ListForwardTargetsV1ForwardTargetsGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ForwardTargetListResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ListForwardTargetsV1ForwardTargetsGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListForwardTargetsV1ForwardTargetsGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ForwardTargetResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -10962,6 +11339,29 @@ func (r GetVerificationRequirementsResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetVerificationRequirementsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetSmsRegistrationFeesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]map[string]SmsFee
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSmsRegistrationFeesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSmsRegistrationFeesResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11563,6 +11963,24 @@ func (c *ClientWithResponses) ListEventsV1EventsGetWithResponse(ctx context.Cont
 	return ParseListEventsV1EventsGetResponse(rsp)
 }
 
+// ListForwardTargetsV1ForwardTargetsGetWithResponse request returning *ListForwardTargetsV1ForwardTargetsGetResponse
+func (c *ClientWithResponses) ListForwardTargetsV1ForwardTargetsGetWithResponse(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*ListForwardTargetsV1ForwardTargetsGetResponse, error) {
+	rsp, err := c.ListForwardTargetsV1ForwardTargetsGet(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListForwardTargetsV1ForwardTargetsGetResponse(rsp)
+}
+
+// ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse request returning *ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse
+func (c *ClientWithResponses) ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error) {
+	rsp, err := c.ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx, address, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse(rsp)
+}
+
 // DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse request returning *DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse
 func (c *ClientWithResponses) DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error) {
 	rsp, err := c.DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx, userId, params, reqEditors...)
@@ -11858,6 +12276,15 @@ func (c *ClientWithResponses) GetVerificationRequirementsWithResponse(ctx contex
 		return nil, err
 	}
 	return ParseGetVerificationRequirementsResponse(rsp)
+}
+
+// GetSmsRegistrationFeesWithResponse request returning *GetSmsRegistrationFeesResponse
+func (c *ClientWithResponses) GetSmsRegistrationFeesWithResponse(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*GetSmsRegistrationFeesResponse, error) {
+	rsp, err := c.GetSmsRegistrationFees(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSmsRegistrationFeesResponse(rsp)
 }
 
 // CancelVerificationWithResponse request returning *CancelVerificationResponse
@@ -12970,6 +13397,72 @@ func ParseListEventsV1EventsGetResponse(rsp *http.Response) (*ListEventsV1Events
 	return response, nil
 }
 
+// ParseListForwardTargetsV1ForwardTargetsGetResponse parses an HTTP response from a ListForwardTargetsV1ForwardTargetsGetWithResponse call
+func ParseListForwardTargetsV1ForwardTargetsGetResponse(rsp *http.Response) (*ListForwardTargetsV1ForwardTargetsGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListForwardTargetsV1ForwardTargetsGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ForwardTargetListResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse parses an HTTP response from a ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse call
+func ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse(rsp *http.Response) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ForwardTargetResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse parses an HTTP response from a DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse call
 func ParseDeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse(rsp *http.Response) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -13729,6 +14222,39 @@ func ParseGetVerificationRequirementsResponse(rsp *http.Response) (*GetVerificat
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Requirements
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSmsRegistrationFeesResponse parses an HTTP response from a GetSmsRegistrationFeesWithResponse call
+func ParseGetSmsRegistrationFeesResponse(rsp *http.Response) (*GetSmsRegistrationFeesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSmsRegistrationFeesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]map[string]SmsFee
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -89,6 +89,11 @@ Hail checks the Ed25519 signature with `TELNYX_PUBLIC_KEY` and rejects
 requests older than five minutes. `HAIL_API_URL` must be the public URL Telnyx
 can reach.
 
+**A2P 10DLC (United States).** Each organization registers its own brand and
+campaign from the console (Numbers → Register for US texting) or with
+`POST /verifications` and `purpose=sms`. Until an organization is approved,
+texts from its US long codes to US numbers return 422.
+
 ## 5. Countries that need verification
 
 Telnyx will not sell some numbers (Sweden, Portugal, Italy, and others)

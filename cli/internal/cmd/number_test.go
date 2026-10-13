@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -400,5 +402,65 @@ func TestNumberGet_JSONOutput(t *testing.T) {
 	}
 	if got.Id != resp.Id {
 		t.Errorf("Id = %v", got.Id)
+	}
+}
+
+func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
+	var gotParts map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/verifications" || r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Errorf("content type: %v", err)
+		}
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		gotParts = map[string]string{}
+		for {
+			p, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			b, _ := io.ReadAll(p)
+			gotParts[p.FormName()] = string(b)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"11111111-1111-1111-1111-111111111111","state":"awaiting_review","purpose":"sms","country_code":"US","number_type":"local","provider":"twilio","subject_type":"business","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		"numbers", "register-sms", "--subject", "business",
+		"--field", "legal_name=Acme Inc", "--field", "ein=12-3456789",
+		"--address", "city=Austin",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tests := []struct{ part, want string }{
+		{"purpose", "sms"},
+		{"country_code", "US"},
+		{"number_type", "local"},
+		{"subject_type", "business"},
+		{"provider", "twilio"},
+	}
+	for _, tc := range tests {
+		if gotParts[tc.part] != tc.want {
+			t.Errorf("part %s = %q, want %q", tc.part, gotParts[tc.part], tc.want)
+		}
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(gotParts["fields"]), &fields); err != nil || fields["ein"] != "12-3456789" {
+		t.Errorf("fields part = %q (%v)", gotParts["fields"], err)
+	}
+	if !strings.Contains(gotParts["address"], `"country_code":"US"`) || !strings.Contains(gotParts["address"], `"city":"Austin"`) {
+		t.Errorf("address part = %q", gotParts["address"])
+	}
+	if !strings.Contains(stdout, "awaiting_review") {
+		t.Errorf("stdout = %q", stdout)
 	}
 }

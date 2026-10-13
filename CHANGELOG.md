@@ -4,6 +4,10 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need an approved registration (422 otherwise; `HAIL_SMS_REGISTRATION_GATE=false` turns the check off for one release). New env: `TWILIO_PRIMARY_PROFILE_SID`, `HAIL_SMS_REGISTRATION_GATE`.
+
 ## [0.27.0] — 2026-10-13
 
 An agent can buy numbers, manage agents and pass carrier verification over
