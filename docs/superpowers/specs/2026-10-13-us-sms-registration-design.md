@@ -106,11 +106,14 @@ vetting starts on creation; `submit` is a no-op that records
   messaging service, campaign covers the service; Telnyx:
   `phoneNumberCampaign` per number), then `approved`.
 
-Person flow: the carrier texts the person a confirmation link after brand
-creation. The person taps it. `status` sees the brand move to approved.
-The console copy says: "Check your phone. Tap the link in the text from
-the carrier." A mobile number can be used for three brands in its lifetime
-(carrier rule). The form says so.
+Person flow: after brand creation the carrier texts the person's mobile
+("Please confirm your registration for US A2P Messaging by replying YES").
+The person replies YES. `status` sees the brand's identity become verified
+and then creates the campaign. The console copy says: "Check your phone.
+Reply YES to the text from the carrier." The mobile number must not be a
+Hail number, and can be used for three brands in its lifetime (carrier
+rule). The form says both. A person's campaign may hold one number
+(carrier rule); `attach` stops after the first active US long code.
 
 `discard`: delete the campaign, brand, bundle, and profile that exist, in
 that order, ignoring already-deleted errors. Not allowed from `submitted`
