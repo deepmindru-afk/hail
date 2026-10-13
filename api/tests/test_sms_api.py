@@ -39,18 +39,50 @@ async def _seed_sent_sms(async_session, organization_id, *, provider_message_sid
     return sms
 
 
-async def _seed_dedicated_number(async_session, organization_id) -> None:
+async def _seed_dedicated_number(
+    async_session,
+    organization_id,
+    *,
+    e164: str = "+14155559999",
+    number_type: str = "local",
+    provider: str = "twilio",
+    register_sms: bool = True,
+) -> None:
+    """Seed an active SMS number. US long codes need an approved ``sms``
+    registration to send to the US, so ``register_sms`` adds one by default."""
     from hailhq.core.models import PhoneNumber
 
     pn = PhoneNumber(
         organization_id=organization_id,
-        e164="+14155559999",
+        e164=e164,
         country_code="US",
-        number_type="local",
-        provider_resource_id="PN_test",
+        number_type=number_type,
+        provider=provider,
+        provider_resource_id=f"PN_{e164}",
         provisioning_state="active",
     )
     async_session.add(pn)
+    await async_session.commit()
+    if register_sms:
+        await _approve_sms(async_session, organization_id, provider=provider)
+
+
+async def _approve_sms(async_session, org_id, provider="twilio") -> None:
+    from hailhq.core.models import CarrierVerification
+
+    async_session.add(
+        CarrierVerification(
+            organization_id=org_id,
+            provider=provider,
+            country_code="US",
+            number_type="local",
+            subject_type="business",
+            purpose="sms",
+            state="approved",
+            provider_refs={"campaign_sid": "QE1"},
+            requirements_version="x",
+        )
+    )
     await async_session.commit()
 
 
@@ -846,3 +878,120 @@ async def test_sms_status_missing_sid_is_unmatched(
 
     deliveries = (await async_session.execute(select(WebhookDelivery))).scalars().all()
     assert deliveries == []
+
+
+def _us_text(**extra) -> dict:
+    return {
+        "to": "+14155550123",
+        "body": "hi",
+        "recipient_consent": True,
+        **extra,
+    }
+
+
+async def test_us_to_us_from_unregistered_long_code_is_422(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id, register_sms=False)
+    resp = await client.post(
+        "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 422, resp.text
+    assert "SMS registration" in resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "from"]
+    sms_mock.send_sms.assert_not_awaited()
+
+
+async def test_us_to_us_passes_when_registered(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id, register_sms=False)
+    await _approve_sms(async_session, org_id)
+    resp = await client.post(
+        "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_registration_is_per_carrier(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(
+        async_session,
+        org_id,
+        e164="+14155557777",
+        provider="telnyx",
+        register_sms=False,
+    )
+    await _approve_sms(async_session, org_id, provider="twilio")
+    resp = await client.post(
+        "/sms",
+        json=_us_text(**{"from": "+14155557777"}),
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "SMS registration" in resp.text
+
+
+async def test_unapproved_registration_does_not_count(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    from hailhq.core.models import CarrierVerification
+
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id, register_sms=False)
+    await _approve_sms(async_session, org_id)
+    row = (
+        await async_session.execute(
+            select(CarrierVerification).where(CarrierVerification.purpose == "sms")
+        )
+    ).scalar_one()
+    row.state = "submitted"
+    await async_session.commit()
+    resp = await client.post(
+        "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_toll_free_and_non_us_are_not_gated(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(
+        async_session,
+        org_id,
+        e164="+18005550100",
+        number_type="toll_free",
+        register_sms=False,
+    )
+    headers = {"Authorization": f"Bearer {key}"}
+    resp = await client.post("/sms", json=_us_text(), headers=headers)
+    assert resp.status_code == 201, resp.text
+    # Long code to a non-US destination is not gated either.
+    await _seed_dedicated_number(
+        async_session, org_id, e164="+14155556666", register_sms=False
+    )
+    resp = await client.post(
+        "/sms",
+        json=_us_text(to="+447700900123", **{"from": "+14155556666"}),
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_gate_off_lets_unregistered_sends_through(
+    client, async_session, org_and_key, sms_mock, monkeypatch
+) -> None:
+    from hailhq.core.config import settings
+
+    monkeypatch.setattr(settings, "hail_sms_registration_gate", False)
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id, register_sms=False)
+    resp = await client.post(
+        "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 201, resp.text

@@ -62,6 +62,7 @@ from hailhq.core.schemas import (
     SuppressionListResponse,
     SuppressionResponse,
 )
+from hailhq.core.sms_registration_gate import us_registration_block
 from hailhq.core.sender_id import PLATFORM_DEFAULT_SENDER_ID, resolve_sender
 from hailhq.core.urls import join_url
 from hailhq.core.webhook_fanout import fanout_sms_event
@@ -306,6 +307,11 @@ async def create_sms(
                     "SMS requires a dedicated number, not the shared voice pool"
                 )
             raise await cache_failure(idem, unprocessable(msg, loc=["body", "from"]))
+        block = await us_registration_block(
+            db, principal.organization_id, from_number, body.to
+        )
+        if block:
+            raise await cache_failure(idem, unprocessable(block, loc=["body", "from"]))
         from_e164 = from_number.e164
 
     sms = Sms(
