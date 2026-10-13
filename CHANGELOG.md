@@ -21,11 +21,13 @@ Migrations `0052` to `0056`.
 - MCP tools for carrier verification: `get_verification_requirements`, `submit_verification`, `list_verifications`, `get_verification` and `cancel_verification`. An agent can now read what a carrier needs, submit the user's details and documents, poll the state, and then buy the number, with no console step. `submit_verification` is irreversible and needs `attest_authorized: true`. The telemetry exporter drops tool-call arguments, requests, responses and exception text by design, so verification details never reach exported traces.
 - Human handover: agents can hand a live call to a contact you pick (`handover_contacts` on agents, `hail agents --handover`, `transfer_call` tool, `call.transferred` webhook).
 - Human handover to team members: `handover_contacts[].contact_id` also takes `member:<user id>` (the id `GET /contacts` returns), so an agent can hand a call to an org member with a phone, not only a contact.
+- Forward addresses are verified before Hail relays mail to them. A new `forward_to` address gets a confirm link (7-day token, one button, POST confirms); a verified member's own login email is verified at once. `GET /v1/forward-targets` lists statuses and `POST /v1/forward-targets/{address}/resend` sends a new link (10-minute cooldown). Mail to an unverified address is skipped with `suppressed_reasons: forward_target_pending`. A spam complaint on a forward stops that address and notifies the org's owners. Per org: at most 10 unconfirmed addresses and 20 confirm mails per day. Addresses already in `forward_to` are marked verified by migration `0055`; nothing changes for them.
 - Optional Logfire backend and AI-agent observability: service logs, request/HTTP/database traces, actor identity, voice/SMS model and tool spans, and API-to-voicebot correlation. Payload filtering keeps conversation content and credentials out of exported traces.
 
 ### Changed
 
 - **Behavior change.** MCP: `recipient_consent` on `place_call`, `send_sms` and `send_email` must be the boolean `true`; strings and numbers are refused. Clients that sent a string such as `"true"` must now send a JSON boolean.
+- Forwards and Hail's own confirm mails are sent from `noreply+<org>@mail.hail.so`. `noreply` and `forwarder` are reserved user prefixes: minting or renaming to them returns 422, and migration `0056` adds the matching CHECK.
 - API, voicebot, and MCP deployments report their deployed commit SHA in telemetry. Backend images roll through the existing deployment workflow; no CLI or SDK release is required for these changes.
 
 ## [0.26.0] — 2026-10-06
