@@ -1272,8 +1272,9 @@ async def test_sms_fees_endpoint(client, org_and_key, sms_carrier) -> None:
 async def test_sms_fees_endpoint_shows_a_carrier_minimum(
     client, org_and_key, sms_carrier, monkeypatch
 ) -> None:
-    # Telnyx bills at least 3 monthly fees; "fake" stands in for it here.
-    monkeypatch.setattr(sms_registration_fees, "_MINIMUM_MONTHS", {"fake": 3})
+    # The file's minimum_months (Telnyx: 3) reaches the API; "fake" stands in.
+    row = sms_registration_fees._load()["fake"]
+    monkeypatch.setitem(row["person"], "minimum_months", 3)
     _, _, key = org_and_key
     resp = await client.get("/verifications/sms-fees", headers=_auth(key))
     assert resp.json()["fake"]["person"]["minimum_months"] == 3

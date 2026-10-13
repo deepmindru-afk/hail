@@ -10,12 +10,6 @@ from functools import lru_cache
 from hailhq.core import telephony_catalog
 
 _FILE = "sms-registration"
-# Monthly campaign fees a carrier bills at least, counted from approval.
-# Telnyx bills campaign fees for three months initially
-# (https://support.telnyx.com/en/articles/5634625-10dlc-fees-and-charges);
-# a carrier not listed bills month by month. The website's monthly rater
-# (hail-website lib/monthly-fee-rater.ts) applies the same minimum.
-_MINIMUM_MONTHS = {"telnyx": 3}
 
 
 @lru_cache(maxsize=1)
@@ -45,7 +39,7 @@ def monthly_fee_cents(provider: str, subject_type: str) -> int:
     return _cents(row["campaign_monthly_usd"])
 
 
-def minimum_months(provider: str) -> int:
+def minimum_months(provider: str, subject_type: str) -> int:
     """Monthly fees charged at least, from approval, even when the
-    registration is cancelled sooner."""
-    return _MINIMUM_MONTHS.get(provider, 1)
+    registration is cancelled sooner. A row without the field means 1."""
+    return int(_load()[provider][subject_type].get("minimum_months", 1))

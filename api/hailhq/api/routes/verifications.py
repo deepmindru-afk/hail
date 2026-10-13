@@ -1012,7 +1012,7 @@ class SmsFee(BaseModel):
     minimum_months: int = Field(
         description=(
             "Monthly fees charged at least, counted from approval, even when "
-            "the registration is cancelled sooner (3 for Telnyx, 1 otherwise)."
+            "the registration is cancelled sooner."
         )
     )
 
@@ -1035,7 +1035,7 @@ async def get_sms_fees(
                 monthly_cents=sms_registration_fees.monthly_fee_cents(
                     provider, subject
                 ),
-                minimum_months=sms_registration_fees.minimum_months(provider),
+                minimum_months=sms_registration_fees.minimum_months(provider, subject),
             )
             for subject in ("person", "business")
         }

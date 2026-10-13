@@ -27,8 +27,11 @@ def test_telnyx_fees_match_telnyx() -> None:
 
 
 def test_minimum_months() -> None:
-    assert fees.minimum_months("telnyx") == 3
-    assert fees.minimum_months("twilio") == 1
+    # Telnyx bills campaign fees for three months initially.
+    assert fees.minimum_months("telnyx", "person") == 3
+    assert fees.minimum_months("telnyx", "business") == 3
+    # No field: month by month.
+    assert fees.minimum_months("twilio", "business") == 1
 
 
 def test_unknown_provider_raises() -> None:

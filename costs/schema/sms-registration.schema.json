@@ -28,7 +28,12 @@
       "properties": {
         "brand_usd": { "$ref": "#/$defs/decimal" },
         "campaign_vetting_usd": { "$ref": "#/$defs/decimal" },
-        "campaign_monthly_usd": { "$ref": "#/$defs/decimal" }
+        "campaign_monthly_usd": { "$ref": "#/$defs/decimal" },
+        "minimum_months": {
+          "description": "Monthly campaign fees the carrier bills at least, counted from approval, even when the registration is cancelled sooner. Absent means 1.",
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "provider": {

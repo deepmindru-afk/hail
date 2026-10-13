@@ -8337,7 +8337,7 @@ components:
           title: Minimum Months
           description:
             Monthly fees charged at least, counted from approval, even
-            when the registration is cancelled sooner (3 for Telnyx, 1 otherwise).
+            when the registration is cancelled sooner.
       type: object
       required:
         - filing_cents
