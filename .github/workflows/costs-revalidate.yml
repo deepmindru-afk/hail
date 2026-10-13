@@ -1,0 +1,70 @@
+name: costs-revalidate
+
+# After a merge that changes costs/, tell hail.so to drop its cached copy of
+# the cost files. hail-website reads them from raw.githubusercontent.com with
+# a 24-hour fetch cache (lib/telephony-costs.ts, lib/tools/costs-data.ts);
+# without this call the console picker, the marketing prices and the
+# calculators show a merged change up to a day later. The request is signed
+# with the X-Hail-Signature scheme every /api/internal/* route on
+# hail-website checks (lib/hail-internal.ts).
+#
+# Timing: raw.githubusercontent.com answers with `cache-control: max-age=300`,
+# so its CDN can serve the pre-merge file for up to 5 minutes after the push.
+# Calling hail.so inside that window makes it refetch the OLD file and keep
+# it for another day. The job waits the full window first.
+#
+# Required repo secret:
+#   HAIL_INTERNAL_SECRET   — same value as HAIL_INTERNAL_SECRET on the VM
+#                            .env and in hail-website's Vercel env
+#
+# Security notes:
+#   - The target URL is fixed here, not a variable: a signed request must
+#     never be pointed somewhere else by a settings change.
+#   - `github.sha` lands in an env: block; the script reads it as "$VAR".
+
+on:
+  push:
+    branches: [main]
+    paths: ["costs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  revalidate:
+    runs-on: ubuntu-latest
+    env:
+      REVALIDATE_URL: https://hail.so/api/internal/costs/revalidate
+      REVALIDATE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check the secret is set
+        env:
+          HAIL_INTERNAL_SECRET: ${{ secrets.HAIL_INTERNAL_SECRET }}
+        run: |
+          if [ -z "$HAIL_INTERNAL_SECRET" ]; then
+            echo "::error::HAIL_INTERNAL_SECRET is not set (Settings → Secrets → Actions)"
+            exit 1
+          fi
+      - name: Wait out the raw.githubusercontent.com CDN cache (max-age=300)
+        if: github.event_name == 'push'
+        run: sleep 320
+      - name: Tell hail.so the cost files changed
+        env:
+          HAIL_INTERNAL_SECRET: ${{ secrets.HAIL_INTERNAL_SECRET }}
+        run: |
+          set -euo pipefail
+          body="{\"sha\":\"$REVALIDATE_SHA\"}"
+          sig="$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$HAIL_INTERNAL_SECRET" | awk '{print $NF}')"
+          # --retry covers a transient 5xx or a dropped connection on hail.so;
+          # a red run without a retry leaves the stale copy for a day.
+          code="$(curl -sS -o response.json -w '%{http_code}' -X POST "$REVALIDATE_URL" \
+            --max-time 30 --retry 3 --retry-delay 5 --retry-all-errors \
+            -H 'Content-Type: application/json' \
+            -H "X-Hail-Signature: sha256=$sig" \
+            --data-binary "$body")"
+          cat response.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::$REVALIDATE_URL answered HTTP $code"
+            exit 1
+          fi
