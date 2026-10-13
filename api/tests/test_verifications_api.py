@@ -1778,3 +1778,52 @@ async def test_confirm_code_length_is_checked(
     assert (await _confirm(client, key, vid, "12")).status_code == 422
     assert (await _confirm(client, key, vid, "1" * 11)).status_code == 422
     assert sms_carrier.confirmed == []
+
+
+async def test_confirm_is_capped_after_five_wrong_codes(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    sms_carrier.confirm_problems = [
+        Problem(field="code", message="That code is wrong or has expired.")
+    ]
+    for _ in range(5):
+        assert (await _confirm(client, key, vid, "000000")).status_code == 422
+    assert (await _stored_refs(async_session, vid))["confirm_attempts"] == 5
+    resp = await _confirm(client, key, vid, "111111")
+    assert resp.status_code == 429, resp.text
+    assert resp.json()["detail"] == "Too many wrong codes. Wait for a new code."
+    assert len(sms_carrier.confirmed) == 5
+    audits = (
+        (
+            await async_session.execute(
+                select(AuditLog).where(AuditLog.action == "verification.confirm")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [a.payload for a in audits] == [
+        {"ok": False, "attempts": n} for n in range(1, 6)
+    ]
+    assert "000000" not in json.dumps([a.payload for a in audits])
+
+
+async def test_a_new_code_resets_the_attempt_cap(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    row = await async_session.get(CarrierVerification, uuid.UUID(vid))
+    # What the carrier plug-in writes when it sends a new code.
+    row.provider_refs = {**row.provider_refs, "confirm_attempts": 0}
+    await async_session.commit()
+    resp = await _confirm(client, key, vid)
+    assert resp.status_code == 200, resp.text
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "verification.confirm")
+        )
+    ).scalar_one()
+    assert audit.payload == {"ok": True, "attempts": 1}

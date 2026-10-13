@@ -66,6 +66,10 @@ _READ_CHUNK = 1024 * 1024
 _LIVE_STATES = ("draft", "awaiting_review", "submitting", "submitted", "approved")
 _POLLED_STATES = ("submitting", "submitted")
 _POLL_INTERVAL_S = 60
+# Wrong confirmation codes allowed per code the carrier sends. The count
+# lives in provider_refs['confirm_attempts']; the plug-in resets it to 0
+# whenever it sends a new code.
+_MAX_CONFIRM_ATTEMPTS = 5
 # A row left in 'submitting' this long was cut off mid-submit (see
 # _submit_row). Reads then ask the carrier what really happened.
 _SUBMITTING_STUCK_AFTER = timedelta(minutes=5)
@@ -1109,8 +1113,9 @@ async def confirm_verification(
     """Enter the code the carrier texted to confirm a person's US texting
     registration. Use it when the verification shows `confirmation: "code"`.
     On success the campaign is filed at once; poll GET /verifications/{id}
-    until `approved`. A wrong or expired code is 422 on `code`; 409 when
-    there is nothing to confirm."""
+    until `approved`. A wrong or expired code is 422 on `code`; after five
+    wrong codes, 429 until the carrier sends a new code (once a day). 409
+    when there is nothing to confirm."""
     row = await _org_row_or_404(db, principal, verification_id)
     # Wait for a poll in flight (it holds the same lock), then re-read.
     row = (
@@ -1130,6 +1135,13 @@ async def confirm_verification(
     ):
         await db.rollback()
         raise _nothing_to_confirm()
+    attempts = int(row.provider_refs.get("confirm_attempts") or 0)
+    if attempts >= _MAX_CONFIRM_ATTEMPTS:
+        await db.rollback()
+        raise HTTPException(
+            status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many wrong codes. Wait for a new code.",
+        )
     try:
         problems = await provider.confirm(row.provider_refs, body.code)
     except NotImplementedError as exc:
@@ -1141,10 +1153,11 @@ async def confirm_verification(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="carrier unavailable; try again later",
         ) from exc
+    attempts += 1
     if problems:
-        await db.rollback()
-        raise _problems_422(problems)
-    row.provider_refs["identity_verified"] = True
+        row.provider_refs["confirm_attempts"] = attempts
+    else:
+        row.provider_refs["identity_verified"] = True
     row.updated_at = datetime.now(timezone.utc)
     flag_modified(row, "provider_refs")
     await db.commit()  # also ends the row lock
@@ -1155,10 +1168,12 @@ async def confirm_verification(
         "verification.confirm",
         "carrier_verification",
         row.id,
-        {"purpose": row.purpose},  # never the code
+        {"ok": not problems, "attempts": attempts},  # never the code
         actor_user_id=actor_user_id,
         actor_kind=actor_kind,
     )
+    if problems:
+        raise _problems_422(problems)
     # File the campaign now rather than on the next poll.
     await _refresh(db, row, registry)
     return _out(row, registry)

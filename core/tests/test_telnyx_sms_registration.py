@@ -400,7 +400,7 @@ async def test_person_draft_creates_sole_proprietor_brand_and_sends_pin() -> Non
     assert otp["successSms"] == "Hail: your number is confirmed. Reply STOP to opt out."
     refs = draft.refs
     assert refs["brand_id"] == "B1" and refs["otp_reference_id"] == "R1"
-    assert refs["subject_type"] == "person"
+    assert refs["subject_type"] == "person" and refs["confirm_attempts"] == 0
     datetime.fromisoformat(refs["otp_sent_at"])
     assert "Ada" not in repr({k: v for k, v in refs.items() if k != "campaign"})
     assert "5550100" not in repr(refs)
@@ -553,3 +553,16 @@ async def test_status_creates_campaign_after_confirm_even_if_brand_lags() -> Non
     st = await _provider(handler).status(refs)
     assert st.state == "pending" and refs["campaign_id"] == "C1"
     assert otp_posts == []
+
+
+async def test_a_new_pin_resets_the_confirm_attempts() -> None:
+    otp_posts: list = []
+    old = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    refs = _person_refs(otp_sent_at=old, confirm_attempts=5)
+    await _provider(_unverified_handler(otp_posts)).status(refs)
+    assert len(otp_posts) == 1 and refs["confirm_attempts"] == 0
+    fresh = _person_refs(
+        otp_sent_at=datetime.now(timezone.utc).isoformat(), confirm_attempts=3
+    )
+    await _provider(_unverified_handler([])).status(fresh)
+    assert fresh["confirm_attempts"] == 3

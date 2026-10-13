@@ -180,6 +180,8 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         )
         refs["otp_reference_id"] = sent.get("referenceId")
         refs["otp_sent_at"] = datetime.now(timezone.utc).isoformat()
+        # A new code clears the wrong-code count (the API caps it).
+        refs["confirm_attempts"] = 0
 
     async def _resend_pin_if_old(self, refs) -> None:
         """Send a new PIN when the last one is over a day old (or its time is
