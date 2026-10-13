@@ -15,6 +15,9 @@ Rules the merge follows, in this order:
 - A row the sync could not observe this run (no numbers in stock, no price,
   no dial code, or a country the sync account cannot see) is left exactly as
   it was: not seeing stock is not the same as the carrier dropping the type.
+  Twilio only: a catalog country outside the account listing is asked the
+  Pricing API; no prices at all means Twilio sells nothing there through the
+  API, and its rows vanish.
 - A carrier without credentials is skipped with a printed reason, not an error.
 
 Calls, texts and MMS flags: a feature a sampled number has is a yes. For a
@@ -254,8 +257,9 @@ def twilio_observed_keys(
     says nothing about what Twilio sells. Only these keys were observed.
 
     ``unsold`` names catalog countries outside the listing for which the
-    Pricing API has no prices at all. Twilio sells nothing there, so every
-    key of theirs counts as observed: absent from the rows, they vanish."""
+    Pricing API has no prices at all. Twilio sells nothing there through the
+    API (Hail's only way to buy), so every key of theirs counts as observed:
+    absent from the rows, they vanish."""
     keys = {
         f"{c['country_code']}:{t}"
         for c in countries
@@ -276,8 +280,9 @@ def fetch_twilio(
 
     ``catalog_countries`` are the countries the catalog on disk has. One
     outside the account listing is asked the Pricing API: no prices at all
-    means Twilio stopped selling there (Bulgaria, 2026-10), and its rows
-    are observed gone rather than kept at a price nobody can buy."""
+    means Twilio sells nothing there through the API (Bulgaria, 2026-10),
+    and its rows are observed gone rather than kept at a price nobody can
+    buy."""
     base = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/AvailablePhoneNumbers"
     countries = http.get(f"{base}.json")["countries"]
     listed = {c["country_code"] for c in countries}
@@ -736,9 +741,12 @@ def merge(
             )
             numbers.append(prev)
             continue
-        kept = dict(prev)
+        # The carrier was asked today and said no: the row is verified, and
+        # the day it went off sale is a change of a watched field.
+        kept = {**prev, "last_verified": today}
         if kept.get("available", True):
             kept["available"] = False
+            kept["last_changed_at"] = today
             # Appended, not written over: a hand-verified row's notes say why
             # a human confirmed it and must outlive the carrier's feed.
             kept["notes"] = "; ".join(

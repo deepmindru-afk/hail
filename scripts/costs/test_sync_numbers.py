@@ -460,10 +460,13 @@ def test_merge_keeps_notes_on_a_vanished_row_and_rebuilds_it_on_return():
     # Vanishes: the existing note stays, the vanished note is added after it.
     gone, report = sync.merge([prev], [], "2026-09-28", "https://src", "sync")
     assert report["vanished"] == ["GB:mobile"] and gone[0]["available"] is False
+    assert gone[0]["last_verified"] == gone[0]["last_changed_at"] == "2026-09-28"
     assert gone[0]["notes"].startswith(prev["notes"] + "; not offered")
     # Vanishes again: no second copy of the vanished note.
     gone2, _ = sync.merge(gone, [], "2026-09-29", "https://src", "sync")
     assert gone2[0]["notes"] == gone[0]["notes"]
+    assert gone2[0]["last_verified"] == "2026-09-29"
+    assert gone2[0]["last_changed_at"] == "2026-09-28"
     # Returns: rebuilt from the carrier, on sale again, vanished note gone.
     back, report = sync.merge(gone2, [fetched_gb], "2026-09-30", "https://src", "sync")
     assert back[0]["available"] is True and "notes" not in back[0]
