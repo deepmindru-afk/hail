@@ -1,0 +1,28 @@
+.mascot {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+
+/* The eye squashes to a line for 120 ms every 6 s. */
+.eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .eye {
+    animation: mascot-blink 6s ease-in-out infinite;
+  }
+}
+
+@keyframes mascot-blink {
+  0%,
+  96%,
+  100% {
+    transform: scaleY(1);
+  }
+  98% {
+    transform: scaleY(0.08);
+  }
+}

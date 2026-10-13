@@ -72,10 +72,26 @@
   font-family: var(--font-mono), monospace !important;
 }
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   font-weight: 700;
   font-size: 20px;
   letter-spacing: -0.045em;
   margin-right: auto;
+}
+/* The bird nods when the pointer rests on the home link. */
+.mascot {
+  transform-origin: 50% 80%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mascot {
+    transition: transform 160ms ease-out;
+  }
+  .logo:hover .mascot,
+  .logo:focus-visible .mascot {
+    transform: rotate(-8deg);
+  }
 }
 
 .nav {
