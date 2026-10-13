@@ -1,6 +1,6 @@
 # MCP clients
 
-Hail exposes MCP as a **remote server**. Hail Cloud uses OAuth. Paste the URL into your client. Click Allow in the browser. Your agent then gets the call/sms/mail tools. There are no keys to manage and no installation.
+Hail exposes MCP as a **remote server**. Hail Cloud uses OAuth. Paste the URL into your client. Click Allow in the browser. Your agent then gets the call, SMS, email, agent, number and verification tools. There are no keys to manage and no installation.
 
 > For the easy onboarding path, refer to the [client picker on hail.so/mcp](https://hail.so/mcp). It has copy-paste setup for the 8 most common clients (Claude.ai, ChatGPT, Cursor, Gemini, …). This page is the technical reference behind those snippets.
 

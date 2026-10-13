@@ -1790,14 +1790,31 @@ async def test_acquire_number_timeout_returns_generated_key(
 
 
 @respx.mock
-async def test_acquire_number_api_error_returns_the_key(client: HailClient) -> None:
+async def test_acquire_number_4xx_returns_no_key(client: HailClient) -> None:
+    # The API caches a 4xx under the key; a retry with it replays the failure.
     respx.post(f"{_BASE_URL}/numbers").mock(
         return_value=httpx.Response(409, json={"detail": "Quote expired"})
     )
     result = await tools.acquire_number(
         client=client, idempotency_key="k-409", **_ACQUIRE_ARGS
     )
-    assert result == {"error": "Quote expired", "idempotency_key": "k-409"}
+    assert result == {"error": "Quote expired"}
+
+
+@respx.mock
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_acquire_number_retryable_error_returns_the_key(
+    client: HailClient, status: int
+) -> None:
+    # Nothing is cached under the key for these; the same key may be retried.
+    respx.post(f"{_BASE_URL}/numbers").mock(
+        return_value=httpx.Response(status, json={"detail": "later"})
+    )
+    result = await tools.acquire_number(
+        client=client, idempotency_key="k-retry", **_ACQUIRE_ARGS
+    )
+    assert "error" in result
+    assert result["idempotency_key"] == "k-retry"
 
 
 @respx.mock
@@ -1853,8 +1870,7 @@ async def test_acquire_number_maps_api_errors(
         return_value=httpx.Response(status, json={"detail": detail})
     )
     result = await tools.acquire_number(client=client, **_ACQUIRE_ARGS)
-    assert result["error"] == expected
-    assert _UUID_RE.match(result["idempotency_key"])
+    assert result == {"error": expected}
 
 
 @pytest.mark.parametrize(

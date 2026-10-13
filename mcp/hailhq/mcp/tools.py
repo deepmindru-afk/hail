@@ -596,7 +596,13 @@ async def acquire_number(
             "idempotency_key": idempotency_key,
         }
     except HailAPIError as exc:
-        return {**_format_api_error(exc), "idempotency_key": idempotency_key}
+        error = _format_api_error(exc)
+        if exc.status == 429 or exc.status >= 500:
+            # Nothing was cached under the key: a retry with it can succeed.
+            return {**error, "idempotency_key": idempotency_key}
+        # The API caches a 4xx under the key. A retry with it replays the
+        # same failure (or 409s on a changed body), so do not hand it back.
+        return error
     # Echo the key so the agent can retry this exact purchase safely.
     result.setdefault("idempotency_key", idempotency_key)
     return result
@@ -671,6 +677,17 @@ async def update_agent(
     **fields: Any,
 ) -> dict[str, Any]:
     """``fields`` holds only the values to set; ``clear_fields`` the nulls."""
+    # Check the arguments before any HTTP call.
+    clear = list(clear_fields or [])
+    bad = [f for f in clear if f not in _CLEARABLE_AGENT_FIELDS]
+    if bad:
+        return {
+            "error": f"cannot clear {', '.join(bad)}. "
+            f"clear_fields accepts only: {', '.join(_CLEARABLE_AGENT_FIELDS)}"
+        }
+    both = [f for f in clear if f in fields]
+    if both:
+        return {"error": f"cannot both set and clear: {', '.join(both)}"}
     if (language is None) != (voice_id is None):
         # The API replaces voice_config whole on PATCH: start from the
         # agent's current one so the value not given is kept.
@@ -685,16 +702,6 @@ async def update_agent(
         for key, value in (("language", language), ("voice_id", voice_id)):
             if value is not None:
                 fields["voice_config"][key] = value
-    clear = list(clear_fields or [])
-    bad = [f for f in clear if f not in _CLEARABLE_AGENT_FIELDS]
-    if bad:
-        return {
-            "error": f"cannot clear {', '.join(bad)}. "
-            f"clear_fields accepts only: {', '.join(_CLEARABLE_AGENT_FIELDS)}"
-        }
-    both = [f for f in clear if f in fields]
-    if both:
-        return {"error": f"cannot both set and clear: {', '.join(both)}"}
     body = dict(fields)
     for name in clear:
         body[name] = None
@@ -1760,8 +1767,6 @@ def register_tools(
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="acquire_number",
@@ -1795,9 +1800,10 @@ def register_tools(
         new quote after a timeout.
 
         ``provider`` is ``auto`` (the quoted carrier) or the quoted carrier's
-        name. ``idempotency_key`` is optional; to retry, pass the
-        ``idempotency_key`` the first result returned (it is on errors too),
-        so the number is bought once.
+        name. ``idempotency_key`` is optional; to retry after a timeout or a
+        5xx, pass the ``idempotency_key`` that result returned, so the number
+        is bought once. A 4xx error returns no key: the API remembers that
+        failure under it, so drop it and quote again.
 
         Returns the number (``id``, ``e164``, ``provisioning_state``, ...)
         plus ``idempotency_key``, or ``{"error": "<message>",
@@ -1815,8 +1821,6 @@ def register_tools(
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="list_numbers",
@@ -1846,8 +1850,6 @@ def register_tools(
                 return await list_numbers(client=client, limit=limit, cursor=cursor)
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="get_number",
@@ -1874,8 +1876,6 @@ def register_tools(
                 return await get_number(client=client, number_id=number_id)
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="release_number",
@@ -1915,8 +1915,6 @@ def register_tools(
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="get_agent",
@@ -1944,8 +1942,6 @@ def register_tools(
                 return await get_agent(client=client, agent_id=agent_id)
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="update_agent",
@@ -2021,8 +2017,6 @@ def register_tools(
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="delete_agent",
@@ -2059,8 +2053,6 @@ def register_tools(
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
-        except HailAPIError as exc:
-            return _format_api_error(exc)
 
     @mcp_app.tool(
         name="list_contacts",
