@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from hailhq.core.providers.verification.base import Address
 from hailhq.core.providers.verification.twilio_sms import TwilioSmsRegistrationProvider
 

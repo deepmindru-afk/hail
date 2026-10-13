@@ -12,13 +12,13 @@ from datetime import datetime, timezone
 
 from hailhq.core.config import settings
 from hailhq.core.providers.verification.base import (
+    DraftResult,
     Problem,
     ProviderStatus,
     Requirements,
     SmsRegistrationProvider,
     VerificationProviderError,
 )
-from hailhq.core.providers.verification.base import DraftResult
 from hailhq.core.providers.verification.sms_form import campaign_text, sms_requirements
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client as TwilioClient
@@ -101,14 +101,17 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         subject_type = requirements.subject_type
         problems = self._validate(fields, address, subject_type)
         mobile = fields.get("mobile_phone_number")
-        if subject_type == "person" and mobile:
-            if await asyncio.to_thread(self._is_hail_number, mobile):
-                problems.append(
-                    Problem(
-                        field="mobile_phone_number",
-                        message="Use your own mobile number, not a Hail number.",
-                    )
+        if (
+            subject_type == "person"
+            and mobile
+            and await asyncio.to_thread(self._is_hail_number, mobile)
+        ):
+            problems.append(
+                Problem(
+                    field="mobile_phone_number",
+                    message="Use your own mobile number, not a Hail number.",
                 )
+            )
         if problems:
             return DraftResult(refs={}, problems=problems)
         text = campaign_text(fields, subject_type)

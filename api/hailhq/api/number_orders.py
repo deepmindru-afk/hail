@@ -9,10 +9,10 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
+from hailhq.api import sms_registration
 from hailhq.api.audit import write_audit_log
 from hailhq.api.deps import Principal
 from hailhq.api.errors import unprocessable
-from hailhq.api import sms_registration
 from hailhq.api.funds import BILLING_URL
 from hailhq.core import sms_setup, telephony_catalog
 from hailhq.core.billing import get_balance_cents, monthly_fee_ref

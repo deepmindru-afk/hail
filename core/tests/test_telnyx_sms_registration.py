@@ -2,7 +2,6 @@ import json
 
 import httpx
 import pytest
-
 from hailhq.core.providers.verification.base import (
     Address,
     UnsupportedSubjectType,
