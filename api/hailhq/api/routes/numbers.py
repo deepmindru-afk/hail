@@ -187,6 +187,8 @@ async def _unlink_from_sms_registration(db: AsyncSession, number: PhoneNumber) -
     first. Best effort (the plug-in logs failures). Twilio needs nothing."""
     if number.provider != "telnyx" or number.country_code != "US":
         return
+    if number.number_type != "local":
+        return
     if number.organization_id is None:
         return
     if not await sms_registration.approved_registration(

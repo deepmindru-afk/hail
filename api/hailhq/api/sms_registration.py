@@ -70,12 +70,17 @@ async def approved_registration(
 ) -> CarrierVerification | None:
     return (
         await db.execute(
-            select(CarrierVerification).where(
+            select(CarrierVerification)
+            .where(
                 CarrierVerification.organization_id == organization_id,
                 CarrierVerification.provider == provider,
                 CarrierVerification.purpose == "sms",
                 CarrierVerification.state == "approved",
             )
+            # One live row per carrier is the rule, but nothing in the
+            # schema enforces it: never fail a purchase over a duplicate.
+            .order_by(CarrierVerification.approved_at.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 
