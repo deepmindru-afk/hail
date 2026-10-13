@@ -114,6 +114,13 @@ def _register_builtin() -> None:
     register_verification_provider(
         "twilio", TwilioSmsRegistrationProvider, purpose="sms"
     )
+    from hailhq.core.providers.verification.telnyx_sms import (
+        TelnyxSmsRegistrationProvider,
+    )
+
+    register_verification_provider(
+        "telnyx", TelnyxSmsRegistrationProvider, purpose="sms"
+    )
 
 
 _register_builtin()
