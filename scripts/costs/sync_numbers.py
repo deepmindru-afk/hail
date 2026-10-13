@@ -15,6 +15,9 @@ Rules the merge follows, in this order:
 - A row the sync could not observe this run (no numbers in stock, no price,
   no dial code, or a country the sync account cannot see) is left exactly as
   it was: not seeing stock is not the same as the carrier dropping the type.
+  Twilio only: a catalog country outside the account listing is asked the
+  Pricing API; no prices at all means Twilio sells nothing there through the
+  API, and its rows vanish.
 - A carrier without credentials is skipped with a printed reason, not an error.
 
 Calls, texts and MMS flags: a feature a sampled number has is a yes. For a
@@ -35,7 +38,7 @@ import os
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -244,26 +247,58 @@ def map_twilio(
 
 
 def twilio_observed_keys(
-    countries: list[dict], types_by_country: dict[str, list[str]]
+    countries: list[dict],
+    types_by_country: dict[str, list[str]],
+    unsold: Iterable[str] = (),
 ) -> set[str]:
     """The "ISO:type" pairs the account's listing enumerated. Twilio's
     AvailablePhoneNumbers list is scoped to the account's geographic
     permissions: a country it is not enabled for is simply absent, which
-    says nothing about what Twilio sells. Only these keys were observed."""
-    return {
+    says nothing about what Twilio sells. Only these keys were observed.
+
+    ``unsold`` names catalog countries outside the listing for which the
+    Pricing API has no prices at all. Twilio sells nothing there through the
+    API (Hail's only way to buy), so every key of theirs counts as observed:
+    absent from the rows, they vanish."""
+    keys = {
         f"{c['country_code']}:{t}"
         for c in countries
         for t in types_by_country.get(c["country_code"], [])
         if t in NUMBER_TYPES
     }
+    keys |= {f"{iso}:{t}" for iso in unsold for t in NUMBER_TYPES}
+    return keys
 
 
 def fetch_twilio(
-    http: Http, account_sid: str, dial_codes: dict[str, str]
+    http: Http,
+    account_sid: str,
+    dial_codes: dict[str, str],
+    catalog_countries: Iterable[str] = (),
 ) -> tuple[list[dict], list[str], set[str]]:
-    """Rows, skipped lines, and the keys the account could see at all."""
+    """Rows, skipped lines, and the keys the account could see at all.
+
+    ``catalog_countries`` are the countries the catalog on disk has. One
+    outside the account listing is asked the Pricing API: no prices at all
+    means Twilio sells nothing there through the API (Bulgaria, 2026-10),
+    and its rows are observed gone rather than kept at a price nobody can
+    buy."""
     base = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/AvailablePhoneNumbers"
     countries = http.get(f"{base}.json")["countries"]
+    listed = {c["country_code"] for c in countries}
+    unsold: set[str] = set()
+    for iso in sorted(set(catalog_countries) - listed):
+        progress(f"twilio {iso} (not in the account listing)")
+        try:
+            prices = http.get(
+                f"https://pricing.twilio.com/v1/PhoneNumbers/Countries/{iso}"
+            )
+        except requests.HTTPError:
+            # A 4xx for one probe says nothing about the country. The row
+            # stays unobserved; the other countries still sync.
+            continue
+        if not prices.get("phone_number_prices"):
+            unsold.add(iso)
     types_by_country: dict[str, list[str]] = {}
     samples: dict[tuple[str, str], list[dict]] = {}
     capabilities: dict[tuple[str, str], dict[str, bool]] = {}
@@ -319,7 +354,7 @@ def fetch_twilio(
         dial_codes,
         capabilities,
     )
-    return rows, skipped, twilio_observed_keys(countries, types_by_country)
+    return rows, skipped, twilio_observed_keys(countries, types_by_country, unsold)
 
 
 # -- Telnyx -------------------------------------------------------------------
@@ -713,9 +748,12 @@ def merge(
             )
             numbers.append(prev)
             continue
-        kept = dict(prev)
+        # The carrier was asked today and said no: the row is verified, and
+        # the day it went off sale is a change of a watched field.
+        kept = {**prev, "last_verified": today}
         if kept.get("available", True):
             kept["available"] = False
+            kept["last_changed_at"] = today
             # Appended, not written over: a hand-verified row's notes say why
             # a human confirmed it and must outlive the carrier's feed.
             kept["notes"] = "; ".join(
@@ -811,7 +849,12 @@ def run_provider(
             )
             return False
         session.auth = (sid, tok)
-        rows, skipped, observed = fetch_twilio(http_factory(session), sid, dial_codes)
+        rows, skipped, observed = fetch_twilio(
+            http_factory(session),
+            sid,
+            dial_codes,
+            catalog_countries={n["country_code"] for n in existing},
+        )
     elif provider == "telnyx":
         key = config.get("TELNYX_API_KEY")
         if not key:
