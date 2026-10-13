@@ -880,6 +880,14 @@ async def test_sms_status_missing_sid_is_unmatched(
     assert deliveries == []
 
 
+@pytest.fixture
+def sms_gate_on(monkeypatch):
+    """The registration gate ships off; gate tests turn it on."""
+    from hailhq.core.config import settings
+
+    monkeypatch.setattr(settings, "hail_sms_registration_gate", True)
+
+
 def _us_text(**extra) -> dict:
     return {
         "to": "+14155550123",
@@ -890,7 +898,7 @@ def _us_text(**extra) -> dict:
 
 
 async def test_us_to_us_from_unregistered_long_code_is_422(
-    client, async_session, org_and_key, sms_mock
+    client, async_session, org_and_key, sms_mock, sms_gate_on
 ) -> None:
     org_id, _, key = org_and_key
     await _seed_dedicated_number(async_session, org_id, register_sms=False)
@@ -904,7 +912,7 @@ async def test_us_to_us_from_unregistered_long_code_is_422(
 
 
 async def test_us_to_us_passes_when_registered(
-    client, async_session, org_and_key, sms_mock
+    client, async_session, org_and_key, sms_mock, sms_gate_on
 ) -> None:
     org_id, _, key = org_and_key
     await _seed_dedicated_number(async_session, org_id, register_sms=False)
@@ -916,7 +924,7 @@ async def test_us_to_us_passes_when_registered(
 
 
 async def test_registration_is_per_carrier(
-    client, async_session, org_and_key, sms_mock
+    client, async_session, org_and_key, sms_mock, sms_gate_on
 ) -> None:
     org_id, _, key = org_and_key
     await _seed_dedicated_number(
@@ -937,7 +945,7 @@ async def test_registration_is_per_carrier(
 
 
 async def test_unapproved_registration_does_not_count(
-    client, async_session, org_and_key, sms_mock
+    client, async_session, org_and_key, sms_mock, sms_gate_on
 ) -> None:
     from hailhq.core.models import CarrierVerification
 
@@ -958,7 +966,7 @@ async def test_unapproved_registration_does_not_count(
 
 
 async def test_toll_free_and_non_us_are_not_gated(
-    client, async_session, org_and_key, sms_mock
+    client, async_session, org_and_key, sms_mock, sms_gate_on
 ) -> None:
     org_id, _, key = org_and_key
     await _seed_dedicated_number(
@@ -984,14 +992,40 @@ async def test_toll_free_and_non_us_are_not_gated(
 
 
 async def test_gate_off_lets_unregistered_sends_through(
-    client, async_session, org_and_key, sms_mock, monkeypatch
+    client, async_session, org_and_key, sms_mock
 ) -> None:
     from hailhq.core.config import settings
 
-    monkeypatch.setattr(settings, "hail_sms_registration_gate", False)
+    assert settings.hail_sms_registration_gate is False  # the shipped default
     org_id, _, key = org_and_key
     await _seed_dedicated_number(async_session, org_id, register_sms=False)
     resp = await client.post(
         "/sms", json=_us_text(), headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_canadian_long_code_to_us_is_not_gated(
+    client, async_session, org_and_key, sms_mock, sms_gate_on
+) -> None:
+    from hailhq.core.models import PhoneNumber
+
+    org_id, _, key = org_and_key
+    async_session.add(
+        PhoneNumber(
+            organization_id=org_id,
+            e164="+14165550100",
+            country_code="CA",
+            number_type="local",
+            provider="twilio",
+            provider_resource_id="PN_ca",
+            provisioning_state="active",
+        )
+    )
+    await async_session.commit()
+    resp = await client.post(
+        "/sms",
+        json=_us_text(**{"from": "+14165550100"}),
+        headers={"Authorization": f"Bearer {key}"},
     )
     assert resp.status_code == 201, resp.text

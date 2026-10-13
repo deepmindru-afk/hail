@@ -276,9 +276,9 @@ class Settings(BaseSettings):
     hail_sms_abuse_min_sends: int = 20  # floor: don't flag low-volume orgs
     hail_sms_abuse_max_opt_out_rate: float = 0.05  # 5% opt-out rate trips it
     # Block US-to-US texts from a long code with no approved US SMS
-    # registration. Off for one release after launch so existing senders can
-    # register first (see the 2026-10-13 spec, Rollout).
-    hail_sms_registration_gate: bool = True
+    # registration. Off for the first release so existing senders can
+    # register; flip to true after the 30-day notice.
+    hail_sms_registration_gate: bool = False
     # Poll cadence (seconds) for the AbuseMonitorWorker's coarse-grained batch
     # check — hourly by default, not a per-send check. Set 0 to disable.
     hail_abuse_monitor_poll_seconds: int = 3600

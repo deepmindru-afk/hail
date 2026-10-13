@@ -1021,3 +1021,29 @@ async def test_locked_free_number_is_not_used_unbound(
     await async_session.rollback()
     await async_session.refresh(free)
     assert free.sms_agent_id is None
+
+
+async def test_send_sms_needs_us_sms_registration(
+    client, async_session, sms_mock, add_phone_number, monkeypatch
+):
+    from hailhq.core.sms_registration_gate import BLOCK_MESSAGE
+
+    monkeypatch.setattr(settings, "hail_sms_registration_gate", True)
+    org = uuid.uuid4()
+    call = await _insert_live_call(
+        async_session, org, add_phone_number, to_e164="+14155550123"
+    )
+    body = _sms_payload(call.id)
+    resp = await client.post(
+        "/internal/agent/send-sms", content=body, headers=_signed(body)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    sms_mock.send_sms.assert_not_awaited()
+    assert (await async_session.execute(Sms.__table__.select())).fetchall() == []
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "agent.sms.blocked")
+        )
+    ).scalar_one()
+    assert audit.payload["reason"] == BLOCK_MESSAGE

@@ -27,6 +27,8 @@ async def us_registration_block(
         return None
     if not (_is_us(to_e164) and _is_us(from_number.e164)):
         return None
+    if from_number.country_code != "US":
+        return None  # a Canadian long code needs no US registration
     if from_number.number_type == "toll_free":
         return None
     approved = (
