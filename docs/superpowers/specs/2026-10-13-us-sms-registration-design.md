@@ -244,8 +244,5 @@ so a crash mid-way is retried on the next pass. Each step checks
 ## Rollout
 
 1. Migration adds `purpose` (default `number`, existing rows unaffected).
-2. Deploy API with the gate behind `HAIL_SMS_REGISTRATION_GATE=off` for
-   one release, so existing US senders are not cut off before they can
-   register. Console shows the card at once.
+2. The gate is on from the first deploy.
 3. Email existing orgs with US long codes: register within 30 days.
-4. Flip the gate on.

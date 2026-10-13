@@ -22,6 +22,7 @@ from hailhq.core.models import (
     Agent,
     AuditLog,
     Call,
+    CarrierVerification,
     Email,
     EmailDomain,
     Organization,
@@ -49,6 +50,50 @@ def _internal_secret(monkeypatch):
     monkeypatch.setattr(settings, "hail_internal_secret", HMAC_SECRET)
 
 
+@pytest.fixture()
+def add_phone_number(add_phone_number):
+    """The conftest factory, plus an approved US SMS registration for the
+    number's org and carrier: texts from a US long code to a US number are
+    always gated. Pass ``register_sms=False`` to leave the org unregistered."""
+
+    async def _add(session, organization_id, *args, register_sms=True, **kwargs):
+        number = await add_phone_number(session, organization_id, *args, **kwargs)
+        if register_sms and organization_id is not None:
+            await _approve_sms(session, organization_id, number.provider)
+        return number
+
+    return _add
+
+
+async def _approve_sms(session: AsyncSession, org_id, provider: str) -> None:
+    exists = (
+        await session.execute(
+            select(CarrierVerification.id).where(
+                CarrierVerification.organization_id == org_id,
+                CarrierVerification.provider == provider,
+                CarrierVerification.purpose == "sms",
+                CarrierVerification.state == "approved",
+            )
+        )
+    ).first()
+    if exists:
+        return
+    session.add(
+        CarrierVerification(
+            organization_id=org_id,
+            provider=provider,
+            country_code="US",
+            number_type="local",
+            subject_type="business",
+            purpose="sms",
+            state="approved",
+            provider_refs={"campaign_sid": "QE1"},
+            requirements_version="x",
+        )
+    )
+    await session.commit()
+
+
 async def _insert_live_call(
     session: AsyncSession,
     org_id,
@@ -57,12 +102,13 @@ async def _insert_live_call(
     to_e164="+14155550123",
     billed=False,
     agent_id=None,
+    register_sms=True,
 ) -> Call:
     # add_phone_number (conftest.py factory fixture, see test_calls_api.py)
     # covers the same required columns this used to hand-roll: PhoneNumber
     # needs country_code/number_type/provider_resource_id, all NOT NULL with
     # no server default.
-    number = await add_phone_number(session, org_id)
+    number = await add_phone_number(session, org_id, register_sms=register_sms)
     call = Call(
         organization_id=org_id,
         from_number_id=number.id,
@@ -1028,10 +1074,13 @@ async def test_send_sms_needs_us_sms_registration(
 ):
     from hailhq.core.sms_registration_gate import BLOCK_MESSAGE
 
-    monkeypatch.setattr(settings, "hail_sms_registration_gate", True)
     org = uuid.uuid4()
     call = await _insert_live_call(
-        async_session, org, add_phone_number, to_e164="+14155550123"
+        async_session,
+        org,
+        add_phone_number,
+        to_e164="+14155550123",
+        register_sms=False,
     )
     body = _sms_payload(call.id)
     resp = await client.post(

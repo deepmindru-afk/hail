@@ -225,7 +225,6 @@ async def test_reply_needs_us_sms_registration(
 ) -> None:
     from hailhq.core.sms_registration_gate import BLOCK_MESSAGE
 
-    monkeypatch.setattr(settings, "hail_sms_registration_gate", True)
     _org, _agent, _number, sms_id = await _seed(async_session)
     inbound = await async_session.get(Sms, sms_id)
     inbound.from_e164 = "+14155550199"  # a US person texting a US long code

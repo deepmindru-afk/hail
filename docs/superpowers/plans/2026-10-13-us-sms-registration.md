@@ -1884,7 +1884,7 @@ git commit -m "feat(verifications): Telnyx 10DLC registration plug-in"
 
 **Interfaces:**
 - Produces: `async def us_registration_block(db, organization_id, from_number: PhoneNumber, to_e164: str) -> str | None` returning the 422 message, or `None` when the send may proceed.
-- Setting `hail_sms_registration_gate: bool = True` (`HAIL_SMS_REGISTRATION_GATE`).
+- The gate is always on; there is no setting.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1939,13 +1939,6 @@ async def test_toll_free_and_non_us_are_not_gated(client, org_and_key, async_ses
     assert resp.status_code == 201, resp.text
 
 
-async def test_gate_off_lets_unregistered_sends_through(client, org_and_key, sms_number, fake_sms_provider, monkeypatch) -> None:
-    from hailhq.core.config import settings
-    monkeypatch.setattr(settings, "hail_sms_registration_gate", False)
-    _, _, key = org_and_key
-    resp = await client.post("/sms", json={"to": "+14155550123", "body": "hi", "recipient_consent": True},
-                             headers=_auth(key))
-    assert resp.status_code == 201, resp.text
 ```
 
 Build the `sms_number`, `telnyx_sms_number`, and `toll_free_number` fixtures from the file's existing number helper with `country_code="US"`, `number_type="local"` or `"toll_free"`, `provider="twilio"` or `"telnyx"`, `capabilities=["sms","voice"]`, `provisioning_state="active"`. The `fake_sms_provider` fixture is whatever the file already uses to stub the carrier send.
@@ -1985,8 +1978,6 @@ def _is_us(e164: str) -> bool:
 async def us_registration_block(
     db: AsyncSession, organization_id: UUID, from_number: PhoneNumber, to_e164: str
 ) -> str | None:
-    if not settings.hail_sms_registration_gate:
-        return None
     if not (_is_us(to_e164) and _is_us(from_number.e164)):
         return None
     if from_number.number_type == "toll_free":
@@ -2016,35 +2007,17 @@ In `api/hailhq/api/routes/sms.py`, right after `from_e164 = from_number.e164` (i
 
 Import `from hailhq.core.sms_registration_gate import us_registration_block`.
 
-`core/hailhq/core/config.py`, next to `hail_sms_abuse_window_hours`:
-
-```python
-    # Block US-to-US texts from a long code with no approved US SMS
-    # registration. Off for one release after launch so existing senders can
-    # register first (see the 2026-10-13 spec, Rollout).
-    hail_sms_registration_gate: bool = True
-```
-
-`.env.example`, after `HAIL_SMS_ABUSE_MAX_OPT_OUT_RATE=0.05`:
-
-```
-# Block US-to-US texts from a long code with no approved US SMS registration
-# (A2P 10DLC). Set false for one release after launch so existing senders can
-# register first.
-HAIL_SMS_REGISTRATION_GATE=true
-```
-
-Mirror into the worktree `.env` (value `false` locally is fine) and run the masked diff; it must print nothing.
+The gate is always on: no setting, no env var.
 
 - [ ] **Step 4: Run the SMS suite**
 
 Run: `cd api && uv run pytest tests/test_sms_api.py -q`
-Expected: PASS. Existing tests that send US-to-US from a fixture number without a registration now need `_approve_sms` or the gate monkeypatched off; fix them by adding the registration row in their fixture, not by weakening the gate.
+Expected: PASS. Existing tests that send US-to-US from a fixture number without a registration now need `_approve_sms`; fix them by adding the registration row in their fixture, not by weakening the gate.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add core/hailhq/core/sms_registration_gate.py api/hailhq/api/routes/sms.py core/hailhq/core/config.py .env.example api/tests/test_sms_api.py
+git add core/hailhq/core/sms_registration_gate.py api/hailhq/api/routes/sms.py api/tests/test_sms_api.py
 git commit -m "feat(sms): block US-to-US texts from unregistered long codes"
 ```
 
@@ -2297,7 +2270,7 @@ In `sdk/hail/client.py`, the verifications methods (`grep -n "verifications" sdk
 - [ ] **Step 4: Docs and notes**
 
 - `core/hailhq/core/abuse_monitor.py` docstring lines 3-9: replace with "Each organization registers its own US A2P 10DLC brand and campaign (see docs/superpowers/specs/2026-10-13-us-sms-registration-design.md). One org's abusive traffic still risks Hail's standing with the carrier, so this module computes each org's rolling opt-out rate ..." (keep the rest).
-- `docs/operations/carrier-verification.md`: add a section "US SMS registration (`purpose=sms`)" with: the state meanings table from the spec, the fee debit (`account_credits.ref = sms_registration:<id>`), the attach step, `TWILIO_PRIMARY_PROFILE_SID`, `HAIL_SMS_REGISTRATION_GATE`, and one runnable curl:
+- `docs/operations/carrier-verification.md`: add a section "US SMS registration (`purpose=sms`)" with: the state meanings table from the spec, the fee debit (`account_credits.ref = sms_registration:<id>`), the attach step, `TWILIO_PRIMARY_PROFILE_SID`, and one runnable curl:
 
 ```bash
 curl -s -X POST "$HAIL_API_URL/verifications" -H "Authorization: Bearer $HAIL_API_KEY" \
@@ -2307,7 +2280,7 @@ curl -s -X POST "$HAIL_API_URL/verifications" -H "Authorization: Bearer $HAIL_AP
 ```
 
 - `docs/public/self-host/twilio.md:54-58`: replace the paragraph with: "A2P 10DLC (United States). Each organization registers its own brand and campaign from the console (Numbers → Register for US texting) or `POST /verifications` with `purpose=sms`. Set `TWILIO_PRIMARY_PROFILE_SID` to your approved Trust Hub primary profile (business identity ISV Reseller or Partner). Until an organization is approved, texts from its US long codes to US numbers return 422." Same paragraph in `telnyx.md` without the profile line.
-- `CHANGELOG.md` Unreleased: "US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI and MCP. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need an approved registration (422 otherwise; `HAIL_SMS_REGISTRATION_GATE=false` turns the check off for one release). New env: `TWILIO_PRIMARY_PROFILE_SID`, `HAIL_SMS_REGISTRATION_GATE`."
+- `CHANGELOG.md` Unreleased: "US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI and MCP. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need an approved registration (422 otherwise). New env: `TWILIO_PRIMARY_PROFILE_SID`."
 
 - [ ] **Step 5: Run everything**
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hailhq.core.config import settings
 from hailhq.core.models import CarrierVerification, PhoneNumber
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +22,6 @@ def _is_us(e164: str) -> bool:
 async def us_registration_block(
     db: AsyncSession, organization_id: UUID, from_number: PhoneNumber, to_e164: str
 ) -> str | None:
-    if not settings.hail_sms_registration_gate:
-        return None
     if not (_is_us(to_e164) and _is_us(from_number.e164)):
         return None
     if from_number.country_code != "US":
