@@ -4,6 +4,14 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-10-13
+
+A public webhook event catalog, and multi-org users land in their oldest
+workspace by default.
+
+Component versions cut alongside this release:
+**`cli-v0.27.0`** (Homebrew + GitHub Releases). No SDK release. No migrations.
+
 ### Added
 
 - `GET /v1/webhooks/event-types` lists every webhook event with its label and channel. It needs no API key and is exempt from the anonymous rate limit. Subscription create and update validate against the same list (`core/hailhq/core/webhook_events.py`). The OpenAPI spec now has one shared `WebhookEventType` enum.
