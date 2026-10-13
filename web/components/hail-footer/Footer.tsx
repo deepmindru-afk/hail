@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Mascot } from "./Mascot";
 import "./footer.css";
 
 export type FooterGroup = {
@@ -23,31 +24,21 @@ export function Footer({
   themeControl,
   badges = [],
   homeHref = "/",
-  mascotSrc = "/assets/hail-messenger.svg",
 }: {
   groups: FooterGroup[];
   themeControl: ReactNode;
   badges?: FooterBadge[];
   homeHref?: string;
-  mascotSrc?: string;
 }) {
   return (
     <footer className="hail-footer" aria-label="Hail">
       <div className="hail-footer-inner">
         <div className="hail-footer-grid">
           <div className="hail-footer-brand">
-            {/* A native image keeps this shared footer usable across all site zones. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="hail-footer-mascot"
-              src={mascotSrc}
-              width="64"
-              height="64"
-              alt=""
-              loading="lazy"
-            />
+            {/* The same Mascot as the header: it blinks, and nods when this link is hovered. */}
             <a className="hail-footer-mark" href={homeHref}>
-              hail.so
+              <Mascot className="hail-footer-mascot" size={64} />
+              <span>hail.so</span>
             </a>
             <p>
               Give your assistant calls, texts, and email. Add email and SMS to

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/hail-messenger.svg" width="120" alt="The Hail mascot: a blue bird holding an envelope">
+</p>
+
 # Hail
 
 **Give your agent a real phone number and an email inbox — in minutes, not days.**
@@ -6,6 +10,7 @@
 [![PyPI — hail-sdk](https://img.shields.io/pypi/v/hail-sdk?label=hail-sdk)](https://pypi.org/project/hail-sdk/)
 [![CLI release](https://img.shields.io/github/v/release/hail-hq/hail?label=hail%20CLI)](https://github.com/hail-hq/hail/releases)
 [![Docs](https://img.shields.io/badge/docs-hail.so%2Fdocs-blue)](https://hail.so/docs)
+[![Brand assets](https://img.shields.io/badge/brand-hail.so%2Fbrand-5284ff)](https://hail.so/brand)
 
 Your agent needs to call a person to move an appointment. Hail connects to the telephone carrier and runs the voice pipeline — STT, TTS, turn detection. Your agent is the brain: point Hail at any OpenAI-compatible endpoint ([bring your own LLM](docs/public/byo-llm.md)), or let Hail's fallback chain (OpenAI → Gemini → Anthropic) do the talking. SMS and email work the same way — one MCP endpoint, one API key, one invoice.
 
