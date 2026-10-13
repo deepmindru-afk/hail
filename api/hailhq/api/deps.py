@@ -187,9 +187,9 @@ async def _principal_from_apikey_table(token: str, db: AsyncSession) -> Principa
             OrganizationMember.user_id == cast(ApiKey.reference_id, PG_UUID),
         )
         .where(ApiKey.key == hashed)
-        # Deterministic org for a multi-org user (api keys carry no active-org
-        # hint) — mirrors the JWT path's fallback ordering.
-        .order_by(OrganizationMember.organization_id)
+        # Oldest membership for a multi-org user (api keys carry no active-org
+        # hint) — the website's default workspace; mirrors the JWT fallback.
+        .order_by(OrganizationMember.created_at, OrganizationMember.organization_id)
     )
     row = (await db.execute(stmt)).first()
     # The auth backend stores ``enabled`` as nullable with an application-level
@@ -360,9 +360,11 @@ async def _principal_from_jwt(token: str, db: AsyncSession) -> Principal:
         stmt = stmt.where(OrganizationMember.organization_id == active_org_uuid)
         not_member_detail = "user is not a member of the requested organization"
     else:
-        # Deterministic single-row pick — never raise MultipleResultsFound for a
-        # multi-org user when no active org was supplied.
-        stmt = stmt.order_by(OrganizationMember.organization_id)
+        # Oldest membership, as the website picks it. One row, so a multi-org
+        # user with no active org never raises MultipleResultsFound.
+        stmt = stmt.order_by(
+            OrganizationMember.created_at, OrganizationMember.organization_id
+        )
         not_member_detail = (
             "user not provisioned with an organization; "
             "sign in to the dashboard to complete setup"
