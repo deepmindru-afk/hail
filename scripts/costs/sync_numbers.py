@@ -289,7 +289,14 @@ def fetch_twilio(
     unsold: set[str] = set()
     for iso in sorted(set(catalog_countries) - listed):
         progress(f"twilio {iso} (not in the account listing)")
-        prices = http.get(f"https://pricing.twilio.com/v1/PhoneNumbers/Countries/{iso}")
+        try:
+            prices = http.get(
+                f"https://pricing.twilio.com/v1/PhoneNumbers/Countries/{iso}"
+            )
+        except requests.HTTPError:
+            # A 4xx for one probe says nothing about the country. The row
+            # stays unobserved; the other countries still sync.
+            continue
         if not prices.get("phone_number_prices"):
             unsold.add(iso)
     types_by_country: dict[str, list[str]] = {}

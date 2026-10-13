@@ -734,3 +734,27 @@ def test_twilio_marks_a_country_it_no_longer_prices_as_gone():
         {"country_code": "UG", "number_type": "local"},
     ]
     assert sync.unobserved_keys(existing, skipped, observed) == {"GB:local", "UG:local"}
+
+
+def test_twilio_pricing_probe_4xx_leaves_the_country_unobserved():
+    """A 4xx from the Pricing API for one unlisted catalog country must not
+    abort the Twilio sync, and says nothing about that country."""
+    import requests
+
+    class FakeHttp:
+        def get(self, url, **kw):
+            if url.endswith("/AvailablePhoneNumbers.json"):
+                return {"countries": []}
+            if url.endswith("/Countries/XK"):
+                raise requests.HTTPError("404 Client Error")
+            if url.endswith("/Countries/BG"):
+                return {"phone_number_prices": None}
+            if "RegulatoryCompliance/Regulations" in url:
+                return {"results": [], "meta": {}}
+            raise AssertionError(url)
+
+    rows, skipped, observed = sync.fetch_twilio(
+        FakeHttp(), "AC1", {}, catalog_countries={"XK", "BG"}
+    )
+    assert rows == [] and skipped == []
+    assert observed == {f"BG:{t}" for t in sync.NUMBER_TYPES}
