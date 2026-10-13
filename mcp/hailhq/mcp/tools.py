@@ -868,9 +868,9 @@ async def get_verification_requirements(
 
 
 async def list_verifications(
-    *, client: HailClient, purpose: str = "number"
+    *, client: HailClient, purpose: str | None = None
 ) -> dict[str, Any]:
-    if purpose not in _VERIFICATION_PURPOSES:
+    if purpose is not None and purpose not in _VERIFICATION_PURPOSES:
         return {"error": f"{_PURPOSE_ERROR}."}
     try:
         return await client.list_verifications(purpose=purpose)
@@ -2433,13 +2433,13 @@ def register_tools(
         ),
     )
     async def list_verifications_tool(
-        ctx: Context, purpose: str = "number"
+        ctx: Context, purpose: str | None = None
     ) -> dict[str, Any]:
         """List the organization's carrier verifications, newest first.
 
-        ``purpose`` is ``number`` (default) or ``sms``; only that kind is
-        listed. ``purpose='sms'`` lists the registrations to text US numbers
-        from a US number.
+        ``purpose`` is ``number`` or ``sms``; only that kind is listed.
+        Omit to see every registration. ``purpose='sms'`` lists the
+        registrations to text US numbers from a US number.
 
         Returns ``{"items": [{"id", "provider", "country_code", "number_type",
         "subject_type", "purpose", "state", "rejection_reason", "created_at",

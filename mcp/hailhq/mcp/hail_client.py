@@ -561,8 +561,9 @@ class HailClient:
         resp = await self._client.get("/verifications/requirements", params=params)
         return Requirements.model_validate(_decode(resp)).model_dump(mode="json")
 
-    async def list_verifications(self, *, purpose: str = "number") -> dict[str, Any]:
-        resp = await self._client.get("/verifications", params={"purpose": purpose})
+    async def list_verifications(self, *, purpose: str | None = None) -> dict[str, Any]:
+        params = {"purpose": purpose} if purpose is not None else None
+        resp = await self._client.get("/verifications", params=params)
         items = [VerificationResponse.model_validate(r) for r in _decode(resp)]
         return {"items": [i.model_dump(mode="json") for i in items]}
 

@@ -867,7 +867,7 @@ async def test_list_verifications_sends_purpose(client: HailClient) -> None:
     await tools.list_verifications(client=client, purpose="sms")
     assert route.calls[0].request.url.params["purpose"] == "sms"
     await tools.list_verifications(client=client)
-    assert route.calls[1].request.url.params["purpose"] == "number"
+    assert "purpose" not in route.calls[1].request.url.params
 
 
 @respx.mock
