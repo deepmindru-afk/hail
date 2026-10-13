@@ -6,7 +6,6 @@ export function SiteFooter() {
   return (
     <Footer
       homeHref="https://hail.so"
-      mascotSrc="/docs/assets/hail-messenger.svg"
       groups={groups.map((group) => ({
         ...group,
         links: group.links.map((link) => ({

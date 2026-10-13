@@ -2,6 +2,18 @@
   display: block;
   flex: none;
   overflow: visible;
+  transform-origin: 50% 80%;
+}
+
+/* The bird nods when the pointer rests on the link that holds it. */
+@media (prefers-reduced-motion: no-preference) {
+  .mascot {
+    transition: transform 160ms ease-out;
+  }
+  :global(a):hover > .mascot,
+  :global(a):focus-visible > .mascot {
+    transform: rotate(-8deg);
+  }
 }
 
 /* The eye squashes to a line for 120 ms every 6 s. */
