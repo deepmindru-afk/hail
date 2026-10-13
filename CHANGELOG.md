@@ -8,6 +8,23 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 - US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. A person registering through Telnyx confirms with the PIN Telnyx texts them (`POST /verifications/{id}/confirm`, `hail numbers confirm-sms`, MCP `confirm_verification`); `confirmation` on a verification says when. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need the sending number on an approved registration (422 otherwise); `POST /sms` without `from` prefers such a number. An approved registration can be cancelled (`DELETE /verifications/{id}`, `hail numbers cancel-sms`, MCP `cancel_verification`); its monthly fee stops after the month of the cancellation (Telnyx: at least 3 monthly fees from approval; `minimum_months` in `GET /verifications/sms-fees`). New env: `TWILIO_PRIMARY_PROFILE_SID`. Migrations 0057, 0058.
 
+## [0.28.0] — 2026-10-13
+
+A public webhook event catalog, and multi-org users land in their oldest
+workspace by default.
+
+Component versions cut alongside this release:
+**`cli-v0.27.0`** (Homebrew + GitHub Releases). No SDK release. No migrations.
+
+### Added
+
+- `GET /v1/webhooks/event-types` lists every webhook event with its label and channel. It needs no API key and is exempt from the anonymous rate limit. Subscription create and update validate against the same list (`core/hailhq/core/webhook_events.py`). The OpenAPI spec now has one shared `WebhookEventType` enum.
+
+### Changed
+
+- **Behavior change.** A user in more than one workspace now resolves to their oldest membership when the request names no workspace. This applies to API keys and to console tokens without an active workspace. Before, the API picked the lowest workspace id, which could differ from the console's default workspace. A multi-org user's API key can now act in a different workspace than before.
+- CLI: the generated API client is rebuilt from `openapi/openapi.yaml`. Go callers of the internal client see `WebhookEventType` in place of `WebhookSubscriptionCreateEventTypes` and `WebhookSubscriptionPatchEventTypes`. No `hail` command changes.
+
 ## [0.27.0] — 2026-10-13
 
 An agent can buy numbers, manage agents and pass carrier verification over

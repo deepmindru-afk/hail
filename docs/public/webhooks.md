@@ -73,8 +73,17 @@ Every delivery carries these headers (refer to
 
 ## Event types
 
-The full set is the `WebhookEventType` enum in
-[`core/hailhq/core/schemas.py`](https://github.com/hail-hq/hail/blob/main/core/hailhq/core/schemas.py):
+Read supported event names, labels, and channels from the public catalog:
+
+```bash
+curl https://api.hail.so/v1/webhooks/event-types
+```
+
+The response contains an `items` array. Use each item's `type` in a subscription's `event_types`.
+This endpoint needs no API key. Creating or changing a subscription still requires authentication.
+
+The catalog and subscription validation share the `WebhookEventType` registry in
+[`core/hailhq/core/webhook_events.py`](https://github.com/hail-hq/hail/blob/main/core/hailhq/core/webhook_events.py):
 
 - **`email.received`** — a message arrived, and Hail accepted it.
 - **`email.received.suppressed`** — a message arrived, but Hail held back

@@ -8,6 +8,7 @@ from uuid import UUID
 from hailhq.core.contact_ids import normalize_contact_id
 from hailhq.core.languages import Language
 from hailhq.core.sender_id import PLATFORM_DEFAULT_SENDER_ID
+from hailhq.core.webhook_events import WebhookEventType
 from pydantic import (
     AliasChoices,
     BaseModel,
@@ -2052,35 +2053,20 @@ class EmailListResponse(BaseModel):
 # Webhook subscriptions + deliveries
 # --------------------------------------------------------------------------- #
 
-# email.received.suppressed fires with data.reason ∈ {forward_loop,
-# forward_rate_limit, inbound_rate_limit, insufficient_funds}. SES
-# deliverability tracking includes email.delivered, email.delivery_delayed,
-# email.bounced, email.complained, email.opened, and email.clicked.
-WebhookEventType = Literal[
-    "email.received",
-    "email.delivered",
-    "email.delivery_delayed",
-    "email.bounced",
-    "email.complained",
-    "email.opened",
-    "email.clicked",
-    "email.received.suppressed",
-    "email.send_failed",
-    "sms.received",
-    "sms.delivered",
-    "sms.undelivered",
-    "sms.failed",
-    "call.received",
-    "call.answered",
-    "call.completed",
-    "call.failed",
-    "call.busy",
-    "call.no_answer",
-    "call.transferred",
-]
-
 WebhookSubscriptionStatus = Literal["active", "disabled"]
 WebhookDeliveryStatus = Literal["pending", "succeeded", "failed", "dead"]
+
+
+class WebhookEventDefinition(BaseModel):
+    type: WebhookEventType = Field(
+        description="Event identifier used in subscriptions."
+    )
+    label: str = Field(description="Short display label for this event.")
+    channel: str = Field(description="Display group, such as Email, Calls, or SMS.")
+
+
+class WebhookEventCatalogResponse(BaseModel):
+    items: list[WebhookEventDefinition] = Field(description="Supported webhook events.")
 
 
 class WebhookSubscriptionCreate(BaseModel):

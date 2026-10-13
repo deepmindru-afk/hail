@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import get_args
 
 import pytest
 from hailhq.core.schemas import (
@@ -65,4 +64,4 @@ def test_phone_number_response_routing_fields():
 
 
 def test_call_received_event_type():
-    assert "call.received" in get_args(WebhookEventType)
+    assert WebhookEventType("call.received").value == "call.received"

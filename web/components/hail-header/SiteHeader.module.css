@@ -72,6 +72,9 @@
   font-family: var(--font-mono), monospace !important;
 }
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   font-weight: 700;
   font-size: 20px;
   letter-spacing: -0.045em;

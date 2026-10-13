@@ -1056,144 +1056,72 @@ func (e WebhookDeliveryResponseStatus) Valid() bool {
 	}
 }
 
-// Defines values for WebhookSubscriptionCreateEventTypes.
+// Defines values for WebhookEventType.
 const (
-	WebhookSubscriptionCreateEventTypesCallAnswered            WebhookSubscriptionCreateEventTypes = "call.answered"
-	WebhookSubscriptionCreateEventTypesCallBusy                WebhookSubscriptionCreateEventTypes = "call.busy"
-	WebhookSubscriptionCreateEventTypesCallCompleted           WebhookSubscriptionCreateEventTypes = "call.completed"
-	WebhookSubscriptionCreateEventTypesCallFailed              WebhookSubscriptionCreateEventTypes = "call.failed"
-	WebhookSubscriptionCreateEventTypesCallNoAnswer            WebhookSubscriptionCreateEventTypes = "call.no_answer"
-	WebhookSubscriptionCreateEventTypesCallReceived            WebhookSubscriptionCreateEventTypes = "call.received"
-	WebhookSubscriptionCreateEventTypesCallTransferred         WebhookSubscriptionCreateEventTypes = "call.transferred"
-	WebhookSubscriptionCreateEventTypesEmailBounced            WebhookSubscriptionCreateEventTypes = "email.bounced"
-	WebhookSubscriptionCreateEventTypesEmailClicked            WebhookSubscriptionCreateEventTypes = "email.clicked"
-	WebhookSubscriptionCreateEventTypesEmailComplained         WebhookSubscriptionCreateEventTypes = "email.complained"
-	WebhookSubscriptionCreateEventTypesEmailDelivered          WebhookSubscriptionCreateEventTypes = "email.delivered"
-	WebhookSubscriptionCreateEventTypesEmailDeliveryDelayed    WebhookSubscriptionCreateEventTypes = "email.delivery_delayed"
-	WebhookSubscriptionCreateEventTypesEmailOpened             WebhookSubscriptionCreateEventTypes = "email.opened"
-	WebhookSubscriptionCreateEventTypesEmailReceived           WebhookSubscriptionCreateEventTypes = "email.received"
-	WebhookSubscriptionCreateEventTypesEmailReceivedSuppressed WebhookSubscriptionCreateEventTypes = "email.received.suppressed"
-	WebhookSubscriptionCreateEventTypesEmailSendFailed         WebhookSubscriptionCreateEventTypes = "email.send_failed"
-	WebhookSubscriptionCreateEventTypesSmsDelivered            WebhookSubscriptionCreateEventTypes = "sms.delivered"
-	WebhookSubscriptionCreateEventTypesSmsFailed               WebhookSubscriptionCreateEventTypes = "sms.failed"
-	WebhookSubscriptionCreateEventTypesSmsReceived             WebhookSubscriptionCreateEventTypes = "sms.received"
-	WebhookSubscriptionCreateEventTypesSmsUndelivered          WebhookSubscriptionCreateEventTypes = "sms.undelivered"
+	CallAnswered            WebhookEventType = "call.answered"
+	CallBusy                WebhookEventType = "call.busy"
+	CallCompleted           WebhookEventType = "call.completed"
+	CallFailed              WebhookEventType = "call.failed"
+	CallNoAnswer            WebhookEventType = "call.no_answer"
+	CallReceived            WebhookEventType = "call.received"
+	CallTransferred         WebhookEventType = "call.transferred"
+	EmailBounced            WebhookEventType = "email.bounced"
+	EmailClicked            WebhookEventType = "email.clicked"
+	EmailComplained         WebhookEventType = "email.complained"
+	EmailDelivered          WebhookEventType = "email.delivered"
+	EmailDeliveryDelayed    WebhookEventType = "email.delivery_delayed"
+	EmailOpened             WebhookEventType = "email.opened"
+	EmailReceived           WebhookEventType = "email.received"
+	EmailReceivedSuppressed WebhookEventType = "email.received.suppressed"
+	EmailSendFailed         WebhookEventType = "email.send_failed"
+	SmsDelivered            WebhookEventType = "sms.delivered"
+	SmsFailed               WebhookEventType = "sms.failed"
+	SmsReceived             WebhookEventType = "sms.received"
+	SmsUndelivered          WebhookEventType = "sms.undelivered"
 )
 
-// Valid indicates whether the value is a known member of the WebhookSubscriptionCreateEventTypes enum.
-func (e WebhookSubscriptionCreateEventTypes) Valid() bool {
+// Valid indicates whether the value is a known member of the WebhookEventType enum.
+func (e WebhookEventType) Valid() bool {
 	switch e {
-	case WebhookSubscriptionCreateEventTypesCallAnswered:
+	case CallAnswered:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallBusy:
+	case CallBusy:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallCompleted:
+	case CallCompleted:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallFailed:
+	case CallFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallNoAnswer:
+	case CallNoAnswer:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallReceived:
+	case CallReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallTransferred:
+	case CallTransferred:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailBounced:
+	case EmailBounced:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailClicked:
+	case EmailClicked:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailComplained:
+	case EmailComplained:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailDelivered:
+	case EmailDelivered:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailDeliveryDelayed:
+	case EmailDeliveryDelayed:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailOpened:
+	case EmailOpened:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailReceived:
+	case EmailReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailReceivedSuppressed:
+	case EmailReceivedSuppressed:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailSendFailed:
+	case EmailSendFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsDelivered:
+	case SmsDelivered:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsFailed:
+	case SmsFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsReceived:
+	case SmsReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsUndelivered:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for WebhookSubscriptionPatchEventTypes.
-const (
-	WebhookSubscriptionPatchEventTypesCallAnswered            WebhookSubscriptionPatchEventTypes = "call.answered"
-	WebhookSubscriptionPatchEventTypesCallBusy                WebhookSubscriptionPatchEventTypes = "call.busy"
-	WebhookSubscriptionPatchEventTypesCallCompleted           WebhookSubscriptionPatchEventTypes = "call.completed"
-	WebhookSubscriptionPatchEventTypesCallFailed              WebhookSubscriptionPatchEventTypes = "call.failed"
-	WebhookSubscriptionPatchEventTypesCallNoAnswer            WebhookSubscriptionPatchEventTypes = "call.no_answer"
-	WebhookSubscriptionPatchEventTypesCallReceived            WebhookSubscriptionPatchEventTypes = "call.received"
-	WebhookSubscriptionPatchEventTypesCallTransferred         WebhookSubscriptionPatchEventTypes = "call.transferred"
-	WebhookSubscriptionPatchEventTypesEmailBounced            WebhookSubscriptionPatchEventTypes = "email.bounced"
-	WebhookSubscriptionPatchEventTypesEmailClicked            WebhookSubscriptionPatchEventTypes = "email.clicked"
-	WebhookSubscriptionPatchEventTypesEmailComplained         WebhookSubscriptionPatchEventTypes = "email.complained"
-	WebhookSubscriptionPatchEventTypesEmailDelivered          WebhookSubscriptionPatchEventTypes = "email.delivered"
-	WebhookSubscriptionPatchEventTypesEmailDeliveryDelayed    WebhookSubscriptionPatchEventTypes = "email.delivery_delayed"
-	WebhookSubscriptionPatchEventTypesEmailOpened             WebhookSubscriptionPatchEventTypes = "email.opened"
-	WebhookSubscriptionPatchEventTypesEmailReceived           WebhookSubscriptionPatchEventTypes = "email.received"
-	WebhookSubscriptionPatchEventTypesEmailReceivedSuppressed WebhookSubscriptionPatchEventTypes = "email.received.suppressed"
-	WebhookSubscriptionPatchEventTypesEmailSendFailed         WebhookSubscriptionPatchEventTypes = "email.send_failed"
-	WebhookSubscriptionPatchEventTypesSmsDelivered            WebhookSubscriptionPatchEventTypes = "sms.delivered"
-	WebhookSubscriptionPatchEventTypesSmsFailed               WebhookSubscriptionPatchEventTypes = "sms.failed"
-	WebhookSubscriptionPatchEventTypesSmsReceived             WebhookSubscriptionPatchEventTypes = "sms.received"
-	WebhookSubscriptionPatchEventTypesSmsUndelivered          WebhookSubscriptionPatchEventTypes = "sms.undelivered"
-)
-
-// Valid indicates whether the value is a known member of the WebhookSubscriptionPatchEventTypes enum.
-func (e WebhookSubscriptionPatchEventTypes) Valid() bool {
-	switch e {
-	case WebhookSubscriptionPatchEventTypesCallAnswered:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallBusy:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallCompleted:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallNoAnswer:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallTransferred:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailBounced:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailClicked:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailComplained:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailDelivered:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailDeliveryDelayed:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailOpened:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailReceivedSuppressed:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailSendFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsDelivered:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsUndelivered:
+	case SmsUndelivered:
 		return true
 	default:
 		return false
@@ -3253,17 +3181,33 @@ type WebhookDeliveryResponse struct {
 // WebhookDeliveryResponseStatus 'pending' (queued/retrying), 'succeeded', 'failed' (will retry), or 'dead' (retries exhausted).
 type WebhookDeliveryResponseStatus string
 
+// WebhookEventCatalogResponse defines model for WebhookEventCatalogResponse.
+type WebhookEventCatalogResponse struct {
+	// Items Supported webhook events.
+	Items []WebhookEventDefinition `json:"items"`
+}
+
+// WebhookEventDefinition defines model for WebhookEventDefinition.
+type WebhookEventDefinition struct {
+	// Channel Display group, such as Email, Calls, or SMS.
+	Channel string `json:"channel"`
+
+	// Label Short display label for this event.
+	Label string           `json:"label"`
+	Type  WebhookEventType `json:"type"`
+}
+
+// WebhookEventType defines model for WebhookEventType.
+type WebhookEventType string
+
 // WebhookSubscriptionCreate defines model for WebhookSubscriptionCreate.
 type WebhookSubscriptionCreate struct {
 	// EventTypes Event types to subscribe to (e.g. 'call.completed', 'email.bounced'). At least one required.
-	EventTypes []WebhookSubscriptionCreateEventTypes `json:"event_types"`
+	EventTypes []WebhookEventType `json:"event_types"`
 
 	// TargetUrl HTTPS URL Hail POSTs event payloads to.
 	TargetUrl string `json:"target_url"`
 }
-
-// WebhookSubscriptionCreateEventTypes defines model for WebhookSubscriptionCreate.EventTypes.
-type WebhookSubscriptionCreateEventTypes string
 
 // WebhookSubscriptionListResponse defines model for WebhookSubscriptionListResponse.
 type WebhookSubscriptionListResponse struct {
@@ -3277,7 +3221,7 @@ type WebhookSubscriptionListResponse struct {
 // WebhookSubscriptionPatch defines model for WebhookSubscriptionPatch.
 type WebhookSubscriptionPatch struct {
 	// EventTypes New set of subscribed event types. Omit to leave unchanged.
-	EventTypes *[]WebhookSubscriptionPatchEventTypes `json:"event_types,omitempty"`
+	EventTypes *[]WebhookEventType `json:"event_types,omitempty"`
 
 	// Status Set to 'disabled' to pause deliveries, or 'active' to resume. Omit to leave unchanged.
 	Status *WebhookSubscriptionPatchStatus `json:"status,omitempty"`
@@ -3285,9 +3229,6 @@ type WebhookSubscriptionPatch struct {
 	// TargetUrl New delivery URL. Omit to leave unchanged.
 	TargetUrl *string `json:"target_url,omitempty"`
 }
-
-// WebhookSubscriptionPatchEventTypes defines model for WebhookSubscriptionPatch.EventTypes.
-type WebhookSubscriptionPatchEventTypes string
 
 // WebhookSubscriptionPatchStatus Set to 'disabled' to pause deliveries, or 'active' to resume. Omit to leave unchanged.
 type WebhookSubscriptionPatchStatus string
@@ -4435,6 +4376,9 @@ type ClientInterface interface {
 
 	CreateSubscriptionV1WebhooksPost(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListEventTypesV1WebhooksEventTypesGet request
+	ListEventTypesV1WebhooksEventTypesGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteSubscriptionV1WebhooksSubIdDelete request
 	DeleteSubscriptionV1WebhooksSubIdDelete(ctx context.Context, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -5445,6 +5389,18 @@ func (c *Client) CreateSubscriptionV1WebhooksPostWithBody(ctx context.Context, p
 
 func (c *Client) CreateSubscriptionV1WebhooksPost(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateSubscriptionV1WebhooksPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListEventTypesV1WebhooksEventTypesGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEventTypesV1WebhooksEventTypesGetRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -9447,6 +9403,33 @@ func NewCreateSubscriptionV1WebhooksPostRequestWithBody(server string, params *C
 	return req, nil
 }
 
+// NewListEventTypesV1WebhooksEventTypesGetRequest generates requests for ListEventTypesV1WebhooksEventTypesGet
+func NewListEventTypesV1WebhooksEventTypesGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/webhooks/event-types")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteSubscriptionV1WebhooksSubIdDeleteRequest generates requests for DeleteSubscriptionV1WebhooksSubIdDelete
 func NewDeleteSubscriptionV1WebhooksSubIdDeleteRequest(server string, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams) (*http.Request, error) {
 	var err error
@@ -10113,6 +10096,9 @@ type ClientWithResponsesInterface interface {
 	CreateSubscriptionV1WebhooksPostWithBodyWithResponse(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSubscriptionV1WebhooksPostResponse, error)
 
 	CreateSubscriptionV1WebhooksPostWithResponse(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSubscriptionV1WebhooksPostResponse, error)
+
+	// ListEventTypesV1WebhooksEventTypesGetWithResponse request
+	ListEventTypesV1WebhooksEventTypesGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEventTypesV1WebhooksEventTypesGetResponse, error)
 
 	// DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse request
 	DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse(ctx context.Context, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams, reqEditors ...RequestEditorFn) (*DeleteSubscriptionV1WebhooksSubIdDeleteResponse, error)
@@ -11599,6 +11585,28 @@ func (r CreateSubscriptionV1WebhooksPostResponse) StatusCode() int {
 	return 0
 }
 
+type ListEventTypesV1WebhooksEventTypesGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WebhookEventCatalogResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEventTypesV1WebhooksEventTypesGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEventTypesV1WebhooksEventTypesGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteSubscriptionV1WebhooksSubIdDeleteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -12485,6 +12493,15 @@ func (c *ClientWithResponses) CreateSubscriptionV1WebhooksPostWithResponse(ctx c
 		return nil, err
 	}
 	return ParseCreateSubscriptionV1WebhooksPostResponse(rsp)
+}
+
+// ListEventTypesV1WebhooksEventTypesGetWithResponse request returning *ListEventTypesV1WebhooksEventTypesGetResponse
+func (c *ClientWithResponses) ListEventTypesV1WebhooksEventTypesGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEventTypesV1WebhooksEventTypesGetResponse, error) {
+	rsp, err := c.ListEventTypesV1WebhooksEventTypesGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEventTypesV1WebhooksEventTypesGetResponse(rsp)
 }
 
 // DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse request returning *DeleteSubscriptionV1WebhooksSubIdDeleteResponse
@@ -14587,6 +14604,32 @@ func ParseCreateSubscriptionV1WebhooksPostResponse(rsp *http.Response) (*CreateS
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListEventTypesV1WebhooksEventTypesGetResponse parses an HTTP response from a ListEventTypesV1WebhooksEventTypesGetWithResponse call
+func ParseListEventTypesV1WebhooksEventTypesGetResponse(rsp *http.Response) (*ListEventTypesV1WebhooksEventTypesGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEventTypesV1WebhooksEventTypesGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WebhookEventCatalogResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

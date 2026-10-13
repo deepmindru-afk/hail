@@ -8,7 +8,7 @@ otherwise a multi-org user's request can land in the wrong tenant.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -16,14 +16,16 @@ from hailhq.api import deps
 from hailhq.core.models import OrganizationMember
 
 
-async def _member(session, user_id: uuid.UUID, org_id: uuid.UUID) -> None:
+async def _member(
+    session, user_id: uuid.UUID, org_id: uuid.UUID, created_at: datetime | None = None
+) -> None:
     session.add(
         OrganizationMember(
             id=uuid.uuid4(),
             user_id=user_id,
             organization_id=org_id,
             role="owner",
-            created_at=datetime.now(timezone.utc),
+            created_at=created_at or datetime.now(timezone.utc),
         )
     )
     await session.commit()
@@ -67,3 +69,19 @@ async def test_jwt_multi_org_without_claim_does_not_crash(async_session, monkeyp
 
     principal = await deps._principal_from_jwt("a.b.c", async_session)
     assert principal.organization_id in (org_a, org_b)
+
+
+async def test_jwt_multi_org_without_claim_picks_oldest_membership(
+    async_session, monkeypatch
+):
+    # The website's default workspace is the oldest membership, not the lowest id.
+    user = uuid.uuid4()
+    low_id = uuid.UUID(int=1)
+    high_id = uuid.UUID(int=2**128 - 1)
+    now = datetime.now(timezone.utc)
+    await _member(async_session, user, high_id, now - timedelta(days=1))
+    await _member(async_session, user, low_id, now)
+    _patch_jwt(monkeypatch, {"sub": str(user)})
+
+    principal = await deps._principal_from_jwt("a.b.c", async_session)
+    assert principal.organization_id == high_id

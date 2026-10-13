@@ -73,7 +73,7 @@ Flags: `--provider {didww,telnyx,twilio,all}`, `--env-file` (reads the keys from
 2. **changed** prices: spot-check one against the carrier's pricing page (`source_url` on the row).
 3. **vanished** rows: confirm on the carrier's site. A vanished row means the listing enumerated that country and type and it was gone. If the carrier's site still sells it, hand-verify the row (below) so the sync leaves it alone. If it is truly gone, merge; held numbers keep billing.
 4. **kept** rows: the carrier now disagrees with a hand-verified value. Decide which is right. To hand over to the sync, delete the row's `verification_method: "manual-confirmed"` line; the next run rewrites the row.
-5. Merge. hail-website picks up `twilio.json` within 24 hours (its fetch cache); the API image picks it up on the next deploy.
+5. Merge. The [`costs-revalidate.yml`](../../.github/workflows/costs-revalidate.yml) workflow waits out GitHub's 5-minute raw-file CDN cache, then tells hail-website to drop its cached copy of the cost files, so the console and the marketing prices show the change about 6 minutes after the merge (fallback without the workflow: its 24-hour fetch cache). The API image picks it up on the next deploy.
 
 To hand-verify a row, set `verification_method: "manual-confirmed"`, `verified_by: "<your GitHub handle>"`, `last_verified: <today>`, and say why in `notes`.
 

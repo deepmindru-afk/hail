@@ -2,6 +2,7 @@
 
 import { useId, useRef, type ReactNode } from "react";
 import { useDropdown } from "./useDropdown";
+import { Mascot } from "./Mascot";
 import styles from "./SiteHeader.module.css";
 
 export type SiteHeaderActive = "docs" | null;
@@ -71,6 +72,7 @@ export function SiteHeader({
         }}
       >
         <a className={styles.logo} href={siteHref("/")} aria-label="hail home">
+          <Mascot size={26} />
           hail.so
         </a>
         <nav
