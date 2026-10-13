@@ -1,13 +1,16 @@
 """Telnyx plug-in for US A2P 10DLC registration: a brand, optional vetting,
 then a campaign; numbers are linked to the campaign one by one.
 
-Sole proprietor (person) registration needs a PIN step Telnyx sends by SMS; not
-built in this release."""
+A person (sole proprietor) brand waits for a PIN Telnyx texts to the
+person's mobile. The person types it into Hail, ``confirm`` sends it to
+Telnyx, and the campaign is then created as for a company. The PIN is never
+stored or logged."""
 
 from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from hailhq.core.providers.telnyx import TelnyxClient, path_id
@@ -17,7 +20,6 @@ from hailhq.core.providers.verification.base import (
     ProviderStatus,
     Requirements,
     SmsRegistrationProvider,
-    UnsupportedSubjectType,
     VerificationProviderError,
 )
 from hailhq.core.providers.verification.sms_form import (
@@ -31,6 +33,13 @@ _EIN = re.compile(r"^\d{2}-?\d{7}$")
 _OPT_OUT = "STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT"
 _HELP = "HELP,INFO"
 _VERIFIED = {"VERIFIED", "VETTED_VERIFIED"}
+# Texts Telnyx sends a person: the PIN (@OTP_PIN@ is replaced by Telnyx),
+# then a notice once the PIN is confirmed.
+_PIN_SMS = "Hail: your confirmation code is @OTP_PIN@. It expires in 24 hours."
+_SUCCESS_SMS = "Hail: your number is confirmed. Reply STOP to opt out."
+# A PIN is valid this long; past it, status() sends a new one.
+_OTP_RESEND_AFTER = timedelta(hours=24)
+_WRONG_CODE = "That code is wrong or has expired. Ask for a new one and try again."
 # A campaign is approved once the mobile carriers accept it; TCR_ACCEPTED
 # alone is pending (the carriers have not reviewed it yet).
 _APPROVED = {"MNO_ACCEPTED", "MNO_PROVISIONED", "ACTIVE"}
@@ -53,23 +62,26 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
     async def requirements(
         self, country_code, number_type, subject_type
     ) -> Requirements:
-        if subject_type == "person":
-            raise UnsupportedSubjectType(
-                "This carrier registers companies only for US texting.",
-                allowed=("business",),
-            )
-        return sms_requirements(self.name, subject_type).model_copy(
-            update={"subject_types": ("business",)}
-        )
+        return sms_requirements(self.name, subject_type)
 
     def _validate(self, fields, address, subject_type) -> list[Problem]:
         problems: list[Problem] = []
-        if subject_type != "business":
-            return [Problem(field="", message="Only companies can register here.")]
         for spec in sms_requirements(self.name, subject_type).fields:
             if spec.required and not (fields.get(spec.name) or "").strip():
                 problems.append(Problem(field=spec.name, message="This is required."))
-        if fields.get("ein") and not _EIN.match(fields["ein"]):
+        mobile = (fields.get("mobile_phone_number") or "").strip()
+        if subject_type == "person" and mobile and not mobile.startswith("+1"):
+            problems.append(
+                Problem(
+                    field="mobile_phone_number",
+                    message="Use a US or Canadian mobile number.",
+                )
+            )
+        if (
+            subject_type == "business"
+            and fields.get("ein")
+            and not _EIN.match(fields["ein"])
+        ):
             problems.append(
                 Problem(field="ein", message="Nine digits, like 12-3456789.")
             )
@@ -116,15 +128,28 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         return DraftResult(refs=refs)
 
     async def _build(self, refs, fields, address, subject_type) -> None:
-        display = fields["legal_name"]
-        body = {
-            "entityType": fields["business_type"],
-            "email": fields["rep_email"],
-            "phone": fields["rep_phone"],
-            "vertical": fields["industry"],
-            "ein": fields["ein"].replace("-", ""),
-            "website": fields["website"],
-        }
+        if subject_type == "person":
+            mobile = fields["mobile_phone_number"].strip()
+            display = f"{fields['first_name'].strip()} {fields['last_name'].strip()}"
+            body = {
+                "entityType": "SOLE_PROPRIETOR",
+                "firstName": fields["first_name"].strip(),
+                "lastName": fields["last_name"].strip(),
+                "email": fields["email"].strip(),
+                "phone": mobile,
+                "mobilePhone": mobile,
+                "vertical": "COMMUNICATION",
+            }
+        else:
+            display = fields["legal_name"]
+            body = {
+                "entityType": fields["business_type"],
+                "email": fields["rep_email"],
+                "phone": fields["rep_phone"],
+                "vertical": fields["industry"],
+                "ein": fields["ein"].replace("-", ""),
+                "website": fields["website"],
+            }
         body.update(
             displayName=display,
             companyName=display,
@@ -136,11 +161,60 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         )
         brand = await self._api.request("POST", "/10dlc/brand", json=body)
         refs["brand_id"] = brand["brandId"]
+        if subject_type == "person":
+            # No vetting for a sole proprietor; the PIN confirms the person.
+            await self._send_pin(refs)
+            return
         await self._api.request(
             "POST",
             f"/10dlc/brand/{refs['brand_id']}/vetting",
             json={"vettingProvider": "AEGIS", "vettingClass": "STANDARD"},
         )
+
+    async def _send_pin(self, refs) -> None:
+        """Ask Telnyx to text the person a PIN. The caller saves refs."""
+        sent = await self._api.request(
+            "POST",
+            f"/10dlc/brand/{refs['brand_id']}/smsOtp",
+            json={"pinSms": _PIN_SMS, "successSms": _SUCCESS_SMS},
+        )
+        refs["otp_reference_id"] = sent.get("referenceId")
+        refs["otp_sent_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def _resend_pin_if_old(self, refs) -> None:
+        """Send a new PIN when the last one is over a day old (or its time is
+        unknown)."""
+        sent = refs.get("otp_sent_at")
+        now = datetime.now(timezone.utc)
+        if sent and now - datetime.fromisoformat(sent) < _OTP_RESEND_AFTER:
+            return
+        await self._send_pin(refs)
+
+    def confirmation(self, refs) -> str | None:
+        if (
+            refs.get("subject_type") == "person"
+            and refs.get("identity_verified") is not True
+        ):
+            return "code"
+        return None
+
+    async def confirm(self, refs, code) -> list[Problem]:
+        try:
+            await self._api.request(
+                "PUT",
+                f"/10dlc/brand/{refs['brand_id']}/smsOtp",
+                json={"otpPin": code},
+            )
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 400:
+                return [Problem(field="code", message=_WRONG_CODE)]
+            logger.warning("10DLC PIN confirm failed: status=%s", status)
+            raise VerificationProviderError("Telnyx request failed") from None
+        except (httpx.HTTPError, KeyError) as exc:
+            logger.warning("10DLC PIN confirm failed: %s", type(exc).__name__)
+            raise VerificationProviderError("Telnyx request failed") from None
+        return []
 
     async def check(self, refs) -> list[Problem]:
         return []
@@ -156,7 +230,14 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
                 return ProviderStatus(
                     state="rejected", reason=str(brand["failureReasons"])
                 )
-            if brand.get("identityStatus") not in _VERIFIED:
+            person = refs.get("subject_type") == "person"
+            verified = brand.get("identityStatus") in _VERIFIED
+            if person and verified:
+                refs["identity_verified"] = True
+            # After a confirmed PIN the brand read may still lag behind it.
+            if not verified and not refs.get("identity_verified"):
+                if person:
+                    await self._resend_pin_if_old(refs)
                 return ProviderStatus(state="pending")
             if "campaign_id" not in refs:
                 text = refs["campaign"]

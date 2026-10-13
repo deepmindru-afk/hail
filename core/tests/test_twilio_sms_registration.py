@@ -601,3 +601,35 @@ async def test_person_otp_is_sent_again_after_a_day(age_hours, sends) -> None:
         assert refs["otp_sent_at"] > sent_at
     else:
         assert refs["otp_sent_at"] == sent_at
+
+
+async def test_confirmation_is_reply_until_identity_verified() -> None:
+    p = _provider()
+    refs = {"subject_type": "person", "brand_sid": "BN1"}
+    assert p.confirmation(refs) == "reply"
+    refs["identity_verified"] = True
+    assert p.confirmation(refs) is None
+    assert p.confirmation({"subject_type": "business"}) is None
+
+
+async def test_confirm_by_code_is_not_supported() -> None:
+    with pytest.raises(NotImplementedError):
+        await _provider().confirm({"subject_type": "person"}, "123456")
+
+
+async def test_status_marks_person_identity_verified() -> None:
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(
+        status="APPROVED", identity_status="VERIFIED", brand_feedback=None
+    )
+    r["us_app_to_person.create"] = SimpleNamespace(
+        sid="QE1", campaign_status="PENDING", errors=[]
+    )
+    refs = {
+        "brand_sid": "BN1",
+        "messaging_service_sid": "MG1",
+        "subject_type": "person",
+        "campaign": _campaign("SOLE_PROPRIETOR"),
+    }
+    assert (await _provider(r).status(refs)).state == "pending"
+    assert refs["identity_verified"] is True and refs["campaign_sid"] == "QE1"

@@ -297,3 +297,16 @@ class SmsRegistrationProvider(VerificationProvider):
         self, refs: dict, *, provider_resource_id: str, e164: str
     ) -> None:
         """Attach a number to the approved campaign. Idempotent."""
+
+    async def confirm(self, refs: dict, code: str) -> list[Problem]:
+        """Submit the confirmation code the carrier texted to the person.
+        Empty list on success. A wrong or expired code is a Problem on
+        field 'code'. Carriers that confirm by reply (not by code) raise
+        NotImplementedError."""
+        raise NotImplementedError
+
+    def confirmation(self, refs: dict) -> str | None:
+        """How the person confirms identity while the brand waits:
+        'code' (type a code into Hail), 'reply' (answer the carrier's
+        text), or None (no confirmation pending)."""
+        return None

@@ -41,6 +41,7 @@ existing number doesn't support.`,
 	cmd.AddCommand(newNumberEnableSmsCmd(opts))
 	cmd.AddCommand(newNumberRouteCmd(opts))
 	cmd.AddCommand(newNumberRegisterSmsCmd(opts))
+	cmd.AddCommand(newNumberConfirmSmsCmd(opts))
 	return cmd
 }
 
@@ -541,4 +542,56 @@ func buildRegisterSmsBody(provider, subject string, fields, address map[string]s
 		return nil, "", fmt.Errorf("build request: %w", err)
 	}
 	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
+// --------------------------------------------------------------------------- //
+// confirm-sms
+// --------------------------------------------------------------------------- //
+
+func newNumberConfirmSmsCmd(opts *Options) *cobra.Command {
+	var code string
+	cmd := &cobra.Command{
+		Use:   "confirm-sms <verification-id> --code <code>",
+		Short: "Enter the code the carrier texted to confirm a person's US SMS registration",
+		Long: `hail numbers confirm-sms — confirm a person's US SMS registration.
+
+Use it when the registration shows confirmation "code" (hail --json numbers
+register-sms, or GET /v1/verifications/{id}). Posts the code the carrier
+texted to the person's mobile to POST /v1/verifications/{id}/confirm.`,
+		Example: `  hail numbers confirm-sms 11111111-1111-1111-1111-111111111111 --code 482913`,
+		Args:    argsOrHelp(1, "<verification-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("verification id must be a full UUID")
+			}
+			code = strings.TrimSpace(code)
+			if len(code) < 4 || len(code) > 10 {
+				return fmt.Errorf("--code must be the 4 to 10 characters the carrier texted")
+			}
+			apiClient, err := opts.newClient()
+			if err != nil {
+				return err
+			}
+			resp, err := apiClient.ConfirmVerificationWithResponse(
+				cmd.Context(),
+				openapi_types.UUID(id),
+				&client.ConfirmVerificationParams{},
+				client.ConfirmVerificationJSONRequestBody{Code: code},
+			)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			if resp.HTTPResponse.StatusCode != http.StatusOK || resp.JSON200 == nil {
+				return apiError(resp.HTTPResponse.StatusCode, resp.Body)
+			}
+			if opts.JSON {
+				return printJSON(opts.Stdout, resp.JSON200)
+			}
+			fmt.Fprintf(opts.Stdout, "✓ SMS registration %s: %s\n", resp.JSON200.Id.String(), resp.JSON200.State)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "The code the carrier texted (4 to 10 characters)")
+	return cmd
 }

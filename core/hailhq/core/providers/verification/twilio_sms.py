@@ -316,9 +316,11 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             return ProviderStatus(state="rejected", reason=_brand_reason(brand))
         if brand.status != "APPROVED":
             return ProviderStatus(state="pending")
-        if refs.get("subject_type") == "person" and brand.identity_status != "VERIFIED":
-            self._resend_otp_if_old(refs)
-            return ProviderStatus(state="pending")
+        if refs.get("subject_type") == "person":
+            if brand.identity_status != "VERIFIED":
+                self._resend_otp_if_old(refs)
+                return ProviderStatus(state="pending")
+            refs["identity_verified"] = True
         svc = self._client.messaging.v1.services(refs["messaging_service_sid"])
         if "campaign_sid" not in refs:
             text = refs["campaign"]
@@ -346,6 +348,15 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             )
             return ProviderStatus(state="rejected", reason=reason)
         return ProviderStatus(state="pending")
+
+    def confirmation(self, refs) -> str | None:
+        # The person answers the carrier's text; there is no code to enter.
+        if (
+            refs.get("subject_type") == "person"
+            and refs.get("identity_verified") is not True
+        ):
+            return "reply"
+        return None
 
     def _resend_otp_if_old(self, refs) -> None:
         """Send the person's confirmation code again when the last one is

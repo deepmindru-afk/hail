@@ -78,6 +78,16 @@ Same flow as above with `purpose=sms`: each organization registers its own US A2
 
 - **Fee debit.** The carrier fee is debited from prepaid credit at filing. The ledger row in `account_credits` has `ref = sms_registration:<id>`. The shared self-hosted key (`HAIL_API_KEY`) is not debited.
 - **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it, each on its own. The row is approved even when a number fails; the failure is logged with the number id and counted in the `verification.sms_attached` audit row (`failed`). `POST /numbers/{id}/enable-sms` attaches that number again. Until approval, texts from a US long code to a US number return 422.
+- **Person confirm step.** A person's brand waits on the person. The row shows `confirmation`: `code` (Telnyx texts a PIN; the person enters it in Hail), `reply` (Twilio texts them; they answer that text), or `null`. A code goes to `POST /verifications/{id}/confirm`; on success Hail marks `identity_verified` in the refs and files the campaign at once. A wrong or expired code is 422 on `code`; anything else is 409. Telnyx sends a new PIN when the last one is over 24 hours old (on the next poll). The code is never stored or logged; the `verification.confirm` audit row has no code.
+
+  ```bash
+  curl -s -X POST "$HAIL_API_URL/verifications/$VERIFICATION_ID/confirm" \
+    -H "Authorization: Bearer $HAIL_API_KEY" -H "Content-Type: application/json" \
+    -d '{"code":"482913"}'
+  ```
+
+  CLI: `hail numbers confirm-sms <verification-id> --code 482913`.
+
 - **`TWILIO_PRIMARY_PROFILE_SID`.** The approved Trust Hub primary profile (business identity ISV Reseller or Partner) that every Twilio brand is created under. Without it the Twilio SMS registration plug-in is off: `purpose=sms` with Twilio returns 404.
 
 ## Cancel rules

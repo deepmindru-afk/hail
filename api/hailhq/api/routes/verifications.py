@@ -379,6 +379,28 @@ async def _refresh(
         )
 
 
+def _confirmation(row: CarrierVerification, registry: Registry) -> str | None:
+    """How the person must confirm an SMS registration that waits on them:
+    'code', 'reply', or None."""
+    if row.purpose != "sms" or row.state not in _POLLED_STATES:
+        return None
+    provider = registry(row.provider, "sms")
+    if not isinstance(provider, SmsRegistrationProvider):
+        return None
+    return provider.confirmation(row.provider_refs or {})
+
+
+def _out(
+    row: CarrierVerification,
+    registry: Registry,
+    model: type[VerificationResponse] = VerificationResponse,
+) -> VerificationResponse:
+    """The response for a row, with ``confirmation`` filled in."""
+    return model.model_validate(row).model_copy(
+        update={"confirmation": _confirmation(row, registry)}
+    )
+
+
 async def approved_purchase_handle(
     db: AsyncSession,
     registry: Registry,
@@ -755,7 +777,7 @@ async def create_verification(
         action="verification.submit",
         extra={"fee_cents": fee_cents} if sub.purpose == "sms" else None,
     )
-    return VerificationResponse.model_validate(row)
+    return _out(row, registry)
 
 
 async def _submit_row(
@@ -977,7 +999,7 @@ async def list_verifications(
         await _poll_and_apply(db, r, s, registry, b)
     if asked:
         await db.commit()  # saves changes and ends the row locks
-    return [VerificationResponse.model_validate(r) for r in rows]
+    return [_out(r, registry) for r in rows]
 
 
 class SmsFee(BaseModel):
@@ -1026,7 +1048,7 @@ async def get_verification(
     updated from the carrier each time you read it."""
     row = await _org_row_or_404(db, principal, verification_id)
     await _refresh(db, row, registry)
-    return VerificationResponse.model_validate(row)
+    return _out(row, registry)
 
 
 @router.delete(
@@ -1061,7 +1083,91 @@ async def cancel_verification(
     row.state, row.provider_refs = "cancelled", {}
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return VerificationResponse.model_validate(row)
+    return _out(row, registry)
+
+
+class ConfirmRequest(BaseModel):
+    code: str = Field(
+        min_length=4,
+        max_length=10,
+        description="The code the carrier texted to the person's mobile.",
+    )
+
+
+@router.post(
+    "/{verification_id}/confirm",
+    response_model=VerificationResponse,
+    operation_id="confirm_verification",
+)
+async def confirm_verification(
+    verification_id: UUID,
+    body: ConfirmRequest,
+    principal: Annotated[Principal, Depends(get_current_principal)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    registry: Annotated[Registry, Depends(get_verification_registry)],
+) -> VerificationResponse:
+    """Enter the code the carrier texted to confirm a person's US texting
+    registration. Use it when the verification shows `confirmation: "code"`.
+    On success the campaign is filed at once; poll GET /verifications/{id}
+    until `approved`. A wrong or expired code is 422 on `code`; 409 when
+    there is nothing to confirm."""
+    row = await _org_row_or_404(db, principal, verification_id)
+    # Wait for a poll in flight (it holds the same lock), then re-read.
+    row = (
+        await db.execute(
+            select(CarrierVerification)
+            .where(CarrierVerification.id == row.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    provider = registry(row.provider, row.purpose)
+    if (
+        row.purpose != "sms"
+        or row.state != "submitted"
+        or not isinstance(provider, SmsRegistrationProvider)
+        or provider.confirmation(row.provider_refs or {}) != "code"
+    ):
+        await db.rollback()
+        raise _nothing_to_confirm()
+    try:
+        problems = await provider.confirm(row.provider_refs, body.code)
+    except NotImplementedError as exc:
+        await db.rollback()
+        raise _nothing_to_confirm() from exc
+    except VerificationProviderError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="carrier unavailable; try again later",
+        ) from exc
+    if problems:
+        await db.rollback()
+        raise _problems_422(problems)
+    row.provider_refs["identity_verified"] = True
+    row.updated_at = datetime.now(timezone.utc)
+    flag_modified(row, "provider_refs")
+    await db.commit()  # also ends the row lock
+    actor_user_id, actor_kind = actor_of(principal)
+    await write_audit_log(
+        row.organization_id,
+        principal.api_key_id,
+        "verification.confirm",
+        "carrier_verification",
+        row.id,
+        {"purpose": row.purpose},  # never the code
+        actor_user_id=actor_user_id,
+        actor_kind=actor_kind,
+    )
+    # File the campaign now rather than on the next poll.
+    await _refresh(db, row, registry)
+    return _out(row, registry)
+
+
+def _nothing_to_confirm() -> HTTPException:
+    return HTTPException(
+        status_code=http_status.HTTP_409_CONFLICT, detail="nothing to confirm"
+    )
 
 
 # -- superadmin routes ----------------------------------------------------
@@ -1078,6 +1184,7 @@ class RejectRequest(BaseModel):
 @admin_router.get("", response_model=list[AdminVerification])
 async def admin_list(
     db: Annotated[AsyncSession, Depends(get_session)],
+    registry: Annotated[Registry, Depends(get_verification_registry)],
     state: str = "awaiting_review",
 ) -> list[AdminVerification]:
     rows = (
@@ -1091,7 +1198,7 @@ async def admin_list(
         .scalars()
         .all()
     )
-    return [AdminVerification.model_validate(r) for r in rows]
+    return [_out(r, registry, AdminVerification) for r in rows]
 
 
 async def _admin_row(db: AsyncSession, verification_id: UUID) -> CarrierVerification:
@@ -1147,7 +1254,7 @@ async def admin_approve(
         db, row, provider, actor=actor_of(admin), action="verification.approve"
     ):
         raise _carrier_unavailable()
-    return AdminVerification.model_validate(row)
+    return _out(row, registry, AdminVerification)
 
 
 @admin_router.post("/{verification_id}/reject", response_model=AdminVerification)
@@ -1176,4 +1283,4 @@ async def admin_reject(
         actor_user_id=actor_user_id,
         actor_kind=actor_kind,
     )
-    return AdminVerification.model_validate(row)
+    return _out(row, registry, AdminVerification)

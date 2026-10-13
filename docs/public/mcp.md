@@ -65,6 +65,7 @@ Every tool sets the MCP hints `readOnlyHint`, `destructiveHint`, `idempotentHint
 | `list_verifications`            | List the org's verifications and their states (read-only).                          |
 | `get_verification`              | Fetch one verification; poll it for `approved` (read-only).                         |
 | `cancel_verification`           | Cancel an `awaiting_review` one or dismiss a `rejected` one.                        |
+| `confirm_verification`          | Enter the code the carrier texted a person (`confirmation: "code"`).                |
 
 ### Getting a number over MCP
 
@@ -125,6 +126,8 @@ Some numbers, for example a UK mobile, need a carrier check of the organization 
 5. `get_verification`: `{"verification_id": "<id>"}`. Poll every few minutes to hours, not every few seconds. Review takes business days. Hail sends no email or webhook when it ends.
 6. On `approved`: `quote_numbers` again. The offer is now `ready`. Then `acquire_number` and `route_number` as above.
 7. On `rejected`: read `rejection_reason`, ask the user, call `cancel_verification` to dismiss it, and submit a new one.
+
+A person's US texting registration may wait on the person. `confirmation: "code"`: ask them for the code the carrier texted and call `confirm_verification` with `{"verification_id": "<id>", "code": "<code>"}`. `confirmation: "reply"`: they answer the carrier's text; nothing to call.
 
 To register the organization to text US numbers from a US number, pass `purpose: "sms"` (default `"number"`) with `country_code: "US"` and `number_type: "local"` to `get_verification_requirements`, `submit_verification` and `list_verifications`. The carrier fee is debited from credit at filing:
 

@@ -1765,6 +1765,12 @@ type CarrierOfferReadiness string
 // CarrierOfferRegulatoryFriction Remaining verification effort derived from live requirements: none, information/address entry, document uploads, or unknown. This does not establish legal eligibility.
 type CarrierOfferRegulatoryFriction string
 
+// ConfirmRequest defines model for ConfirmRequest.
+type ConfirmRequest struct {
+	// Code The code the carrier texted to the person's mobile.
+	Code string `json:"code"`
+}
+
 // ContactCreate defines model for ContactCreate.
 type ContactCreate struct {
 	// Email Email address, stored lowercased. At least one of phone_e164 or email is required.
@@ -3135,6 +3141,9 @@ type VerificationResponse struct {
 	// ApprovedAt When the carrier approved it.
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 
+	// Confirmation For a person's US texting registration: 'code' when you must enter the code the carrier texted (POST /verifications/{id}/confirm), 'reply' when you must answer the carrier's text, null when nothing is pending.
+	Confirmation *string `json:"confirmation,omitempty"`
+
 	// CountryCode ISO alpha-2 country code.
 	CountryCode string `json:"country_code"`
 
@@ -3710,6 +3719,11 @@ type GetVerificationParams struct {
 	Authorization *string `json:"authorization,omitempty"`
 }
 
+// ConfirmVerificationParams defines parameters for ConfirmVerification.
+type ConfirmVerificationParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
 // ListSubscriptionsV1WebhooksGetParams defines parameters for ListSubscriptionsV1WebhooksGet.
 type ListSubscriptionsV1WebhooksGetParams struct {
 	Cursor        *string `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -3812,6 +3826,9 @@ type CreateSmsV1SmsPostJSONRequestBody = SmsCreate
 
 // PatchSenderIdV1SmsSenderIdPatchJSONRequestBody defines body for PatchSenderIdV1SmsSenderIdPatch for application/json ContentType.
 type PatchSenderIdV1SmsSenderIdPatchJSONRequestBody = SenderIdPatch
+
+// ConfirmVerificationJSONRequestBody defines body for ConfirmVerification for application/json ContentType.
+type ConfirmVerificationJSONRequestBody = ConfirmRequest
 
 // CreateSubscriptionV1WebhooksPostJSONRequestBody defines body for CreateSubscriptionV1WebhooksPost for application/json ContentType.
 type CreateSubscriptionV1WebhooksPostJSONRequestBody = WebhookSubscriptionCreate
@@ -4401,6 +4418,11 @@ type ClientInterface interface {
 
 	// GetVerification request
 	GetVerification(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfirmVerificationWithBody request with any body
+	ConfirmVerificationWithBody(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ConfirmVerification(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSubscriptionsV1WebhooksGet request
 	ListSubscriptionsV1WebhooksGet(ctx context.Context, params *ListSubscriptionsV1WebhooksGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5360,6 +5382,30 @@ func (c *Client) CancelVerification(ctx context.Context, verificationId openapi_
 
 func (c *Client) GetVerification(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetVerificationRequest(c.Server, verificationId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmVerificationWithBody(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmVerificationRequestWithBody(c.Server, verificationId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmVerification(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmVerificationRequest(c.Server, verificationId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -9201,6 +9247,68 @@ func NewGetVerificationRequest(server string, verificationId openapi_types.UUID,
 	return req, nil
 }
 
+// NewConfirmVerificationRequest calls the generic ConfirmVerification builder with application/json body
+func NewConfirmVerificationRequest(server string, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConfirmVerificationRequestWithBody(server, verificationId, params, "application/json", bodyReader)
+}
+
+// NewConfirmVerificationRequestWithBody generates requests for ConfirmVerification with any type of body
+func NewConfirmVerificationRequestWithBody(server string, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "verification_id", verificationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/verifications/%s/confirm", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewListSubscriptionsV1WebhooksGetRequest generates requests for ListSubscriptionsV1WebhooksGet
 func NewListSubscriptionsV1WebhooksGetRequest(server string, params *ListSubscriptionsV1WebhooksGetParams) (*http.Request, error) {
 	var err error
@@ -9989,6 +10097,11 @@ type ClientWithResponsesInterface interface {
 
 	// GetVerificationWithResponse request
 	GetVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*GetVerificationResponse, error)
+
+	// ConfirmVerificationWithBodyWithResponse request with any body
+	ConfirmVerificationWithBodyWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error)
+
+	ConfirmVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error)
 
 	// ListSubscriptionsV1WebhooksGetWithResponse request
 	ListSubscriptionsV1WebhooksGetWithResponse(ctx context.Context, params *ListSubscriptionsV1WebhooksGetParams, reqEditors ...RequestEditorFn) (*ListSubscriptionsV1WebhooksGetResponse, error)
@@ -11414,6 +11527,29 @@ func (r GetVerificationResponse) StatusCode() int {
 	return 0
 }
 
+type ConfirmVerificationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *VerificationResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ConfirmVerificationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConfirmVerificationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ListSubscriptionsV1WebhooksGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -12303,6 +12439,23 @@ func (c *ClientWithResponses) GetVerificationWithResponse(ctx context.Context, v
 		return nil, err
 	}
 	return ParseGetVerificationResponse(rsp)
+}
+
+// ConfirmVerificationWithBodyWithResponse request with arbitrary body returning *ConfirmVerificationResponse
+func (c *ClientWithResponses) ConfirmVerificationWithBodyWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error) {
+	rsp, err := c.ConfirmVerificationWithBody(ctx, verificationId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmVerificationResponse(rsp)
+}
+
+func (c *ClientWithResponses) ConfirmVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error) {
+	rsp, err := c.ConfirmVerification(ctx, verificationId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmVerificationResponse(rsp)
 }
 
 // ListSubscriptionsV1WebhooksGetWithResponse request returning *ListSubscriptionsV1WebhooksGetResponse
@@ -14314,6 +14467,39 @@ func ParseGetVerificationResponse(rsp *http.Response) (*GetVerificationResponse,
 	}
 
 	response := &GetVerificationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VerificationResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConfirmVerificationResponse parses an HTTP response from a ConfirmVerificationWithResponse call
+func ParseConfirmVerificationResponse(rsp *http.Response) (*ConfirmVerificationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConfirmVerificationResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

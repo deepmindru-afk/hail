@@ -121,6 +121,11 @@ class FakeSmsCarrier(SmsRegistrationProvider):
         self.release: asyncio.Event | None = None
         # Seconds create_draft waits, so two filings overlap.
         self.draft_delay = 0.0
+        self.status_calls = 0
+        # How a person confirms: "code" (type a code into Hail) or "reply".
+        self.confirm_kind = "code"
+        self.confirm_problems: list[Problem] = []
+        self.confirmed: list[tuple[dict, str]] = []
 
     async def requirements(self, country_code, number_type, subject_type):
         return Requirements(
@@ -143,7 +148,12 @@ class FakeSmsCarrier(SmsRegistrationProvider):
             await asyncio.sleep(self.draft_delay)
         if self.problems:
             return DraftResult(refs={}, problems=self.problems)
-        return DraftResult(refs={"brand_sid": f"BN{len(self.drafts)}"})
+        return DraftResult(
+            refs={
+                "brand_sid": f"BN{len(self.drafts)}",
+                "subject_type": kwargs["requirements"].subject_type,
+            }
+        )
 
     async def check(self, refs):
         return []
@@ -151,7 +161,19 @@ class FakeSmsCarrier(SmsRegistrationProvider):
     async def submit(self, refs):
         self.submitted.append(refs)
 
+    def confirmation(self, refs):
+        if refs.get("subject_type") == "person" and not refs.get("identity_verified"):
+            return self.confirm_kind
+        return None
+
+    async def confirm(self, refs, code):
+        if self.confirm_kind != "code":
+            raise NotImplementedError
+        self.confirmed.append((dict(refs), code))
+        return self.confirm_problems
+
     async def status(self, refs):
+        self.status_calls += 1
         if self.release is not None and not self.entered.is_set():
             self.entered.set()
             await self.release.wait()
@@ -1638,3 +1660,121 @@ async def test_shared_key_filing_writes_no_debit(
         )
     ).first()
     assert debit is None
+
+
+# -- person confirmation (code the carrier texted) ------------------------
+
+
+async def _person_sms(client, key, async_session, org_id) -> dict:
+    await _set_balance(async_session, org_id, 10_000)
+    resp = await _post_sms(client, key, subject_type="person")
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _confirm(client, key, vid, code="123456"):
+    return await client.post(
+        f"/verifications/{vid}/confirm", json={"code": code}, headers=_auth(key)
+    )
+
+
+async def test_person_registration_asks_for_the_code(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    body = await _person_sms(client, key, async_session, org_id)
+    assert body["state"] == "submitted" and body["confirmation"] == "code"
+    got = await client.get(f"/verifications/{body['id']}", headers=_auth(key))
+    assert got.json()["confirmation"] == "code"
+    listed = await client.get("/verifications", headers=_auth(key))
+    assert listed.json()[0]["confirmation"] == "code"
+
+
+async def test_company_registration_has_no_confirmation(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    body = (await _post_sms(client, key)).json()
+    assert body["confirmation"] is None
+
+
+async def test_confirm_sends_the_code_and_creates_the_campaign(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    sms_carrier.campaign_key = "campaign_id"
+    calls_before = sms_carrier.status_calls
+    resp = await _confirm(client, key, vid, "482913")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["confirmation"] is None
+    assert [c for _, c in sms_carrier.confirmed] == ["482913"]
+    assert sms_carrier.status_calls == calls_before + 1
+    refs = await _stored_refs(async_session, vid)
+    assert refs["identity_verified"] is True and refs["campaign_id"] == "QE1"
+    assert "482913" not in json.dumps(refs)
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "verification.confirm")
+        )
+    ).scalar_one()
+    assert str(audit.resource_id) == vid
+    assert "482913" not in json.dumps(audit.payload)
+
+
+async def test_confirm_wrong_code_is_422_on_code(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    sms_carrier.confirm_problems = [
+        Problem(field="code", message="That code is wrong or has expired.")
+    ]
+    resp = await _confirm(client, key, vid)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "code"]
+    assert "identity_verified" not in await _stored_refs(async_session, vid)
+
+
+async def test_confirm_on_a_company_row_is_409(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    vid = (await _post_sms(client, key)).json()["id"]
+    resp = await _confirm(client, key, vid)
+    assert resp.status_code == 409, resp.text
+    assert sms_carrier.confirmed == []
+
+
+async def test_confirm_on_another_orgs_row_is_404(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    _, _, other_key = await insert_org_and_key(async_session)
+    resp = await _confirm(client, other_key, vid)
+    assert resp.status_code == 404, resp.text
+    assert sms_carrier.confirmed == []
+
+
+async def test_confirm_on_a_reply_carrier_is_409(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    sms_carrier.confirm_kind = "reply"
+    body = await _person_sms(client, key, async_session, org_id)
+    assert body["confirmation"] == "reply"
+    resp = await _confirm(client, key, body["id"])
+    assert resp.status_code == 409, resp.text
+
+
+async def test_confirm_code_length_is_checked(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    vid = (await _person_sms(client, key, async_session, org_id))["id"]
+    assert (await _confirm(client, key, vid, "12")).status_code == 422
+    assert (await _confirm(client, key, vid, "1" * 11)).status_code == 422
+    assert sms_carrier.confirmed == []

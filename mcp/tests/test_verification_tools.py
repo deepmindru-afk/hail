@@ -423,6 +423,7 @@ async def test_submit_returns_only_the_api_response(client: HailClient) -> None:
         "updated_at",
         "submitted_at",
         "approved_at",
+        "confirmation",
     }
     _assert_no_sentinel(result)
 
@@ -912,3 +913,71 @@ async def test_bad_purpose_makes_no_call_and_is_not_echoed(
         assert "purpose must be" in r["error"]
         assert bad not in json.dumps(r)
     assert all(not route.called for route in calls)
+
+
+# --------------------------------------------------------------------------- #
+# confirm_verification
+# --------------------------------------------------------------------------- #
+
+
+@respx.mock
+async def test_confirm_verification_posts_the_code(client: HailClient) -> None:
+    vid = str(uuid4())
+    route = respx.post(f"{_BASE_URL}/verifications/{vid}/confirm").mock(
+        return_value=httpx.Response(
+            200, json=_verification(vid, purpose="sms", confirmation=None)
+        )
+    )
+    result = await tools.confirm_verification(
+        client=client, verification_id=vid, code=" 482913 "
+    )
+    assert json.loads(route.calls.last.request.content) == {"code": "482913"}
+    assert result["id"] == vid and result["confirmation"] is None
+
+
+@respx.mock
+async def test_confirm_verification_wrong_code(client: HailClient) -> None:
+    vid = str(uuid4())
+    respx.post(f"{_BASE_URL}/verifications/{vid}/confirm").mock(
+        return_value=httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {
+                        "loc": ["body", "code"],
+                        "msg": "That code is wrong or has expired.",
+                        "type": "verification_problem",
+                    }
+                ]
+            },
+        )
+    )
+    result = await tools.confirm_verification(
+        client=client, verification_id=vid, code="000000"
+    )
+    assert "wrong or has expired" in json.dumps(result)
+
+
+@respx.mock
+@pytest.mark.parametrize("code", ["12", "12345678901", 123456, None])
+async def test_confirm_verification_bad_code_sends_nothing(
+    client: HailClient, code
+) -> None:
+    catch_all = respx.route().mock(return_value=httpx.Response(500))
+    result = await tools.confirm_verification(
+        client=client, verification_id=str(uuid4()), code=code
+    )
+    assert catch_all.call_count == 0
+    assert "error" in result and "12345678901" not in json.dumps(result)
+
+
+async def test_list_and_get_carry_confirmation(client: HailClient) -> None:
+    vid = str(uuid4())
+    with respx.mock:
+        respx.get(f"{_BASE_URL}/verifications/{vid}").mock(
+            return_value=httpx.Response(
+                200, json=_verification(vid, purpose="sms", confirmation="code")
+            )
+        )
+        result = await tools.get_verification(client=client, verification_id=vid)
+    assert result["confirmation"] == "code"

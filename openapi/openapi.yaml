@@ -4661,6 +4661,78 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+  /v1/verifications/{verification_id}/confirm:
+    post:
+      tags:
+        - verifications
+      summary: Confirm Verification
+      description:
+        'Enter the code the carrier texted to confirm a person''s US texting
+
+        registration. Use it when the verification shows `confirmation: "code"`.
+
+        On success the campaign is filed at once; poll GET /verifications/{id}
+
+        until `approved`. A wrong or expired code is 422 on `code`; 409 when
+
+        there is nothing to confirm.'
+      operationId: confirm_verification
+      parameters:
+        - name: verification_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            title: Verification Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationResponse"
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
   /healthz:
     get:
       summary: Healthz
@@ -5504,6 +5576,18 @@ components:
         - setup_cents
         - readiness
       title: CarrierOffer
+    ConfirmRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 10
+          minLength: 4
+          title: Code
+          description: The code the carrier texted to the person's mobile.
+      type: object
+      required:
+        - code
+      title: ConfirmRequest
     ContactCreate:
       properties:
         name:
@@ -8525,6 +8609,15 @@ components:
             - type: "null"
           title: Approved At
           description: When the carrier approved it.
+        confirmation:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Confirmation
+          description: "For a person's US texting registration: 'code' when you
+            must enter the code the carrier texted (POST /verifications/{id}/confirm),
+            'reply' when you must answer the carrier's text, null when nothing
+            is pending."
       type: object
       required:
         - id

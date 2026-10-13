@@ -42,6 +42,8 @@ Exposes the following tools to the calling agent:
 * ``list_verifications`` — the org's verifications and their states
 * ``get_verification`` — one verification; poll it until ``approved``
 * ``cancel_verification`` — cancel or dismiss (``awaiting_review``/``rejected`` only)
+* ``confirm_verification`` — enter the code the carrier texted a person
+  (when a registration shows ``confirmation: "code"``)
 
 Every tool sets explicit ``ToolAnnotations`` hints (read-only, destructive,
 idempotent, open-world) and a human title; ``tests/test_tool_annotations.py``
@@ -907,6 +909,25 @@ async def cancel_verification(
         return _not_uuid("verification_id")
     try:
         return await client.cancel_verification(verification_id_)
+    except HailAPIError as exc:
+        return _format_api_error(exc)
+    except httpx.TransportError:
+        return {"error": _TRANSPORT_ERROR}
+    except Exception:
+        return {"error": _UNEXPECTED_ERROR}
+
+
+async def confirm_verification(
+    *, client: HailClient, verification_id: str, code: Any
+) -> dict[str, Any]:
+    verification_id_ = _as_uuid(verification_id)
+    if verification_id_ is None:
+        return _not_uuid("verification_id")
+    # Checked here so a bad code is never echoed back in an error.
+    if not isinstance(code, str) or not 4 <= len(code.strip()) <= 10:
+        return {"error": "code must be the 4 to 10 characters the carrier texted"}
+    try:
+        return await client.confirm_verification(verification_id_, code.strip())
     except HailAPIError as exc:
         return _format_api_error(exc)
     except httpx.TransportError:
@@ -2443,10 +2464,12 @@ def register_tools(
 
         Returns ``{"items": [{"id", "provider", "country_code", "number_type",
         "subject_type", "purpose", "state", "rejection_reason", "created_at",
-        "updated_at", "submitted_at", "approved_at"}]}``. ``state`` is
-        ``awaiting_review``, ``submitting``, ``submitted``, ``approved``,
-        ``rejected`` or ``cancelled``. Use it to check whether a submission
-        already exists before submitting again.
+        "updated_at", "submitted_at", "approved_at", "confirmation"}]}``.
+        ``state`` is ``awaiting_review``, ``submitting``, ``submitted``,
+        ``approved``, ``rejected`` or ``cancelled``. Use it to check whether a
+        submission already exists before submitting again. ``confirmation``
+        ``code``: call confirm_verification with the code the carrier texted
+        the person.
 
         Errors come back as ``{"error": "<message>"}``."""
         try:
@@ -2517,6 +2540,38 @@ def register_tools(
             async with _client_for(ctx, mode=mode, singleton=singleton) as client:
                 return await cancel_verification(
                     client=client, verification_id=verification_id
+                )
+        except RuntimeError as exc:
+            return {"error": str(exc)}
+
+    @mcp_app.tool(
+        name="confirm_verification",
+        title="Confirm a verification with a code",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
+    )
+    async def confirm_verification_tool(
+        ctx: Context, verification_id: str, code: str
+    ) -> dict[str, Any]:
+        """When a registration shows confirmation 'code', ask the person for
+        the code the carrier texted and submit it here.
+
+        ``verification_id`` comes from submit_verification or
+        list_verifications. ``code`` is 4 to 10 characters. A wrong or expired
+        code is an error naming ``code``; the carrier sends a new one after a
+        day. On success the registration moves on; poll get_verification
+        until ``approved``. A ``confirmation`` of ``reply`` means the person
+        answers the carrier's text instead; nothing is entered here.
+
+        Returns the verification or ``{"error": "<message>"}``."""
+        try:
+            async with _client_for(ctx, mode=mode, singleton=singleton) as client:
+                return await confirm_verification(
+                    client=client, verification_id=verification_id, code=code
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}

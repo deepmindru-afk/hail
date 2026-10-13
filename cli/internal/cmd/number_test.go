@@ -482,3 +482,69 @@ func TestNumberRegisterSms_ProviderFlagSendsPart(t *testing.T) {
 		t.Errorf("provider part = %q, want x", gotParts["provider"])
 	}
 }
+
+func TestNumberConfirmSms_PostsTheCode(t *testing.T) {
+	const vid = "11111111-1111-1111-1111-111111111111"
+	tests := []struct {
+		name     string
+		code     string
+		wantBody string
+	}{
+		{"digits", "482913", `{"code":"482913"}`},
+		{"trimmed", " 4829 ", `{"code":"4829"}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.Method + " " + r.URL.Path
+				b, _ := io.ReadAll(r.Body)
+				gotBody = strings.TrimSpace(string(b))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"` + vid + `","state":"submitted","purpose":"sms","country_code":"US","number_type":"local","provider":"telnyx","subject_type":"person","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+			}))
+			t.Cleanup(srv.Close)
+			stdout, _, err := runRoot(t,
+				map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+				"numbers", "confirm-sms", vid, "--code", tc.code,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotPath != "POST /v1/verifications/"+vid+"/confirm" {
+				t.Errorf("route = %q", gotPath)
+			}
+			if gotBody != tc.wantBody {
+				t.Errorf("body = %q, want %q", gotBody, tc.wantBody)
+			}
+			if !strings.Contains(stdout, "submitted") {
+				t.Errorf("stdout = %q", stdout)
+			}
+		})
+	}
+}
+
+func TestNumberConfirmSms_RejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"no code", []string{"numbers", "confirm-sms", "11111111-1111-1111-1111-111111111111"}},
+		{"bad id", []string{"numbers", "confirm-sms", "xyz", "--code", "123456"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newFakeServer(t, http.StatusOK, nil)
+			_, _, err := runRoot(t,
+				map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+				tc.args...,
+			)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if hits := atomic.LoadInt32(&srv.hits); hits != 0 {
+				t.Errorf("expected 0 HTTP calls, got %d", hits)
+			}
+		})
+	}
+}

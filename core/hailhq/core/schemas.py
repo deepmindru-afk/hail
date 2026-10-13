@@ -2570,3 +2570,12 @@ class VerificationResponse(BaseModel):
     approved_at: datetime | None = Field(
         default=None, description="When the carrier approved it."
     )
+    confirmation: str | None = Field(
+        default=None,
+        description=(
+            "For a person's US texting registration: 'code' when you must enter "
+            "the code the carrier texted (POST /verifications/{id}/confirm), "
+            "'reply' when you must answer the carrier's text, null when nothing "
+            "is pending."
+        ),
+    )

@@ -581,6 +581,17 @@ class HailClient:
             mode="json"
         )
 
+    async def confirm_verification(
+        self, verification_id: str, code: str = ""
+    ) -> dict[str, Any]:
+        verification_id_ = _path_id(verification_id, name="verification_id")
+        resp = await self._client.post(
+            f"/verifications/{verification_id_}/confirm", json={"code": code}
+        )
+        return VerificationResponse.model_validate(_decode(resp)).model_dump(
+            mode="json"
+        )
+
     async def submit_verification(
         self,
         *,
