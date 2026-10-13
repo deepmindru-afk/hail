@@ -2534,7 +2534,9 @@ def register_tools(
         Works in state ``awaiting_review`` or ``rejected``, and for an
         ``approved`` US SMS registration (``purpose: "sms"``): its numbers
         leave the campaign, US-to-US texts from them fail again, and its
-        monthly fee stops after the current month. Ask the user first. A
+        monthly fee stops after the current month. Telnyx bills at least 3
+        monthly fees from approval, so a Telnyx registration cancelled sooner
+        is still charged for 3 months. Ask the user first. A
         ``submitting`` or ``submitted`` verification is under review and
         cannot be cancelled (409): wait for the result with get_verification.
 

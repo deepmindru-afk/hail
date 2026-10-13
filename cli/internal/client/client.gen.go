@@ -3016,6 +3016,9 @@ type SmsFee struct {
 	// FilingCents Charged once when the registration is filed.
 	FilingCents int `json:"filing_cents"`
 
+	// MinimumMonths Monthly fees charged at least, counted from approval, even when the registration is cancelled sooner (3 for Telnyx, 1 otherwise).
+	MinimumMonths int `json:"minimum_months"`
+
 	// MonthlyCents Charged each month while approved.
 	MonthlyCents int `json:"monthly_cents"`
 }

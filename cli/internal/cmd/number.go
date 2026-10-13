@@ -610,7 +610,9 @@ func newNumberCancelSmsCmd(opts *Options) *cobra.Command {
 Calls DELETE /v1/verifications/{id}. An approved registration is cancelled at
 once: its numbers leave the campaign and US-to-US texts from them return 422.
 The monthly fee is charged through the month of the cancellation, then stops.
-A registration not yet sent for review, or a rejected one, is withdrawn.`,
+Telnyx bills at least 3 monthly fees from approval, so a Telnyx registration
+cancelled sooner is still charged for 3 months. A registration not yet sent
+for review, or a rejected one, is withdrawn.`,
 		Example: `  hail numbers cancel-sms 11111111-1111-1111-1111-111111111111`,
 		Args:    argsOrHelp(1, "<verification-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {

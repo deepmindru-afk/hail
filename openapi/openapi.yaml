@@ -4618,7 +4618,13 @@ paths:
 
         and US-to-US texts from those numbers get 422 again. Its monthly fee is
 
-        charged through the month of the cancellation, then stops."
+        charged through the month of the cancellation, then stops. Telnyx bills
+
+        at least 3 monthly fees from approval (`minimum_months` in
+
+        GET /verifications/sms-fees), so a Telnyx registration cancelled sooner
+
+        is still charged for 3 months."
       operationId: cancel_verification
       parameters:
         - name: verification_id
@@ -8326,10 +8332,17 @@ components:
           type: integer
           title: Monthly Cents
           description: Charged each month while approved.
+        minimum_months:
+          type: integer
+          title: Minimum Months
+          description:
+            Monthly fees charged at least, counted from approval, even
+            when the registration is cancelled sooner (3 for Telnyx, 1 otherwise).
       type: object
       required:
         - filing_cents
         - monthly_cents
+        - minimum_months
       title: SmsFee
     SmsListResponse:
       properties:

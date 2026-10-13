@@ -17,6 +17,20 @@ def test_monthly_fee() -> None:
     assert fees.monthly_fee_cents("twilio", "person") == 200
 
 
+def test_telnyx_fees_match_telnyx() -> None:
+    # 4.50 brand + about 41 standard vetting + 15 campaign review
+    assert fees.filing_fee_cents("telnyx", "business") == 6050
+    # 4.50 brand + 15 campaign review; 2/month for a sole proprietor
+    assert fees.filing_fee_cents("telnyx", "person") == 1950
+    assert fees.monthly_fee_cents("telnyx", "person") == 200
+    assert fees.monthly_fee_cents("telnyx", "business") == 1000
+
+
+def test_minimum_months() -> None:
+    assert fees.minimum_months("telnyx") == 3
+    assert fees.minimum_months("twilio") == 1
+
+
 def test_unknown_provider_raises() -> None:
     with pytest.raises(KeyError):
         fees.filing_fee_cents("didww", "person")

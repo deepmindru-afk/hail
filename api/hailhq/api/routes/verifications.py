@@ -1009,6 +1009,12 @@ class SmsFee(BaseModel):
         description="Charged once when the registration is filed."
     )
     monthly_cents: int = Field(description="Charged each month while approved.")
+    minimum_months: int = Field(
+        description=(
+            "Monthly fees charged at least, counted from approval, even when "
+            "the registration is cancelled sooner (3 for Telnyx, 1 otherwise)."
+        )
+    )
 
 
 @router.get(
@@ -1029,6 +1035,7 @@ async def get_sms_fees(
                 monthly_cents=sms_registration_fees.monthly_fee_cents(
                     provider, subject
                 ),
+                minimum_months=sms_registration_fees.minimum_months(provider),
             )
             for subject in ("person", "business")
         }
@@ -1072,7 +1079,10 @@ async def cancel_verification(
     An approved US SMS registration (`purpose=sms`) can be cancelled too:
     its numbers leave the campaign, the campaign is deleted at the carrier,
     and US-to-US texts from those numbers get 422 again. Its monthly fee is
-    charged through the month of the cancellation, then stops."""
+    charged through the month of the cancellation, then stops. Telnyx bills
+    at least 3 monthly fees from approval (`minimum_months` in
+    GET /verifications/sms-fees), so a Telnyx registration cancelled sooner
+    is still charged for 3 months."""
     row = await _org_row_or_404(db, principal, verification_id)
     if row.state in ("submitting", "submitted"):
         raise HTTPException(

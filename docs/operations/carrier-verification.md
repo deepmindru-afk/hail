@@ -97,7 +97,7 @@ Same flow as above with `purpose=sms`: each organization registers its own US A2
 - `awaiting_review` → `cancelled`, draft discarded at the carrier.
 - `rejected` → `cancelled` (dismiss), draft discarded.
 - `submitting`, `submitted` → **409** `this verification is under review; wait for the result`. The carrier keeps a draft it is reviewing, so cancelling would leave the customer's documents at the carrier with nothing pointing at them.
-- `approved` with `purpose=sms` → `cancelled`. Each number on it (`phone_numbers.sms_registration_id`) leaves the campaign (Telnyx unlink; a person's Twilio number leaves the person's service and is set up in the org's service again), then the campaign, brand, bundle and profile are discarded. `cancelled_at` is set; the website rater bills the monthly fee through that month. Audit row `verification.cancel`.
+- `approved` with `purpose=sms` → `cancelled`. Each number on it (`phone_numbers.sms_registration_id`) leaves the campaign (Telnyx unlink; a person's Twilio number leaves the person's service and is set up in the org's service again), then the campaign, brand, bundle and profile are discarded. `cancelled_at` is set; the website rater bills the monthly fee through that month. Telnyx bills at least 3 monthly fees from approval, so for Telnyx the rater bills through the later of the cancel month and the approval month + 2 (`minimum_months` in `GET /verifications/sms-fees`, `_MINIMUM_MONTHS` in `core/hailhq/core/sms_registration_fees.py`). Audit row `verification.cancel`.
 - `approved` with `purpose=number`, `cancelled` → 409.
 
 ## Superadmin routes
