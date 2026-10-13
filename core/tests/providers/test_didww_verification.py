@@ -825,7 +825,7 @@ def test_not_registered_without_key(monkeypatch):
     from hailhq.core.providers.verification import _INSTANCES
 
     monkeypatch.setattr(settings, "didww_api_key", "")
-    _INSTANCES.pop("didww", None)
+    _INSTANCES.pop(("didww", "number"), None)
     assert get_verification_provider("didww") is None
 
 
@@ -834,7 +834,7 @@ def test_not_registered_with_bad_environment(monkeypatch):
 
     monkeypatch.setattr(settings, "didww_api_key", "test-key")
     monkeypatch.setattr(settings, "didww_environment", "staging")
-    _INSTANCES.pop("didww", None)
+    _INSTANCES.pop(("didww", "number"), None)
     assert get_verification_provider("didww") is None
 
 

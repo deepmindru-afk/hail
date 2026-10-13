@@ -18,9 +18,9 @@ from hailhq.api.routes.verifications import (
     get_verification_registry,
 )
 from hailhq.api.superadmin import require_superadmin
-from hailhq.core import telephony_catalog
+from hailhq.core import sms_registration_fees, telephony_catalog
 from hailhq.core.config import settings
-from hailhq.core.models import AuditLog, CarrierVerification
+from hailhq.core.models import AccountCredit, AuditLog, CarrierVerification
 from hailhq.core.providers.verification import (
     DocumentOption,
     DocumentSlot,
@@ -29,6 +29,7 @@ from hailhq.core.providers.verification import (
     Problem,
     ProviderStatus,
     Requirements,
+    SmsRegistrationProvider,
     UnsupportedSubjectType,
     VerificationProvider,
 )
@@ -92,11 +93,67 @@ class FakeCarrier(VerificationProvider):
         self.discarded.append(refs)
 
 
+class FakeSmsCarrier(SmsRegistrationProvider):
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.remote_status = ProviderStatus(state="pending")
+        self.drafts: list[dict] = []
+        self.submitted: list[dict] = []
+        self.discarded: list[dict] = []
+        self.attached: list[tuple[dict, str, str]] = []
+        self.attach_error: Exception | None = None
+        self.problems: list[Problem] = []
+
+    async def requirements(self, country_code, number_type, subject_type):
+        return Requirements(
+            provider=self.name,
+            country_code=country_code,
+            number_type=number_type,
+            subject_type=subject_type,
+            required=True,
+            fields=(
+                FieldSpec(name="legal_name", label="Legal name"),
+                FieldSpec(name="campaign_description", label="What you send"),
+            ),
+            address_required=True,
+            subject_types=("person", "business"),
+        )
+
+    async def create_draft(self, *, messaging_service_sid=None, **kwargs):
+        self.drafts.append({**kwargs, "messaging_service_sid": messaging_service_sid})
+        if self.problems:
+            return DraftResult(refs={}, problems=self.problems)
+        return DraftResult(refs={"brand_sid": f"BN{len(self.drafts)}"})
+
+    async def check(self, refs):
+        return []
+
+    async def submit(self, refs):
+        self.submitted.append(refs)
+
+    async def status(self, refs):
+        return self.remote_status
+
+    async def purchase_handle(self, refs):
+        return {}
+
+    async def discard(self, refs):
+        self.discarded.append(refs)
+
+    async def attach_number(self, refs, *, provider_resource_id, e164):
+        if self.attach_error:
+            raise self.attach_error
+        self.attached.append((refs, provider_resource_id, e164))
+
+
 @pytest.fixture()
 def carrier():
     fake = FakeCarrier()
     app.dependency_overrides[get_verification_registry] = lambda: (
-        lambda name: fake if name == "fake" else None
+        lambda name, purpose="number": (
+            fake if name == "fake" and purpose == "number" else None
+        )
     )
     verifications_routes._last_polled.clear()
     app.dependency_overrides[get_default_provider_name] = lambda: "fake"
@@ -104,6 +161,24 @@ def carrier():
     app.dependency_overrides.pop(get_verification_registry, None)
     app.dependency_overrides.pop(get_default_provider_name, None)
     app.dependency_overrides.pop(require_superadmin, None)
+
+
+@pytest.fixture()
+def sms_carrier():
+    fake = FakeSmsCarrier()
+    number_fake = FakeCarrier()
+
+    def registry(name, purpose="number"):
+        if name != "fake":
+            return None
+        return fake if purpose == "sms" else number_fake
+
+    app.dependency_overrides[get_verification_registry] = lambda: registry
+    verifications_routes._last_polled.clear()
+    app.dependency_overrides[get_default_provider_name] = lambda: "fake"
+    yield fake
+    app.dependency_overrides.pop(get_verification_registry, None)
+    app.dependency_overrides.pop(get_default_provider_name, None)
 
 
 @pytest.fixture(autouse=True)
@@ -125,10 +200,37 @@ def pinned_catalog(tmp_path, monkeypatch):
     }
     (tmp_path / "twilio.json").write_text(json.dumps(data))
     (tmp_path / "telnyx.json").write_text(json.dumps({**data, "numbers": []}))
+    (tmp_path / "sms-registration.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "license": "CC-BY-4.0",
+                "providers": [
+                    {
+                        "provider": "fake",
+                        "last_verified": "2026-10-13",
+                        "source_url": "",
+                        "person": {
+                            "brand_usd": "4.50",
+                            "campaign_vetting_usd": "15.00",
+                            "campaign_monthly_usd": "2.00",
+                        },
+                        "business": {
+                            "brand_usd": "46.00",
+                            "campaign_vetting_usd": "15.00",
+                            "campaign_monthly_usd": "10.00",
+                        },
+                    }
+                ],
+            }
+        )
+    )
     monkeypatch.setenv("HAIL_TELEPHONY_CATALOG_DIR", str(tmp_path))
     telephony_catalog._load.cache_clear()
+    sms_registration_fees._load.cache_clear()
     yield
     telephony_catalog._load.cache_clear()
+    sms_registration_fees._load.cache_clear()
 
 
 def _auth(plaintext: str) -> dict[str, str]:
@@ -845,13 +947,15 @@ async def test_sweeper_submits_waiting_drafts_and_pulls_decisions(
     waiting = await _unsent(client, key, carrier, async_session)
     # Too fresh: creation may still be running; the sweeper leaves it alone.
     counts = await sweep_verifications(
-        async_session, lambda name: carrier if name == "fake" else None
+        async_session,
+        lambda name, purpose="number": carrier if name == "fake" else None,
     )
     assert counts == {"submitted": 0, "refreshed": 0} and carrier.submitted == []
     await _set_state(async_session, waiting, "awaiting_review", age_s=3 * 60)
     carrier.remote_status = ProviderStatus(state="approved")
     counts = await sweep_verifications(
-        async_session, lambda name: carrier if name == "fake" else None
+        async_session,
+        lambda name, purpose="number": carrier if name == "fake" else None,
     )
     # Submitted this pass, then polled: the carrier already approved it.
     assert counts["submitted"] == 1 and carrier.submitted == [{"bundle_sid": "B1"}]
@@ -880,7 +984,8 @@ async def test_sweeper_rejects_a_draft_the_carrier_refuses(
     await _set_state(async_session, vid, "awaiting_review", age_s=3 * 60)
     carrier.check_problems = [Problem(field="", message="document unreadable")]
     counts = await sweep_verifications(
-        async_session, lambda name: carrier if name == "fake" else None
+        async_session,
+        lambda name, purpose="number": carrier if name == "fake" else None,
     )
     assert counts["submitted"] == 0 and carrier.submitted == []
     got = (await client.get(f"/verifications/{vid}", headers=_auth(key))).json()
@@ -896,7 +1001,8 @@ async def test_sweeper_rejects_a_draft_the_carrier_refuses(
     # Not retried: a second pass leaves it alone.
     carrier.check_problems = []
     counts = await sweep_verifications(
-        async_session, lambda name: carrier if name == "fake" else None
+        async_session,
+        lambda name, purpose="number": carrier if name == "fake" else None,
     )
     assert counts["submitted"] == 0 and carrier.submitted == []
     # A rejected verification does not block a new one.
@@ -918,7 +1024,8 @@ async def test_sweeper_keeps_a_refused_draft_when_the_discard_fails(
 
     carrier.discard = boom
     counts = await sweep_verifications(
-        async_session, lambda name: carrier if name == "fake" else None
+        async_session,
+        lambda name, purpose="number": carrier if name == "fake" else None,
     )
     assert counts == {"submitted": 0, "refreshed": 0}
     row = await async_session.get(CarrierVerification, uuid.UUID(vid))
@@ -938,3 +1045,166 @@ async def test_response_carries_purpose_number_by_default(
     resp = await _create(client, key)
     assert resp.status_code == 201, resp.text
     assert resp.json()["purpose"] == "number"
+
+
+def _sms_submission(**overrides) -> dict:
+    data = {
+        "provider": "fake",
+        "purpose": "sms",
+        "country_code": "US",
+        "number_type": "local",
+        "subject_type": "business",
+        "fields": json.dumps(
+            {"legal_name": "Acme", "campaign_description": "Order updates"}
+        ),
+        "address": json.dumps(
+            {
+                "customer_name": "Acme",
+                "street": "1 Main St",
+                "city": "Austin",
+                "region": "TX",
+                "postal_code": "78701",
+                "country_code": "US",
+            }
+        ),
+    }
+    data.update(overrides)
+    return data
+
+
+async def _post_sms(client, key, **overrides):
+    # A (None, value) file entry makes httpx send multipart/form-data.
+    return await client.post(
+        "/verifications",
+        data=_sms_submission(**overrides),
+        files={"_": (None, "1")},
+        headers=_auth(key),
+    )
+
+
+async def _set_balance(async_session, org_id, cents: int) -> None:
+    """The org fixture starts with credit; move the balance to exactly ``cents``."""
+    diff = cents - await _balance(async_session, org_id)
+    if diff:
+        async_session.add(
+            AccountCredit(
+                organization_id=org_id,
+                kind="credit" if diff > 0 else "debit",
+                channel="credit" if diff > 0 else "voice",
+                amount_cents=diff,
+                qty=1,
+                ref=f"test-balance-{uuid.uuid4()}",
+                source="test",
+            )
+        )
+        await async_session.commit()
+
+
+async def _balance(async_session, org_id) -> int:
+    from sqlalchemy import func
+
+    total = (
+        await async_session.execute(
+            select(func.coalesce(func.sum(AccountCredit.amount_cents), 0)).where(
+                AccountCredit.organization_id == org_id
+            )
+        )
+    ).scalar_one()
+    return int(total)
+
+
+async def test_sms_registration_requires_purpose_sms_provider(
+    client, org_and_key, carrier
+) -> None:
+    # Only the number plug-in is registered: purpose=sms is 404.
+    _, _, key = org_and_key
+    resp = await _post_sms(client, key)
+    assert resp.status_code == 404, resp.text
+
+
+async def test_sms_registration_debits_filing_fee(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    resp = await _post_sms(client, key)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["purpose"] == "sms"
+    assert body["state"] == "submitted"
+    assert await _balance(async_session, org_id) == 10_000 - 6100
+    debit = (
+        await async_session.execute(
+            select(AccountCredit).where(
+                AccountCredit.ref == f"sms_registration:{body['id']}"
+            )
+        )
+    ).scalar_one()
+    assert debit.channel == "sms" and int(debit.amount_cents) == -6100
+
+
+async def test_sms_registration_402_when_balance_too_low(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 5_000)
+    resp = await _post_sms(client, key)
+    assert resp.status_code == 402, resp.text
+    assert sms_carrier.drafts == []
+    assert await _balance(async_session, org_id) == 5_000
+
+
+async def test_sms_registration_rejected_brand_keeps_fee(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    vid = (await _post_sms(client, key)).json()["id"]
+    sms_carrier.remote_status = ProviderStatus(
+        state="rejected", reason="EIN does not match"
+    )
+    verifications_routes._last_polled.clear()
+    resp = await client.get(f"/verifications/{vid}", headers=_auth(key))
+    assert resp.json()["state"] == "rejected"
+    assert resp.json()["rejection_reason"] == "EIN does not match"
+    assert await _balance(async_session, org_id) == 10_000 - 6100
+
+
+async def test_sms_and_number_rows_coexist(
+    client, org_and_key, sms_carrier, async_session
+) -> None:
+    org_id, _, key = org_and_key
+    await _set_balance(async_session, org_id, 10_000)
+    assert (await _post_sms(client, key)).status_code == 201
+    assert (await _post_sms(client, key)).status_code == 409
+    resp = await client.get(
+        "/verifications", params={"purpose": "sms"}, headers=_auth(key)
+    )
+    assert [r["purpose"] for r in resp.json()] == ["sms"]
+
+
+async def test_sms_requirements_endpoint(client, org_and_key, sms_carrier) -> None:
+    _, _, key = org_and_key
+    resp = await client.get(
+        "/verifications/requirements",
+        params={
+            "country_code": "US",
+            "number_type": "local",
+            "purpose": "sms",
+            "subject_type": "business",
+            "provider": "fake",
+        },
+        headers=_auth(key),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["address_required"] is True
+
+
+async def test_sms_fees_endpoint(client, org_and_key, sms_carrier) -> None:
+    _, _, key = org_and_key
+    resp = await client.get("/verifications/sms-fees", headers=_auth(key))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["fake"] == {
+        "person": {"filing_cents": 1950, "monthly_cents": 200},
+        "business": {"filing_cents": 6100, "monthly_cents": 1000},
+    }

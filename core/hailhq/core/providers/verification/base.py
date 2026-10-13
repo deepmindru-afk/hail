@@ -27,6 +27,7 @@ __all__ = [
     "Problem",
     "ProviderStatus",
     "Requirements",
+    "SmsRegistrationProvider",
     "SubjectType",
     "UnsupportedSubjectType",
     "UploadedFile",
@@ -277,3 +278,22 @@ class VerificationProvider(ABC):
     @abstractmethod
     async def discard(self, refs: dict) -> None:
         """Delete a draft. Best effort; never raises."""
+
+
+class SmsRegistrationProvider(VerificationProvider):
+    """A carrier's US A2P 10DLC registration, driven through the same
+    lifecycle as number verification. ``purpose`` is 'sms'.
+
+    ``create_draft`` takes one extra keyword: the organization's messaging
+    service (Twilio) or messaging profile (Telnyx) id, when one exists.
+    ``status`` creates the campaign once the brand is approved and reports
+    'approved' only when the campaign is approved. ``attach_number`` puts
+    one of the organization's US long codes on the approved campaign."""
+
+    purpose = "sms"
+
+    @abstractmethod
+    async def attach_number(
+        self, refs: dict, *, provider_resource_id: str, e164: str
+    ) -> None:
+        """Attach a number to the approved campaign. Idempotent."""

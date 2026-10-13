@@ -26,9 +26,11 @@ from hailhq.api.deps import Principal, get_current_principal
 from hailhq.api.errors import unprocessable
 from hailhq.api.ratelimit import GENERAL_RATE_LIMITED_RESPONSES
 from hailhq.api.superadmin import require_superadmin
+from hailhq.core import sms_registration_fees
+from hailhq.core.billing import get_balance_cents
 from hailhq.core.config import settings
 from hailhq.core.db import get_session
-from hailhq.core.models import CarrierVerification
+from hailhq.core.models import AccountCredit, CarrierVerification, PhoneNumber
 from hailhq.core.providers.verification import (
     Address,
     DocumentInput,
@@ -66,7 +68,10 @@ _SUBMITTING_STUCK_AFTER = timedelta(minutes=5)
 # When this process last asked the carrier about a submitted verification.
 _last_polled: dict[UUID, float] = {}
 
-Registry = Callable[[str], VerificationProvider | None]
+PURPOSES = {"number", "sms"}
+
+# (name, purpose) -> plug-in
+Registry = Callable[[str, str], VerificationProvider | None]
 
 
 def get_verification_registry() -> Registry:
@@ -77,6 +82,11 @@ def get_verification_registry() -> Registry:
 def get_default_provider_name() -> str | None:
     """Carrier used when a request names none. Dependency so tests can swap it."""
     return default_verification_provider_name()
+
+
+def get_default_sms_provider_name() -> str | None:
+    """Carrier used for SMS registration when a request names none."""
+    return default_verification_provider_name("sms")
 
 
 def _resolve_provider_name(name: str | None, default: str | None) -> str:
@@ -104,8 +114,10 @@ admin_router = APIRouter(
 )
 
 
-def _provider_or_404(registry: Registry, name: str) -> VerificationProvider:
-    provider = registry(name)
+def _provider_or_404(
+    registry: Registry, name: str, purpose: str = "number"
+) -> VerificationProvider:
+    provider = registry(name, purpose)
     if provider is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
@@ -180,7 +192,7 @@ async def _fetch_status(
 ) -> ProviderStatus | None:
     """Ask the carrier about a verification. None when there is nothing to
     apply."""
-    provider = registry(row.provider)
+    provider = registry(row.provider, row.purpose)
     if provider is None:
         return None
     try:
@@ -282,7 +294,7 @@ async def approved_purchase_handle(
     ).scalar_one_or_none()
     if row is None:
         return None
-    provider = registry(provider_name)
+    provider = registry(provider_name, "number")
     if provider is None:
         return None
     return await provider.purchase_handle(row.provider_refs)
@@ -302,13 +314,20 @@ async def get_requirements(
     country_code: Annotated[str, Query(min_length=2, max_length=2)],
     number_type: str,
     default_provider: Annotated[str | None, Depends(get_default_provider_name)],
+    default_sms_provider: Annotated[str | None, Depends(get_default_sms_provider_name)],
     subject_type: SubjectType = "person",
     provider: str | None = None,
+    purpose: str = "number",
 ) -> Requirements:
-    """What the carrier needs from you to buy this kind of number: the fields,
-    the documents, and whether an address is needed. Build your form from it."""
+    """What the carrier needs from you: the fields, the documents, and whether
+    an address is needed. `purpose=number` (default) is for buying a number;
+    `purpose=sms` is for registering to send SMS in the US. Build your form
+    from it."""
+    if purpose not in PURPOSES:
+        raise unprocessable("unknown purpose", loc=["query", "purpose"])
+    default = default_sms_provider if purpose == "sms" else default_provider
     return await _requirements(
-        _provider_or_404(registry, _resolve_provider_name(provider, default_provider)),
+        _provider_or_404(registry, _resolve_provider_name(provider, default), purpose),
         country_code,
         number_type,
         subject_type,
@@ -322,6 +341,7 @@ class _DocumentPart(BaseModel):
 
 class _Submission(BaseModel):
     provider: str | None = None
+    purpose: str = "number"
     country_code: str = Field(min_length=2, max_length=2)
     number_type: str
     subject_type: SubjectType = "person"
@@ -414,10 +434,13 @@ async def create_verification(
     db: Annotated[AsyncSession, Depends(get_session)],
     registry: Annotated[Registry, Depends(get_verification_registry)],
     default_provider: Annotated[str | None, Depends(get_default_provider_name)],
+    default_sms_provider: Annotated[str | None, Depends(get_default_sms_provider_name)],
 ) -> VerificationResponse:
     """Submit your details and documents (multipart/form-data).
 
-    Parts: `country_code`, `number_type`, `subject_type`, `provider` (optional),
+    Parts: `purpose` (`number`, the default, or `sms` to register to send SMS
+    in the US; `sms` takes `country_code=US` and `number_type=local` and charges
+    the filing fee), `country_code`, `number_type`, `subject_type`, `provider` (optional),
     `fields` (JSON object), `address` (JSON object, when required), `documents`
     (JSON object: slot name to `{"option": ..., "fields": {...}}`), and one file
     part per slot named `file.<slot>`. Get the slot and field names from
@@ -432,6 +455,7 @@ async def create_verification(
     try:
         sub = _Submission(
             provider=_text_part(form, "provider") or None,
+            purpose=_text_part(form, "purpose", "number"),
             country_code=_text_part(form, "country_code").upper(),
             number_type=_text_part(form, "number_type"),
             subject_type=_text_part(form, "subject_type", "person"),  # type: ignore[arg-type]
@@ -446,14 +470,26 @@ async def create_verification(
             ),
         ) from exc
 
-    provider_name = _resolve_provider_name(sub.provider, default_provider)
-    provider = _provider_or_404(registry, provider_name)
+    if sub.purpose not in PURPOSES:
+        raise unprocessable("unknown purpose", loc=["body", "purpose"])
+    if sub.purpose == "sms" and (
+        sub.country_code != "US" or sub.number_type != "local"
+    ):
+        raise unprocessable(
+            "SMS registration is for US local numbers", loc=["body", "country_code"]
+        )
+
+    provider_name = _resolve_provider_name(
+        sub.provider, default_sms_provider if sub.purpose == "sms" else default_provider
+    )
+    provider = _provider_or_404(registry, provider_name, sub.purpose)
 
     existing = (
         await db.execute(
             select(CarrierVerification).where(
                 CarrierVerification.organization_id == principal.organization_id,
                 CarrierVerification.provider == provider_name,
+                CarrierVerification.purpose == sub.purpose,
                 CarrierVerification.country_code == sub.country_code,
                 CarrierVerification.number_type == sub.number_type,
                 CarrierVerification.state.in_(_LIVE_STATES),
@@ -487,6 +523,37 @@ async def create_verification(
             ),
         )
 
+    fee_cents = 0
+    draft_kwargs: dict = {}
+    if sub.purpose == "sms":
+        try:
+            fee_cents = sms_registration_fees.filing_fee_cents(
+                provider_name, sub.subject_type
+            )
+        except KeyError:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="no SMS registration for this carrier",
+            )
+        if principal.auth_kind != "shared":
+            balance = await get_balance_cents(db, principal.organization_id)
+            if balance < fee_cents:
+                raise HTTPException(
+                    status_code=http_status.HTTP_402_PAYMENT_REQUIRED,
+                    detail=f"filing costs ${fee_cents / 100:.2f}; add credit first",
+                )
+        draft_kwargs["messaging_service_sid"] = (
+            await db.execute(
+                select(PhoneNumber.messaging_service_sid)
+                .where(
+                    PhoneNumber.organization_id == principal.organization_id,
+                    PhoneNumber.provider == provider_name,
+                    PhoneNumber.messaging_service_sid.is_not(None),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
     try:
         draft = await provider.create_draft(
             organization_id=str(principal.organization_id),
@@ -495,6 +562,7 @@ async def create_verification(
             fields=sub.fields,
             address=sub.address,
             documents=documents,
+            **draft_kwargs,
         )
     except VerificationProviderError as exc:
         raise HTTPException(
@@ -513,6 +581,7 @@ async def create_verification(
     row = CarrierVerification(
         organization_id=principal.organization_id,
         provider=provider_name,
+        purpose=sub.purpose,
         country_code=sub.country_code,
         number_type=sub.number_type,
         subject_type=sub.subject_type,
@@ -522,6 +591,19 @@ async def create_verification(
     )
     db.add(row)
     try:
+        if fee_cents:
+            await db.flush()  # row.id is a server default
+            db.add(
+                AccountCredit(
+                    organization_id=principal.organization_id,
+                    kind="debit",
+                    channel="sms",
+                    amount_cents=-fee_cents,
+                    qty=1,
+                    ref=f"sms_registration:{row.id}",
+                    source="sms_registration_fee",
+                )
+            )
         await db.commit()
     except Exception as exc:
         # The carrier record exists but the row does not: remove it, or it
@@ -538,7 +620,12 @@ async def create_verification(
     # No human gate: the draft goes to the carrier now. If the carrier is
     # down, the row stays 'awaiting_review' and the sweeper retries it.
     await _submit_row(
-        db, row, provider, actor=actor_of(principal), action="verification.submit"
+        db,
+        row,
+        provider,
+        actor=actor_of(principal),
+        action="verification.submit",
+        extra={"fee_cents": fee_cents} if sub.purpose == "sms" else None,
     )
     return VerificationResponse.model_validate(row)
 
@@ -550,6 +637,7 @@ async def _submit_row(
     *,
     actor: tuple[UUID | None, str],
     action: str,
+    extra: dict | None = None,
 ) -> bool:
     """Send an 'awaiting_review' draft the carrier has already evaluated
     (create_draft or check). True when it is now 'submitted'; False when the
@@ -583,7 +671,7 @@ async def _submit_row(
         action,
         "carrier_verification",
         row.id,
-        {"approved_by": str(approved_by) if approved_by else None},
+        {"approved_by": str(approved_by) if approved_by else None, **(extra or {})},
         actor_user_id=actor_user_id,
         actor_kind=actor_kind,
     )
@@ -621,7 +709,7 @@ async def _retry_submit(
     row = await _lock_waiting(db, verification_id)
     if row is None:
         return False
-    provider = registry(row.provider)
+    provider = registry(row.provider, row.purpose)
     if provider is None:
         await db.rollback()
         return False
@@ -735,16 +823,17 @@ async def list_verifications(
     principal: Annotated[Principal, Depends(get_current_principal)],
     db: Annotated[AsyncSession, Depends(get_session)],
     registry: Annotated[Registry, Depends(get_verification_registry)],
+    purpose: str | None = None,
 ) -> list[VerificationResponse]:
-    """Your organization's verifications, newest first."""
+    """Your organization's verifications, newest first. Pass `purpose`
+    (`number` or `sms`) to list only that kind."""
+    query = select(CarrierVerification).where(
+        CarrierVerification.organization_id == principal.organization_id
+    )
+    if purpose is not None:
+        query = query.where(CarrierVerification.purpose == purpose)
     rows = (
-        (
-            await db.execute(
-                select(CarrierVerification)
-                .where(CarrierVerification.organization_id == principal.organization_id)
-                .order_by(CarrierVerification.created_at.desc())
-            )
-        )
+        (await db.execute(query.order_by(CarrierVerification.created_at.desc())))
         .scalars()
         .all()
     )
@@ -757,6 +846,37 @@ async def list_verifications(
     if any(changed):
         await db.commit()
     return [VerificationResponse.model_validate(r) for r in rows]
+
+
+class SmsFee(BaseModel):
+    filing_cents: int = Field(
+        description="Charged once when the registration is filed."
+    )
+    monthly_cents: int = Field(description="Charged each month while approved.")
+
+
+@router.get(
+    "/sms-fees",
+    response_model=dict[str, dict[str, SmsFee]],
+    operation_id="get_sms_registration_fees",
+)
+async def get_sms_fees(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+) -> dict[str, dict[str, SmsFee]]:
+    """Fees for US SMS registration, per carrier and subject type, in cents.
+    Passed through at cost."""
+    out: dict[str, dict[str, SmsFee]] = {}
+    for provider in sms_registration_fees.providers():
+        out[provider] = {
+            subject: SmsFee(
+                filing_cents=sms_registration_fees.filing_fee_cents(provider, subject),
+                monthly_cents=sms_registration_fees.monthly_fee_cents(
+                    provider, subject
+                ),
+            )
+            for subject in ("person", "business")
+        }
+    return out
 
 
 @router.get(
@@ -803,7 +923,7 @@ async def cancel_verification(
             status_code=http_status.HTTP_409_CONFLICT,
             detail=f"cannot cancel a verification that is {row.state}",
         )
-    provider = registry(row.provider)
+    provider = registry(row.provider, row.purpose)
     if provider is not None:
         await provider.discard(row.provider_refs)
     row.state, row.provider_refs = "cancelled", {}
@@ -879,7 +999,7 @@ async def admin_approve(
 ) -> AdminVerification:
     """Submit the draft to the carrier for its review."""
     row = await _admin_row(db, verification_id)
-    provider = _provider_or_404(registry, row.provider)
+    provider = _provider_or_404(registry, row.provider, row.purpose)
     try:
         problems = await provider.check(row.provider_refs)
     except Exception as exc:
@@ -907,7 +1027,7 @@ async def admin_reject(
     registry: Annotated[Registry, Depends(get_verification_registry)],
 ) -> AdminVerification:
     row = await _admin_row(db, verification_id)
-    provider = registry(row.provider)
+    provider = registry(row.provider, row.purpose)
     if provider is not None:
         await provider.discard(row.provider_refs)
     row.state, row.rejection_reason, row.provider_refs = "rejected", body.reason, {}

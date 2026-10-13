@@ -19,6 +19,7 @@ const ROW_ARRAYS = {
   telnyx: ['numbers'],
   didww: ['numbers'],
   sms: ['providers'],
+  'sms-registration': ['providers'],
 };
 
 export function rowsForFile(filename, data) {
