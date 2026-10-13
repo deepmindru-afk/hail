@@ -5,6 +5,7 @@ import pytest
 
 from hailhq.core.providers.verification.base import (
     Address,
+    UnsupportedSubjectType,
     VerificationProviderError,
 )
 from hailhq.core.providers.verification.telnyx_sms import (
@@ -86,27 +87,17 @@ async def test_business_draft_creates_brand_and_requests_vetting() -> None:
     assert calls[1][2] == {"vettingProvider": "AEGIS", "vettingClass": "STANDARD"}
 
 
-async def test_person_draft_sets_sole_proprietor_and_mobile() -> None:
-    calls = []
+async def test_person_requirements_unsupported() -> None:
+    p = _provider(lambda req: httpx.Response(200, json={}))
+    with pytest.raises(UnsupportedSubjectType) as exc:
+        await p.requirements("US", "local", "person")
+    assert exc.value.allowed == ("business",)
 
-    def handler(req):
-        calls.append(json.loads(req.content or b"{}"))
-        return httpx.Response(200, json={"brandId": "B1"})
 
-    fields = {
-        **FIELDS,
-        "first_name": "Ada",
-        "last_name": "Lovelace",
-        "email": "ada@example.com",
-        "mobile_phone_number": "+15125550199",
-    }
-    draft = await _draft(_provider(handler), "person", fields)
-    assert draft.problems == []
-    assert calls[0]["entityType"] == "SOLE_PROPRIETOR"
-    assert calls[0]["mobilePhone"] == "+15125550199"
-    assert calls[0]["firstName"] == "Ada" and calls[0]["lastName"] == "Lovelace"
-    assert "ein" not in calls[0]
-    assert len(calls) == 1  # no vetting for a person
+async def test_business_requirements_only_business() -> None:
+    p = _provider(lambda req: httpx.Response(200, json={}))
+    req = await p.requirements("US", "local", "business")
+    assert req.subject_types == ("business",)
 
 
 async def test_missing_field_is_a_problem_and_sends_nothing() -> None:
@@ -168,12 +159,26 @@ async def test_status_waits_while_identity_not_verified() -> None:
     assert posted == [] and "campaign_id" not in refs
 
 
-async def test_status_person_pending_until_verified() -> None:
-    p = _provider(
-        lambda req: httpx.Response(200, json={"identityStatus": "SELF_DECLARED"})
+async def test_person_draft_is_refused_without_calls() -> None:
+    calls = []
+
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={})
+
+    p = _provider(handler)
+    req = (await p.requirements("US", "local", "business")).model_copy(
+        update={"subject_type": "person"}
     )
-    refs = {"brand_id": "B1", "subject_type": "person", "campaign": {}}
-    assert (await p.status(refs)).state == "pending"
+    draft = await p.create_draft(
+        organization_id="org1",
+        contact_email="ops@hail.so",
+        requirements=req,
+        fields=FIELDS,
+        address=ADDRESS,
+        documents={},
+    )
+    assert draft.refs == {} and len(draft.problems) == 1 and calls == []
 
 
 async def test_status_rejected_brand() -> None:
@@ -201,7 +206,7 @@ async def test_status_approved_and_rejected_from_campaign() -> None:
         "brand_id": "B1",
         "messaging_profile_id": "MP1",
         "campaign_id": "C1",
-        "subject_type": "person",
+        "subject_type": "business",
         "campaign": {},
     }
     assert (await p.status(refs)).state == "approved"

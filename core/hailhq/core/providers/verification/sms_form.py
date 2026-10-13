@@ -80,7 +80,8 @@ _PERSON_FIELDS = (
         label="Your mobile number",
         kind="phone",
         help=(
-            "The carrier texts this number. Reply YES to confirm. Use your own "
+            "The carrier texts this number to confirm. Follow the instructions in "
+            "that text. Use your own "
             "mobile, not a Hail number. A mobile can confirm three registrations "
             "in its lifetime."
         ),

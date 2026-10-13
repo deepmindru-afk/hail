@@ -1,5 +1,8 @@
 """Telnyx plug-in for US A2P 10DLC registration: a brand, optional vetting,
-then a campaign; numbers are linked to the campaign one by one."""
+then a campaign; numbers are linked to the campaign one by one.
+
+Sole proprietor (person) registration needs a PIN step Telnyx sends by SMS; not
+built in this release."""
 
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from hailhq.core.providers.verification.base import (
     ProviderStatus,
     Requirements,
     SmsRegistrationProvider,
+    UnsupportedSubjectType,
     VerificationProviderError,
 )
 from hailhq.core.providers.verification.sms_form import (
@@ -40,18 +44,23 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
     async def requirements(
         self, country_code, number_type, subject_type
     ) -> Requirements:
-        return sms_requirements(self.name, subject_type)
+        if subject_type == "person":
+            raise UnsupportedSubjectType(
+                "This carrier registers companies only for US texting.",
+                allowed=("business",),
+            )
+        return sms_requirements(self.name, subject_type).model_copy(
+            update={"subject_types": ("business",)}
+        )
 
     def _validate(self, fields, address, subject_type) -> list[Problem]:
         problems: list[Problem] = []
+        if subject_type != "business":
+            return [Problem(field="", message="Only companies can register here.")]
         for spec in sms_requirements(self.name, subject_type).fields:
             if spec.required and not (fields.get(spec.name) or "").strip():
                 problems.append(Problem(field=spec.name, message="This is required."))
-        if (
-            subject_type == "business"
-            and fields.get("ein")
-            and not _EIN.match(fields["ein"])
-        ):
+        if fields.get("ein") and not _EIN.match(fields["ein"]):
             problems.append(
                 Problem(field="ein", message="Nine digits, like 12-3456789.")
             )
@@ -98,28 +107,15 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         return DraftResult(refs=refs)
 
     async def _build(self, refs, fields, address, subject_type) -> None:
-        person = subject_type == "person"
-        if person:
-            display = f"{fields['first_name']} {fields['last_name']}"
-            body = {
-                "entityType": "SOLE_PROPRIETOR",
-                "firstName": fields["first_name"],
-                "lastName": fields["last_name"],
-                "email": fields["email"],
-                "phone": fields["mobile_phone_number"],
-                "mobilePhone": fields["mobile_phone_number"],
-                "vertical": "PROFESSIONAL",
-            }
-        else:
-            display = fields["legal_name"]
-            body = {
-                "entityType": fields["business_type"],
-                "email": fields["rep_email"],
-                "phone": fields["rep_phone"],
-                "vertical": fields["industry"],
-                "ein": fields["ein"].replace("-", ""),
-                "website": fields["website"],
-            }
+        display = fields["legal_name"]
+        body = {
+            "entityType": fields["business_type"],
+            "email": fields["rep_email"],
+            "phone": fields["rep_phone"],
+            "vertical": fields["industry"],
+            "ein": fields["ein"].replace("-", ""),
+            "website": fields["website"],
+        }
         body.update(
             displayName=display,
             companyName=display,
@@ -131,12 +127,11 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         )
         brand = await self._api.request("POST", "/10dlc/brand", json=body)
         refs["brand_id"] = brand["brandId"]
-        if not person:
-            await self._api.request(
-                "POST",
-                f"/10dlc/brand/{refs['brand_id']}/vetting",
-                json={"vettingProvider": "AEGIS", "vettingClass": "STANDARD"},
-            )
+        await self._api.request(
+            "POST",
+            f"/10dlc/brand/{refs['brand_id']}/vetting",
+            json={"vettingProvider": "AEGIS", "vettingClass": "STANDARD"},
+        )
 
     async def check(self, refs) -> list[Problem]:
         return []
