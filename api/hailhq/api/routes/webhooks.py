@@ -2,6 +2,7 @@
 
 POST     /webhooks                              create + return plaintext secret once
 GET      /webhooks                              list paginated
+GET      /webhooks/event-types                  supported names and display metadata
 GET      /webhooks/{id}                         detail (no secret)
 PATCH    /webhooks/{id}                         update target_url / event_types / status
 DELETE   /webhooks/{id}
@@ -36,12 +37,15 @@ from hailhq.core.models import WebhookDelivery, WebhookSubscription
 from hailhq.core.schemas import (
     WebhookDeliveryListResponse,
     WebhookDeliveryResponse,
+    WebhookEventCatalogResponse,
+    WebhookEventDefinition,
     WebhookSubscriptionCreate,
     WebhookSubscriptionListResponse,
     WebhookSubscriptionPatch,
     WebhookSubscriptionResponse,
 )
 from hailhq.core.secret_cipher import SecretCipher
+from hailhq.core.webhook_events import WebhookEventType
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -160,6 +164,21 @@ async def list_subscriptions(
     )
     return WebhookSubscriptionListResponse(
         items=[_to_response(s) for s in rows], next_cursor=next_cursor
+    )
+
+
+@router.get("/event-types", response_model=WebhookEventCatalogResponse)
+async def list_event_types() -> WebhookEventCatalogResponse:
+    """List event names, labels, and channels accepted by subscriptions.
+
+    This public catalog contains no organization data. It uses the same
+    registry as create and patch validation.
+    """
+    return WebhookEventCatalogResponse(
+        items=[
+            WebhookEventDefinition(type=event, label=event.label, channel=event.channel)
+            for event in WebhookEventType
+        ]
     )
 
 

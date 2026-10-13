@@ -24,7 +24,7 @@ def test_email_status_includes_delivered():
 
 
 def test_webhook_event_types_include_lifecycle():
-    got = set(schemas.WebhookEventType.__args__)
+    got = set(schemas.WebhookEventType)
     assert {
         "email.delivered",
         "email.delivery_delayed",
@@ -48,9 +48,7 @@ def test_parser_kinds_match_email_event_kind():
 def test_fanout_kinds_have_matching_webhook_event_types():
     """A fanout kind without an ``email.<kind>`` WebhookEventType would emit
     webhooks no subscription can ever match — silently zero deliveries."""
-    assert {f"email.{k}" for k in _FANOUT_KINDS} <= set(
-        schemas.WebhookEventType.__args__
-    )
+    assert {f"email.{k}" for k in _FANOUT_KINDS} <= set(schemas.WebhookEventType)
 
 
 def test_events_stream_supports_email_resource():

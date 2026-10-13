@@ -606,6 +606,45 @@ func (e FieldSpecKind) Valid() bool {
 	}
 }
 
+// Defines values for ForwardTargetResponsePendingReason.
+const (
+	AccountUnverified ForwardTargetResponsePendingReason = "account_unverified"
+	ConfirmLink       ForwardTargetResponsePendingReason = "confirm_link"
+)
+
+// Valid indicates whether the value is a known member of the ForwardTargetResponsePendingReason enum.
+func (e ForwardTargetResponsePendingReason) Valid() bool {
+	switch e {
+	case AccountUnverified:
+		return true
+	case ConfirmLink:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ForwardTargetResponseStatus.
+const (
+	ForwardTargetResponseStatusPending  ForwardTargetResponseStatus = "pending"
+	ForwardTargetResponseStatusStopped  ForwardTargetResponseStatus = "stopped"
+	ForwardTargetResponseStatusVerified ForwardTargetResponseStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the ForwardTargetResponseStatus enum.
+func (e ForwardTargetResponseStatus) Valid() bool {
+	switch e {
+	case ForwardTargetResponseStatusPending:
+		return true
+	case ForwardTargetResponseStatusStopped:
+		return true
+	case ForwardTargetResponseStatusVerified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NumberAcquireRequestNumberType.
 const (
 	NumberAcquireRequestNumberTypeLocal    NumberAcquireRequestNumberType = "local"
@@ -1017,144 +1056,72 @@ func (e WebhookDeliveryResponseStatus) Valid() bool {
 	}
 }
 
-// Defines values for WebhookSubscriptionCreateEventTypes.
+// Defines values for WebhookEventType.
 const (
-	WebhookSubscriptionCreateEventTypesCallAnswered            WebhookSubscriptionCreateEventTypes = "call.answered"
-	WebhookSubscriptionCreateEventTypesCallBusy                WebhookSubscriptionCreateEventTypes = "call.busy"
-	WebhookSubscriptionCreateEventTypesCallCompleted           WebhookSubscriptionCreateEventTypes = "call.completed"
-	WebhookSubscriptionCreateEventTypesCallFailed              WebhookSubscriptionCreateEventTypes = "call.failed"
-	WebhookSubscriptionCreateEventTypesCallNoAnswer            WebhookSubscriptionCreateEventTypes = "call.no_answer"
-	WebhookSubscriptionCreateEventTypesCallReceived            WebhookSubscriptionCreateEventTypes = "call.received"
-	WebhookSubscriptionCreateEventTypesCallTransferred         WebhookSubscriptionCreateEventTypes = "call.transferred"
-	WebhookSubscriptionCreateEventTypesEmailBounced            WebhookSubscriptionCreateEventTypes = "email.bounced"
-	WebhookSubscriptionCreateEventTypesEmailClicked            WebhookSubscriptionCreateEventTypes = "email.clicked"
-	WebhookSubscriptionCreateEventTypesEmailComplained         WebhookSubscriptionCreateEventTypes = "email.complained"
-	WebhookSubscriptionCreateEventTypesEmailDelivered          WebhookSubscriptionCreateEventTypes = "email.delivered"
-	WebhookSubscriptionCreateEventTypesEmailDeliveryDelayed    WebhookSubscriptionCreateEventTypes = "email.delivery_delayed"
-	WebhookSubscriptionCreateEventTypesEmailOpened             WebhookSubscriptionCreateEventTypes = "email.opened"
-	WebhookSubscriptionCreateEventTypesEmailReceived           WebhookSubscriptionCreateEventTypes = "email.received"
-	WebhookSubscriptionCreateEventTypesEmailReceivedSuppressed WebhookSubscriptionCreateEventTypes = "email.received.suppressed"
-	WebhookSubscriptionCreateEventTypesEmailSendFailed         WebhookSubscriptionCreateEventTypes = "email.send_failed"
-	WebhookSubscriptionCreateEventTypesSmsDelivered            WebhookSubscriptionCreateEventTypes = "sms.delivered"
-	WebhookSubscriptionCreateEventTypesSmsFailed               WebhookSubscriptionCreateEventTypes = "sms.failed"
-	WebhookSubscriptionCreateEventTypesSmsReceived             WebhookSubscriptionCreateEventTypes = "sms.received"
-	WebhookSubscriptionCreateEventTypesSmsUndelivered          WebhookSubscriptionCreateEventTypes = "sms.undelivered"
+	CallAnswered            WebhookEventType = "call.answered"
+	CallBusy                WebhookEventType = "call.busy"
+	CallCompleted           WebhookEventType = "call.completed"
+	CallFailed              WebhookEventType = "call.failed"
+	CallNoAnswer            WebhookEventType = "call.no_answer"
+	CallReceived            WebhookEventType = "call.received"
+	CallTransferred         WebhookEventType = "call.transferred"
+	EmailBounced            WebhookEventType = "email.bounced"
+	EmailClicked            WebhookEventType = "email.clicked"
+	EmailComplained         WebhookEventType = "email.complained"
+	EmailDelivered          WebhookEventType = "email.delivered"
+	EmailDeliveryDelayed    WebhookEventType = "email.delivery_delayed"
+	EmailOpened             WebhookEventType = "email.opened"
+	EmailReceived           WebhookEventType = "email.received"
+	EmailReceivedSuppressed WebhookEventType = "email.received.suppressed"
+	EmailSendFailed         WebhookEventType = "email.send_failed"
+	SmsDelivered            WebhookEventType = "sms.delivered"
+	SmsFailed               WebhookEventType = "sms.failed"
+	SmsReceived             WebhookEventType = "sms.received"
+	SmsUndelivered          WebhookEventType = "sms.undelivered"
 )
 
-// Valid indicates whether the value is a known member of the WebhookSubscriptionCreateEventTypes enum.
-func (e WebhookSubscriptionCreateEventTypes) Valid() bool {
+// Valid indicates whether the value is a known member of the WebhookEventType enum.
+func (e WebhookEventType) Valid() bool {
 	switch e {
-	case WebhookSubscriptionCreateEventTypesCallAnswered:
+	case CallAnswered:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallBusy:
+	case CallBusy:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallCompleted:
+	case CallCompleted:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallFailed:
+	case CallFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallNoAnswer:
+	case CallNoAnswer:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallReceived:
+	case CallReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesCallTransferred:
+	case CallTransferred:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailBounced:
+	case EmailBounced:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailClicked:
+	case EmailClicked:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailComplained:
+	case EmailComplained:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailDelivered:
+	case EmailDelivered:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailDeliveryDelayed:
+	case EmailDeliveryDelayed:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailOpened:
+	case EmailOpened:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailReceived:
+	case EmailReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailReceivedSuppressed:
+	case EmailReceivedSuppressed:
 		return true
-	case WebhookSubscriptionCreateEventTypesEmailSendFailed:
+	case EmailSendFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsDelivered:
+	case SmsDelivered:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsFailed:
+	case SmsFailed:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsReceived:
+	case SmsReceived:
 		return true
-	case WebhookSubscriptionCreateEventTypesSmsUndelivered:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for WebhookSubscriptionPatchEventTypes.
-const (
-	WebhookSubscriptionPatchEventTypesCallAnswered            WebhookSubscriptionPatchEventTypes = "call.answered"
-	WebhookSubscriptionPatchEventTypesCallBusy                WebhookSubscriptionPatchEventTypes = "call.busy"
-	WebhookSubscriptionPatchEventTypesCallCompleted           WebhookSubscriptionPatchEventTypes = "call.completed"
-	WebhookSubscriptionPatchEventTypesCallFailed              WebhookSubscriptionPatchEventTypes = "call.failed"
-	WebhookSubscriptionPatchEventTypesCallNoAnswer            WebhookSubscriptionPatchEventTypes = "call.no_answer"
-	WebhookSubscriptionPatchEventTypesCallReceived            WebhookSubscriptionPatchEventTypes = "call.received"
-	WebhookSubscriptionPatchEventTypesCallTransferred         WebhookSubscriptionPatchEventTypes = "call.transferred"
-	WebhookSubscriptionPatchEventTypesEmailBounced            WebhookSubscriptionPatchEventTypes = "email.bounced"
-	WebhookSubscriptionPatchEventTypesEmailClicked            WebhookSubscriptionPatchEventTypes = "email.clicked"
-	WebhookSubscriptionPatchEventTypesEmailComplained         WebhookSubscriptionPatchEventTypes = "email.complained"
-	WebhookSubscriptionPatchEventTypesEmailDelivered          WebhookSubscriptionPatchEventTypes = "email.delivered"
-	WebhookSubscriptionPatchEventTypesEmailDeliveryDelayed    WebhookSubscriptionPatchEventTypes = "email.delivery_delayed"
-	WebhookSubscriptionPatchEventTypesEmailOpened             WebhookSubscriptionPatchEventTypes = "email.opened"
-	WebhookSubscriptionPatchEventTypesEmailReceived           WebhookSubscriptionPatchEventTypes = "email.received"
-	WebhookSubscriptionPatchEventTypesEmailReceivedSuppressed WebhookSubscriptionPatchEventTypes = "email.received.suppressed"
-	WebhookSubscriptionPatchEventTypesEmailSendFailed         WebhookSubscriptionPatchEventTypes = "email.send_failed"
-	WebhookSubscriptionPatchEventTypesSmsDelivered            WebhookSubscriptionPatchEventTypes = "sms.delivered"
-	WebhookSubscriptionPatchEventTypesSmsFailed               WebhookSubscriptionPatchEventTypes = "sms.failed"
-	WebhookSubscriptionPatchEventTypesSmsReceived             WebhookSubscriptionPatchEventTypes = "sms.received"
-	WebhookSubscriptionPatchEventTypesSmsUndelivered          WebhookSubscriptionPatchEventTypes = "sms.undelivered"
-)
-
-// Valid indicates whether the value is a known member of the WebhookSubscriptionPatchEventTypes enum.
-func (e WebhookSubscriptionPatchEventTypes) Valid() bool {
-	switch e {
-	case WebhookSubscriptionPatchEventTypesCallAnswered:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallBusy:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallCompleted:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallNoAnswer:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesCallTransferred:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailBounced:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailClicked:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailComplained:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailDelivered:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailDeliveryDelayed:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailOpened:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailReceivedSuppressed:
-		return true
-	case WebhookSubscriptionPatchEventTypesEmailSendFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsDelivered:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsFailed:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsReceived:
-		return true
-	case WebhookSubscriptionPatchEventTypesSmsUndelivered:
+	case SmsUndelivered:
 		return true
 	default:
 		return false
@@ -1328,28 +1295,28 @@ func (e GetEmailStatsV1EmailsStatsGetParamsBucket) Valid() bool {
 
 // Defines values for ListSmsV1SmsGetParamsStatus.
 const (
-	Delivered   ListSmsV1SmsGetParamsStatus = "delivered"
-	Failed      ListSmsV1SmsGetParamsStatus = "failed"
-	Queued      ListSmsV1SmsGetParamsStatus = "queued"
-	Received    ListSmsV1SmsGetParamsStatus = "received"
-	Sent        ListSmsV1SmsGetParamsStatus = "sent"
-	Undelivered ListSmsV1SmsGetParamsStatus = "undelivered"
+	ListSmsV1SmsGetParamsStatusDelivered   ListSmsV1SmsGetParamsStatus = "delivered"
+	ListSmsV1SmsGetParamsStatusFailed      ListSmsV1SmsGetParamsStatus = "failed"
+	ListSmsV1SmsGetParamsStatusQueued      ListSmsV1SmsGetParamsStatus = "queued"
+	ListSmsV1SmsGetParamsStatusReceived    ListSmsV1SmsGetParamsStatus = "received"
+	ListSmsV1SmsGetParamsStatusSent        ListSmsV1SmsGetParamsStatus = "sent"
+	ListSmsV1SmsGetParamsStatusUndelivered ListSmsV1SmsGetParamsStatus = "undelivered"
 )
 
 // Valid indicates whether the value is a known member of the ListSmsV1SmsGetParamsStatus enum.
 func (e ListSmsV1SmsGetParamsStatus) Valid() bool {
 	switch e {
-	case Delivered:
+	case ListSmsV1SmsGetParamsStatusDelivered:
 		return true
-	case Failed:
+	case ListSmsV1SmsGetParamsStatusFailed:
 		return true
-	case Queued:
+	case ListSmsV1SmsGetParamsStatusQueued:
 		return true
-	case Received:
+	case ListSmsV1SmsGetParamsStatusReceived:
 		return true
-	case Sent:
+	case ListSmsV1SmsGetParamsStatusSent:
 		return true
-	case Undelivered:
+	case ListSmsV1SmsGetParamsStatusUndelivered:
 		return true
 	default:
 		return false
@@ -1963,7 +1930,7 @@ type EmailCreate struct {
 	// MessageType 'marketing' additionally requires a non-empty consent_source. Use 'informational' for transactional/service communications.
 	MessageType *EmailCreateMessageType `json:"message_type,omitempty"`
 
-	// Metadata Free-form JSON object attached to the email and echoed back on reads. Not interpreted by Hail.
+	// Metadata Free-form JSON object attached to the email and echoed back on reads. Not interpreted by Hail. The keys 'forwarded_from', 'forward_headers' and 'system_kind' are reserved for Hail's own queue bookkeeping and are rejected.
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
 	// RecipientConsent Attestation that you have obtained the lawful consent required to contact this recipient. Hail does not verify consent itself — you are responsible for a lawful basis under TCPA/ePrivacy/PECR/CAN-SPAM/GDPR as applicable. Rejected (422) if not true.
@@ -2065,7 +2032,7 @@ type EmailDomainPatch struct {
 	// ForwardRatePerHour Cap on forwarded messages per hour. Omit to leave unchanged.
 	ForwardRatePerHour *int `json:"forward_rate_per_hour,omitempty"`
 
-	// ForwardTo Email addresses to forward inbound mail to. Omit to leave unchanged.
+	// ForwardTo Email addresses to forward inbound mail to (at most 10). A new address that is not a verified member's login email gets a confirm link and receives nothing until it is clicked — see GET /forward-targets. Omit to leave unchanged.
 	ForwardTo *[]string `json:"forward_to,omitempty"`
 
 	// InboundEnabled Whether to accept inbound mail on this domain. Requires forward_to (or an existing one) when true. Omit to leave unchanged.
@@ -2557,6 +2524,44 @@ type FieldSpec struct {
 
 // FieldSpecKind Input kind: 'text', 'email', 'phone', or 'url'.
 type FieldSpecKind string
+
+// ForwardTargetListResponse defines model for ForwardTargetListResponse.
+type ForwardTargetListResponse struct {
+	// Items Every forward address ever configured for this organization.
+	Items []ForwardTargetResponse `json:"items"`
+}
+
+// ForwardTargetResponse One forward address of the organization and whether it may receive
+// forwards. Rows come from “email_forward_targets“; see
+// “hailhq.core.forward_targets“.
+type ForwardTargetResponse struct {
+	// Address Normalized (lower-cased) email address.
+	Address string `json:"address"`
+
+	// PendingReason Why a 'pending' address is not live. 'confirm_link': a confirm mail was sent and not yet clicked. 'account_unverified': the address is a member's login email whose account email is not verified yet; it goes live on the account verify click, no confirm mail. Null otherwise.
+	PendingReason *ForwardTargetResponsePendingReason `json:"pending_reason,omitempty"`
+
+	// Status 'verified' receives forwards. 'pending' was sent a confirm link that is not yet clicked. 'stopped' got a spam complaint and needs a new confirm link (POST /forward-targets/{address}/resend).
+	Status ForwardTargetResponseStatus `json:"status"`
+
+	// StoppedAt When forwarding was stopped, ISO 8601.
+	StoppedAt *time.Time `json:"stopped_at,omitempty"`
+
+	// StoppedReason Why forwarding was stopped, e.g. 'complaint'.
+	StoppedReason *string `json:"stopped_reason,omitempty"`
+
+	// TokenSentAt When the latest confirm link was sent, ISO 8601. Null once verified.
+	TokenSentAt *time.Time `json:"token_sent_at,omitempty"`
+
+	// VerifiedAt When the address was verified, ISO 8601.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+}
+
+// ForwardTargetResponsePendingReason Why a 'pending' address is not live. 'confirm_link': a confirm mail was sent and not yet clicked. 'account_unverified': the address is a member's login email whose account email is not verified yet; it goes live on the account verify click, no confirm mail. Null otherwise.
+type ForwardTargetResponsePendingReason string
+
+// ForwardTargetResponseStatus 'verified' receives forwards. 'pending' was sent a confirm link that is not yet clicked. 'stopped' got a spam complaint and needs a new confirm link (POST /forward-targets/{address}/resend).
+type ForwardTargetResponseStatus string
 
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
@@ -3152,17 +3157,33 @@ type WebhookDeliveryResponse struct {
 // WebhookDeliveryResponseStatus 'pending' (queued/retrying), 'succeeded', 'failed' (will retry), or 'dead' (retries exhausted).
 type WebhookDeliveryResponseStatus string
 
+// WebhookEventCatalogResponse defines model for WebhookEventCatalogResponse.
+type WebhookEventCatalogResponse struct {
+	// Items Supported webhook events.
+	Items []WebhookEventDefinition `json:"items"`
+}
+
+// WebhookEventDefinition defines model for WebhookEventDefinition.
+type WebhookEventDefinition struct {
+	// Channel Display group, such as Email, Calls, or SMS.
+	Channel string `json:"channel"`
+
+	// Label Short display label for this event.
+	Label string           `json:"label"`
+	Type  WebhookEventType `json:"type"`
+}
+
+// WebhookEventType defines model for WebhookEventType.
+type WebhookEventType string
+
 // WebhookSubscriptionCreate defines model for WebhookSubscriptionCreate.
 type WebhookSubscriptionCreate struct {
 	// EventTypes Event types to subscribe to (e.g. 'call.completed', 'email.bounced'). At least one required.
-	EventTypes []WebhookSubscriptionCreateEventTypes `json:"event_types"`
+	EventTypes []WebhookEventType `json:"event_types"`
 
 	// TargetUrl HTTPS URL Hail POSTs event payloads to.
 	TargetUrl string `json:"target_url"`
 }
-
-// WebhookSubscriptionCreateEventTypes defines model for WebhookSubscriptionCreate.EventTypes.
-type WebhookSubscriptionCreateEventTypes string
 
 // WebhookSubscriptionListResponse defines model for WebhookSubscriptionListResponse.
 type WebhookSubscriptionListResponse struct {
@@ -3176,7 +3197,7 @@ type WebhookSubscriptionListResponse struct {
 // WebhookSubscriptionPatch defines model for WebhookSubscriptionPatch.
 type WebhookSubscriptionPatch struct {
 	// EventTypes New set of subscribed event types. Omit to leave unchanged.
-	EventTypes *[]WebhookSubscriptionPatchEventTypes `json:"event_types,omitempty"`
+	EventTypes *[]WebhookEventType `json:"event_types,omitempty"`
 
 	// Status Set to 'disabled' to pause deliveries, or 'active' to resume. Omit to leave unchanged.
 	Status *WebhookSubscriptionPatchStatus `json:"status,omitempty"`
@@ -3184,9 +3205,6 @@ type WebhookSubscriptionPatch struct {
 	// TargetUrl New delivery URL. Omit to leave unchanged.
 	TargetUrl *string `json:"target_url,omitempty"`
 }
-
-// WebhookSubscriptionPatchEventTypes defines model for WebhookSubscriptionPatch.EventTypes.
-type WebhookSubscriptionPatchEventTypes string
 
 // WebhookSubscriptionPatchStatus Set to 'disabled' to pause deliveries, or 'active' to resume. Omit to leave unchanged.
 type WebhookSubscriptionPatchStatus string
@@ -3446,6 +3464,16 @@ type ListEventsV1EventsGetParams struct {
 	Limit         *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Id            *string `form:"id,omitempty" json:"id,omitempty"`
 	Kind          *string `form:"kind,omitempty" json:"kind,omitempty"`
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// ListForwardTargetsV1ForwardTargetsGetParams defines parameters for ListForwardTargetsV1ForwardTargetsGet.
+type ListForwardTargetsV1ForwardTargetsGetParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// ResendForwardConfirmV1ForwardTargetsAddressResendPostParams defines parameters for ResendForwardConfirmV1ForwardTargetsAddressResendPost.
+type ResendForwardConfirmV1ForwardTargetsAddressResendPostParams struct {
 	Authorization *string `json:"authorization,omitempty"`
 }
 
@@ -4188,6 +4216,12 @@ type ClientInterface interface {
 	// ListEventsV1EventsGet request
 	ListEventsV1EventsGet(ctx context.Context, params *ListEventsV1EventsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListForwardTargetsV1ForwardTargetsGet request
+	ListForwardTargetsV1ForwardTargetsGet(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResendForwardConfirmV1ForwardTargetsAddressResendPost request
+	ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteMemberPhoneV1MembersUserIdPhoneDelete request
 	DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4294,6 +4328,9 @@ type ClientInterface interface {
 	CreateSubscriptionV1WebhooksPostWithBody(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateSubscriptionV1WebhooksPost(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListEventTypesV1WebhooksEventTypesGet request
+	ListEventTypesV1WebhooksEventTypesGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteSubscriptionV1WebhooksSubIdDelete request
 	DeleteSubscriptionV1WebhooksSubIdDelete(ctx context.Context, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4787,6 +4824,30 @@ func (c *Client) ListEventsV1EventsGet(ctx context.Context, params *ListEventsV1
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListForwardTargetsV1ForwardTargetsGet(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListForwardTargetsV1ForwardTargetsGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest(c.Server, address, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest(c.Server, userId, params)
 	if err != nil {
@@ -5245,6 +5306,18 @@ func (c *Client) CreateSubscriptionV1WebhooksPostWithBody(ctx context.Context, p
 
 func (c *Client) CreateSubscriptionV1WebhooksPost(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateSubscriptionV1WebhooksPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListEventTypesV1WebhooksEventTypesGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEventTypesV1WebhooksEventTypesGetRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7290,6 +7363,97 @@ func NewListEventsV1EventsGetRequest(server string, params *ListEventsV1EventsGe
 	return req, nil
 }
 
+// NewListForwardTargetsV1ForwardTargetsGetRequest generates requests for ListForwardTargetsV1ForwardTargetsGet
+func NewListForwardTargetsV1ForwardTargetsGetRequest(server string, params *ListForwardTargetsV1ForwardTargetsGetParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/forward-targets")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest generates requests for ResendForwardConfirmV1ForwardTargetsAddressResendPost
+func NewResendForwardConfirmV1ForwardTargetsAddressResendPostRequest(server string, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "address", address, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/forward-targets/%s/resend", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest generates requests for DeleteMemberPhoneV1MembersUserIdPhoneDelete
 func NewDeleteMemberPhoneV1MembersUserIdPhoneDeleteRequest(server string, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams) (*http.Request, error) {
 	var err error
@@ -9014,6 +9178,33 @@ func NewCreateSubscriptionV1WebhooksPostRequestWithBody(server string, params *C
 	return req, nil
 }
 
+// NewListEventTypesV1WebhooksEventTypesGetRequest generates requests for ListEventTypesV1WebhooksEventTypesGet
+func NewListEventTypesV1WebhooksEventTypesGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/webhooks/event-types")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteSubscriptionV1WebhooksSubIdDeleteRequest generates requests for DeleteSubscriptionV1WebhooksSubIdDelete
 func NewDeleteSubscriptionV1WebhooksSubIdDeleteRequest(server string, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams) (*http.Request, error) {
 	var err error
@@ -9560,6 +9751,12 @@ type ClientWithResponsesInterface interface {
 	// ListEventsV1EventsGetWithResponse request
 	ListEventsV1EventsGetWithResponse(ctx context.Context, params *ListEventsV1EventsGetParams, reqEditors ...RequestEditorFn) (*ListEventsV1EventsGetResponse, error)
 
+	// ListForwardTargetsV1ForwardTargetsGetWithResponse request
+	ListForwardTargetsV1ForwardTargetsGetWithResponse(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*ListForwardTargetsV1ForwardTargetsGetResponse, error)
+
+	// ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse request
+	ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error)
+
 	// DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse request
 	DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error)
 
@@ -9666,6 +9863,9 @@ type ClientWithResponsesInterface interface {
 	CreateSubscriptionV1WebhooksPostWithBodyWithResponse(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSubscriptionV1WebhooksPostResponse, error)
 
 	CreateSubscriptionV1WebhooksPostWithResponse(ctx context.Context, params *CreateSubscriptionV1WebhooksPostParams, body CreateSubscriptionV1WebhooksPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSubscriptionV1WebhooksPostResponse, error)
+
+	// ListEventTypesV1WebhooksEventTypesGetWithResponse request
+	ListEventTypesV1WebhooksEventTypesGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEventTypesV1WebhooksEventTypesGetResponse, error)
 
 	// DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse request
 	DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse(ctx context.Context, subId openapi_types.UUID, params *DeleteSubscriptionV1WebhooksSubIdDeleteParams, reqEditors ...RequestEditorFn) (*DeleteSubscriptionV1WebhooksSubIdDeleteResponse, error)
@@ -10400,6 +10600,52 @@ func (r ListEventsV1EventsGetResponse) StatusCode() int {
 	return 0
 }
 
+type ListForwardTargetsV1ForwardTargetsGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ForwardTargetListResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ListForwardTargetsV1ForwardTargetsGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListForwardTargetsV1ForwardTargetsGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ForwardTargetResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -11060,6 +11306,28 @@ func (r CreateSubscriptionV1WebhooksPostResponse) StatusCode() int {
 	return 0
 }
 
+type ListEventTypesV1WebhooksEventTypesGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WebhookEventCatalogResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEventTypesV1WebhooksEventTypesGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEventTypesV1WebhooksEventTypesGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteSubscriptionV1WebhooksSubIdDeleteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -11563,6 +11831,24 @@ func (c *ClientWithResponses) ListEventsV1EventsGetWithResponse(ctx context.Cont
 	return ParseListEventsV1EventsGetResponse(rsp)
 }
 
+// ListForwardTargetsV1ForwardTargetsGetWithResponse request returning *ListForwardTargetsV1ForwardTargetsGetResponse
+func (c *ClientWithResponses) ListForwardTargetsV1ForwardTargetsGetWithResponse(ctx context.Context, params *ListForwardTargetsV1ForwardTargetsGetParams, reqEditors ...RequestEditorFn) (*ListForwardTargetsV1ForwardTargetsGetResponse, error) {
+	rsp, err := c.ListForwardTargetsV1ForwardTargetsGet(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListForwardTargetsV1ForwardTargetsGetResponse(rsp)
+}
+
+// ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse request returning *ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse
+func (c *ClientWithResponses) ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse(ctx context.Context, address string, params *ResendForwardConfirmV1ForwardTargetsAddressResendPostParams, reqEditors ...RequestEditorFn) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error) {
+	rsp, err := c.ResendForwardConfirmV1ForwardTargetsAddressResendPost(ctx, address, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse(rsp)
+}
+
 // DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse request returning *DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse
 func (c *ClientWithResponses) DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse(ctx context.Context, userId string, params *DeleteMemberPhoneV1MembersUserIdPhoneDeleteParams, reqEditors ...RequestEditorFn) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error) {
 	rsp, err := c.DeleteMemberPhoneV1MembersUserIdPhoneDelete(ctx, userId, params, reqEditors...)
@@ -11902,6 +12188,15 @@ func (c *ClientWithResponses) CreateSubscriptionV1WebhooksPostWithResponse(ctx c
 		return nil, err
 	}
 	return ParseCreateSubscriptionV1WebhooksPostResponse(rsp)
+}
+
+// ListEventTypesV1WebhooksEventTypesGetWithResponse request returning *ListEventTypesV1WebhooksEventTypesGetResponse
+func (c *ClientWithResponses) ListEventTypesV1WebhooksEventTypesGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEventTypesV1WebhooksEventTypesGetResponse, error) {
+	rsp, err := c.ListEventTypesV1WebhooksEventTypesGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEventTypesV1WebhooksEventTypesGetResponse(rsp)
 }
 
 // DeleteSubscriptionV1WebhooksSubIdDeleteWithResponse request returning *DeleteSubscriptionV1WebhooksSubIdDeleteResponse
@@ -12970,6 +13265,72 @@ func ParseListEventsV1EventsGetResponse(rsp *http.Response) (*ListEventsV1Events
 	return response, nil
 }
 
+// ParseListForwardTargetsV1ForwardTargetsGetResponse parses an HTTP response from a ListForwardTargetsV1ForwardTargetsGetWithResponse call
+func ParseListForwardTargetsV1ForwardTargetsGetResponse(rsp *http.Response) (*ListForwardTargetsV1ForwardTargetsGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListForwardTargetsV1ForwardTargetsGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ForwardTargetListResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse parses an HTTP response from a ResendForwardConfirmV1ForwardTargetsAddressResendPostWithResponse call
+func ParseResendForwardConfirmV1ForwardTargetsAddressResendPostResponse(rsp *http.Response) (*ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResendForwardConfirmV1ForwardTargetsAddressResendPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ForwardTargetResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse parses an HTTP response from a DeleteMemberPhoneV1MembersUserIdPhoneDeleteWithResponse call
 func ParseDeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse(rsp *http.Response) (*DeleteMemberPhoneV1MembersUserIdPhoneDeleteResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -13872,6 +14233,32 @@ func ParseCreateSubscriptionV1WebhooksPostResponse(rsp *http.Response) (*CreateS
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListEventTypesV1WebhooksEventTypesGetResponse parses an HTTP response from a ListEventTypesV1WebhooksEventTypesGetWithResponse call
+func ParseListEventTypesV1WebhooksEventTypesGetResponse(rsp *http.Response) (*ListEventTypesV1WebhooksEventTypesGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEventTypesV1WebhooksEventTypesGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WebhookEventCatalogResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

@@ -160,6 +160,19 @@ async def test_unsubscribe_is_not_rate_limited(
         assert "ratelimit-limit" not in resp.headers
 
 
+@pytest.mark.parametrize("mount_prefix", ["", "/v1"])
+async def test_webhook_event_catalog_is_not_rate_limited(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, mount_prefix: str
+) -> None:
+    # The console fetches this public catalog with no key. Anonymous callers
+    # share one proxy-IP bucket, so unrelated traffic must not 429 it.
+    monkeypatch.setattr(settings, "api_rate_limit_per_minute", 1)
+    for _ in range(3):
+        resp = await client.get(f"{mount_prefix}/webhooks/event-types")
+        assert resp.status_code == 200
+        assert "ratelimit-limit" not in resp.headers
+
+
 @pytest.mark.parametrize("path", ["/v1/calls", "/v1/sms", "/v1/emails"])
 def test_create_routes_merge_agent_gate_and_general_429_docs(path: str) -> None:
     # calls.py/sms.py/emails.py's create routes already documented
