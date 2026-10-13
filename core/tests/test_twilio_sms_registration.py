@@ -384,14 +384,35 @@ async def test_person_draft_policies_and_sole_proprietor_attributes() -> None:
     assert _calls(p, "trust_products.create")[0]["policy_sid"] == (
         "RN670d5d2e282a6130ae063b234b6019c8"
     )
-    users = _calls(p, "end_users.create")
-    assert [u["type"] for u in users] == ["sole_proprietor_information"]
-    assert set(users[0]["attributes"]) == {
+    users = {u["type"]: u["attributes"] for u in _calls(p, "end_users.create")}
+    assert set(users) == {
+        "starter_customer_profile_information",
+        "sole_proprietor_information",
+    }
+    assert set(users["starter_customer_profile_information"]) == {
+        "first_name",
+        "last_name",
+        "email",
+        "phone_number",
+    }
+    assert set(users["sole_proprietor_information"]) == {
         "brand_name",
         "mobile_phone_number",
         "vertical",
     }
-    assert not _calls(p, "customer_profiles_evaluations.create")
+    # The starter profile gets the address and Hail's primary profile, is
+    # evaluated against the starter policy, and is submitted.
+    assert _calls(p, "addresses.create")
+    assigned = [
+        kw["object_sid"]
+        for kw in _calls(p, "customer_profiles_entity_assignments.create")
+    ]
+    assert assigned == ["IT1", "RD1", "BU0"]
+    assert _calls(p, "customer_profiles_evaluations.create")[0]["policy_sid"] == (
+        "RN806dd6cd175f314e1f96a9727ee271f4"
+    )
+    updates = [kw for n, kw in p._client.calls if n.endswith(".update")]
+    assert updates == [{"status": "pending-review"}] * 2
 
 
 async def test_discard_order_and_404_does_not_stop_next() -> None:

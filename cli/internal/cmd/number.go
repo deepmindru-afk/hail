@@ -430,8 +430,8 @@ GET /v1/verifications/requirements?purpose=sms&country_code=US&number_type=local
 and GET /v1/verifications/sms-fees.`,
 		Example: `  hail numbers register-sms --subject business \
     --field legal_name="Acme Inc" --field ein=12-3456789 \
-    --address street="1 Main St" --address city=Austin \
-    --address region=TX --address postal_code=78701`,
+    --address customer_name="Acme Inc" --address street="1 Main St" \
+    --address city=Austin --address region=TX --address postal_code=78701`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if f.subject != "person" && f.subject != "business" {

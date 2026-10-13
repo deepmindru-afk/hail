@@ -169,13 +169,32 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         th = self._client.trusthub.v1
         person = subject_type == "person"
         friendly = f"hail-{organization_id}"
+        profile_policy = (
+            _STARTER_PROFILE_POLICY if person else _SECONDARY_PROFILE_POLICY
+        )
         profile = th.customer_profiles.create(
             friendly_name=friendly,
             email=contact_email,
-            policy_sid=_STARTER_PROFILE_POLICY if person else _SECONDARY_PROFILE_POLICY,
+            policy_sid=profile_policy,
         )
         refs["profile_sid"] = profile.sid
-        if not person:
+        if person:
+            # A person's starter profile: the person, their address, and
+            # Hail's primary profile, evaluated and submitted like a company's.
+            starter = th.end_users.create(
+                type="starter_customer_profile_information",
+                friendly_name=friendly,
+                attributes={
+                    "first_name": fields["first_name"],
+                    "last_name": fields["last_name"],
+                    "email": fields["email"],
+                    "phone_number": fields["mobile_phone_number"],
+                },
+            )
+            th.customer_profiles(
+                profile.sid
+            ).customer_profiles_entity_assignments.create(object_sid=starter.sid)
+        else:
             biz = th.end_users.create(
                 type="customer_profile_business_information",
                 friendly_name=friendly,
@@ -209,33 +228,31 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             th.customer_profiles(
                 profile.sid
             ).customer_profiles_entity_assignments.create(object_sid=rep.sid)
-            addr = self._client.addresses.create(
-                customer_name=address.customer_name,
-                street=address.street,
-                city=address.city,
-                region=address.region,
-                postal_code=address.postal_code,
-                iso_country=address.country_code,
-            )
-            doc = th.supporting_documents.create(
-                friendly_name=friendly,
-                type="customer_profile_address",
-                attributes={"address_sids": addr.sid},
-            )
-            th.customer_profiles(
-                profile.sid
-            ).customer_profiles_entity_assignments.create(object_sid=doc.sid)
-            th.customer_profiles(
-                profile.sid
-            ).customer_profiles_entity_assignments.create(
-                object_sid=self._primary_profile_sid
-            )
-            ev = th.customer_profiles(profile.sid).customer_profiles_evaluations.create(
-                policy_sid=_SECONDARY_PROFILE_POLICY
-            )
-            if ev.status != "compliant":
-                raise TwilioRestException(400, "", msg=_evaluation_message(ev))
-            th.customer_profiles(profile.sid).update(status="pending-review")
+        addr = self._client.addresses.create(
+            customer_name=address.customer_name,
+            street=address.street,
+            city=address.city,
+            region=address.region,
+            postal_code=address.postal_code,
+            iso_country=address.country_code,
+        )
+        doc = th.supporting_documents.create(
+            friendly_name=friendly,
+            type="customer_profile_address",
+            attributes={"address_sids": addr.sid},
+        )
+        th.customer_profiles(profile.sid).customer_profiles_entity_assignments.create(
+            object_sid=doc.sid
+        )
+        th.customer_profiles(profile.sid).customer_profiles_entity_assignments.create(
+            object_sid=self._primary_profile_sid
+        )
+        ev = th.customer_profiles(profile.sid).customer_profiles_evaluations.create(
+            policy_sid=profile_policy
+        )
+        if ev.status != "compliant":
+            raise TwilioRestException(400, "", msg=_evaluation_message(ev))
+        th.customer_profiles(profile.sid).update(status="pending-review")
 
         trust = th.trust_products.create(
             friendly_name=friendly,

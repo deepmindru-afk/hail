@@ -4,24 +4,17 @@
 from __future__ import annotations
 
 import json
-import os
 from decimal import Decimal
 from functools import lru_cache
-from pathlib import Path
 
 from hailhq.core import telephony_catalog
 
-_FILE = "sms-registration.json"
+_FILE = "sms-registration"
 
 
 @lru_cache(maxsize=1)
 def _load() -> dict[str, dict]:
-    directory = Path(
-        os.environ.get(
-            "HAIL_TELEPHONY_CATALOG_DIR", str(telephony_catalog._DEFAULT_DIR)
-        )
-    )
-    data = json.loads((directory / _FILE).read_text())
+    data = json.loads(telephony_catalog._path(_FILE).read_text())
     return {row["provider"]: row for row in data["providers"]}
 
 

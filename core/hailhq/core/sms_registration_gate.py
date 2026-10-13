@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import phonenumbers
 from hailhq.core.models import CarrierVerification, PhoneNumber
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,16 +17,22 @@ BLOCK_MESSAGE = (
 
 
 def _is_us(e164: str) -> bool:
-    return e164.startswith("+1")
+    """A +1 number outside the US (Canada, the Caribbean) is not US. An
+    unknown +1 area code counts as US, so the gate errs toward blocking."""
+    if not e164.startswith("+1"):
+        return False
+    try:
+        region = phonenumbers.region_code_for_number(phonenumbers.parse(e164))
+    except phonenumbers.NumberParseException:
+        return True
+    return region in (None, "US")
 
 
 async def us_registration_block(
     db: AsyncSession, organization_id: UUID, from_number: PhoneNumber, to_e164: str
 ) -> str | None:
-    if not (_is_us(to_e164) and _is_us(from_number.e164)):
-        return None
-    if from_number.country_code != "US":
-        return None  # a Canadian long code needs no US registration
+    if from_number.country_code != "US" or not _is_us(to_e164):
+        return None  # a Canadian long code, or a text to outside the US
     if from_number.number_type == "toll_free":
         return None
     approved = (

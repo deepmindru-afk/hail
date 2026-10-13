@@ -983,6 +983,21 @@ async def test_toll_free_and_non_us_are_not_gated(
     assert resp.status_code == 201, resp.text
 
 
+async def test_us_long_code_to_canada_is_not_gated(
+    client, async_session, org_and_key, sms_mock
+) -> None:
+    # +1 also covers Canada and the Caribbean; US registration covers US
+    # destinations only.
+    org_id, _, key = org_and_key
+    await _seed_dedicated_number(async_session, org_id, register_sms=False)
+    resp = await client.post(
+        "/sms",
+        json=_us_text(to="+14165550100"),
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
 async def test_canadian_long_code_to_us_is_not_gated(
     client, async_session, org_and_key, sms_mock
 ) -> None:
