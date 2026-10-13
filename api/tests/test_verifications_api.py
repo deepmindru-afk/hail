@@ -929,3 +929,12 @@ async def test_sweeper_keeps_a_refused_draft_when_the_discard_fails(
             select(AuditLog).where(AuditLog.action == "verification.reject")
         )
     ).scalar_one_or_none() is None
+
+
+async def test_response_carries_purpose_number_by_default(
+    client, org_and_key, carrier
+) -> None:
+    _, _, key = org_and_key
+    resp = await _create(client, key)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["purpose"] == "number"

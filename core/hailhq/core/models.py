@@ -1706,6 +1706,7 @@ class CarrierVerification(Base):
     country_code: Mapped[str] = mapped_column(Text, nullable=False)
     number_type: Mapped[str] = mapped_column(Text, nullable=False)
     subject_type: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, server_default="number", nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False)
     provider_refs: Mapped[dict] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb"), nullable=False
@@ -1734,12 +1735,17 @@ class CarrierVerification(Base):
             "subject_type IN ('person','business')",
             name="carrier_verifications_subject_type_check",
         ),
+        CheckConstraint(
+            "purpose IN ('number','sms')",
+            name="carrier_verifications_purpose_check",
+        ),
         Index(
             "carrier_verifications_live_uniq",
             "organization_id",
             "provider",
             "country_code",
             "number_type",
+            "purpose",
             unique=True,
             postgresql_where=text("state NOT IN ('cancelled','rejected')"),
         ),

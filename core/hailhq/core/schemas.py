@@ -2547,6 +2547,12 @@ class VerificationResponse(BaseModel):
         description="Kind of number: 'local', 'mobile', 'toll_free', or 'national'."
     )
     subject_type: str = Field(description="'person' or 'business'.")
+    purpose: str = Field(
+        description=(
+            "'number': permission to buy a number in this country. "
+            "'sms': registration to text US numbers from a US number."
+        )
+    )
     state: str = Field(
         description=(
             "'awaiting_review', 'submitting', 'submitted', 'approved', 'rejected', "
