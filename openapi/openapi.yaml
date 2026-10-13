@@ -2572,6 +2572,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+  /v1/webhooks/event-types:
+    get:
+      tags:
+        - webhooks
+      summary: List Event Types
+      description:
+        "List event names, labels, and channels accepted by subscriptions.
+
+
+        This public catalog contains no organization data. It uses the same
+
+        registry as create and patch validation."
+      operationId: list_event_types_v1_webhooks_event_types_get
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEventCatalogResponse"
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
   /v1/webhooks/{sub_id}:
     get:
       tags:
@@ -8624,6 +8665,61 @@ components:
         - next_attempt_at
         - created_at
       title: WebhookDeliveryResponse
+    WebhookEventCatalogResponse:
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/WebhookEventDefinition"
+          type: array
+          title: Items
+          description: Supported webhook events.
+      type: object
+      required:
+        - items
+      title: WebhookEventCatalogResponse
+    WebhookEventDefinition:
+      properties:
+        type:
+          $ref: "#/components/schemas/WebhookEventType"
+          description: Event identifier used in subscriptions.
+        label:
+          type: string
+          title: Label
+          description: Short display label for this event.
+        channel:
+          type: string
+          title: Channel
+          description: Display group, such as Email, Calls, or SMS.
+      type: object
+      required:
+        - type
+        - label
+        - channel
+      title: WebhookEventDefinition
+    WebhookEventType:
+      type: string
+      enum:
+        - email.received
+        - email.delivered
+        - email.delivery_delayed
+        - email.bounced
+        - email.complained
+        - email.opened
+        - email.clicked
+        - email.received.suppressed
+        - email.send_failed
+        - sms.received
+        - sms.delivered
+        - sms.undelivered
+        - sms.failed
+        - call.received
+        - call.answered
+        - call.completed
+        - call.failed
+        - call.busy
+        - call.no_answer
+        - call.transferred
+      title: WebhookEventType
     WebhookSubscriptionCreate:
       properties:
         target_url:
@@ -8633,28 +8729,7 @@ components:
           description: HTTPS URL Hail POSTs event payloads to.
         event_types:
           items:
-            type: string
-            enum:
-              - email.received
-              - email.delivered
-              - email.delivery_delayed
-              - email.bounced
-              - email.complained
-              - email.opened
-              - email.clicked
-              - email.received.suppressed
-              - email.send_failed
-              - sms.received
-              - sms.delivered
-              - sms.undelivered
-              - sms.failed
-              - call.received
-              - call.answered
-              - call.completed
-              - call.failed
-              - call.busy
-              - call.no_answer
-              - call.transferred
+            $ref: "#/components/schemas/WebhookEventType"
           type: array
           minItems: 1
           title: Event Types
@@ -8697,28 +8772,7 @@ components:
         event_types:
           anyOf:
             - items:
-                type: string
-                enum:
-                  - email.received
-                  - email.delivered
-                  - email.delivery_delayed
-                  - email.bounced
-                  - email.complained
-                  - email.opened
-                  - email.clicked
-                  - email.received.suppressed
-                  - email.send_failed
-                  - sms.received
-                  - sms.delivered
-                  - sms.undelivered
-                  - sms.failed
-                  - call.received
-                  - call.answered
-                  - call.completed
-                  - call.failed
-                  - call.busy
-                  - call.no_answer
-                  - call.transferred
+                $ref: "#/components/schemas/WebhookEventType"
               type: array
             - type: "null"
           title: Event Types

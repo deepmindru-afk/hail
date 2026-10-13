@@ -421,3 +421,51 @@ async def test_webhook_mutations_write_audit_log(
     # The plaintext secret must never land in the audit trail.
     for r in rows:
         assert new_secret not in str(r.payload)
+
+
+@pytest.mark.asyncio
+async def test_public_event_catalog_matches_subscription_validation(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+):
+    """The public route must resolve before the UUID route and accept every choice."""
+    from hailhq.core.webhook_events import WebhookEventType
+
+    response = await client.get("/v1/webhooks/event-types")
+    assert response.status_code == 200, response.text
+    events = response.json()["items"]
+    assert [event["type"] for event in events] == [
+        event.value for event in WebhookEventType
+    ]
+    assert all(event["label"] and event["channel"] for event in events)
+    assert {event["channel"] for event in events} == {"Email", "Calls", "SMS"}
+    names = [event["type"] for event in events]
+
+    created = await client.post(
+        "/webhooks",
+        json={"target_url": "https://example.com/hooks", "event_types": names},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["event_types"] == names
+    patched = await client.patch(
+        f"/webhooks/{created.json()['id']}",
+        json={"event_types": names[::-1]},
+        headers=auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["event_types"] == names[::-1]
+
+
+@pytest.mark.asyncio
+async def test_event_catalog_does_not_allow_unknown_subscription_events(
+    client: httpx.AsyncClient, auth_headers: dict[str, str]
+):
+    response = await client.post(
+        "/webhooks",
+        json={
+            "target_url": "https://example.com/hooks",
+            "event_types": ["call.invented"],
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
