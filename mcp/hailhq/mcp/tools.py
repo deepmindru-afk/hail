@@ -664,6 +664,7 @@ _CLEARABLE_AGENT_FIELDS = (
     "ai_disclosure_line",
     "tools",
     "max_duration_seconds",
+    "handover_max_duration_seconds",
 )
 
 
@@ -1965,9 +1966,11 @@ def register_tools(
         voice_id: str | None = None,
         tools: list[str] | None = None,
         max_duration_seconds: int | None = None,
+        handover_max_duration_seconds: int | None = None,
         voice_enabled: bool | None = None,
         sms_enabled: bool | None = None,
         status: str | None = None,
+        handover_contacts: list[dict] | None = None,
         clear_fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Change a saved agent. Safe to repeat: the same call gives the same
@@ -1977,13 +1980,16 @@ def register_tools(
         ``status`` is ``"live"`` or ``"paused"``; a paused agent does not
         answer. ``language`` is a lowercase ISO 639-1 code. Pass ``language``
         or ``voice_id`` alone: the other value is kept. ``max_duration_seconds``
-        is 60..3600.
+        and ``handover_max_duration_seconds`` are 60..3600.
+        ``handover_contacts`` replaces the whole list: ``[{contact_id, note}]``
+        (max 10) as in ``create_agent``; ``[]`` removes every contact.
 
         To remove a value, list its name in ``clear_fields``. Allowed:
         ``first_message`` (the agent waits for the caller),
         ``ai_disclosure_line`` (back to the workspace line), ``tools``
         (back to all tools), ``max_duration_seconds`` (back to the workspace
-        limit). Any other name is refused. Do not set and clear one field.
+        limit), ``handover_max_duration_seconds`` (back to 1800). Any other
+        name is refused. Do not set and clear one field.
 
         Live calls keep the settings they started with. The change applies
         to the next call or text.
@@ -2008,9 +2014,11 @@ def register_tools(
                             "voice_id": voice_id,
                             "tools": tools,
                             "max_duration_seconds": max_duration_seconds,
+                            "handover_max_duration_seconds": handover_max_duration_seconds,
                             "voice_enabled": voice_enabled,
                             "sms_enabled": sms_enabled,
                             "status": status,
+                            "handover_contacts": handover_contacts,
                         }.items()
                         if v is not None
                     },

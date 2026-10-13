@@ -2217,15 +2217,52 @@ async def test_update_agent_clear_fields_send_explicit_null(
     await tools.update_agent(
         client=client,
         agent_id=aid,
-        clear_fields=["first_message", "tools", "max_duration_seconds"],
+        clear_fields=[
+            "first_message",
+            "tools",
+            "max_duration_seconds",
+            "handover_max_duration_seconds",
+        ],
         voice_enabled=False,
     )
     assert json.loads(route.calls[0].request.read()) == {
         "first_message": None,
         "tools": None,
         "max_duration_seconds": None,
+        "handover_max_duration_seconds": None,
         "voice_enabled": False,
     }
+
+
+@respx.mock
+async def test_update_agent_sends_handover_fields(client: HailClient) -> None:
+    aid = str(uuid4())
+    cid = str(uuid4())
+    route = respx.patch(f"{_BASE_URL}/agents/{aid}").mock(
+        return_value=httpx.Response(200, json=_agent_response(aid))
+    )
+    await tools.update_agent(
+        client=client,
+        agent_id=aid,
+        handover_max_duration_seconds=600,
+        handover_contacts=[{"contact_id": cid, "note": "billing"}],
+    )
+    assert json.loads(route.calls[0].request.read()) == {
+        "handover_max_duration_seconds": 600,
+        "handover_contacts": [{"contact_id": cid, "note": "billing"}],
+    }
+
+
+@respx.mock
+async def test_update_agent_empty_handover_list_removes_all(
+    client: HailClient,
+) -> None:
+    aid = str(uuid4())
+    route = respx.patch(f"{_BASE_URL}/agents/{aid}").mock(
+        return_value=httpx.Response(200, json=_agent_response(aid))
+    )
+    await tools.update_agent(client=client, agent_id=aid, handover_contacts=[])
+    assert json.loads(route.calls[0].request.read()) == {"handover_contacts": []}
 
 
 @respx.mock
