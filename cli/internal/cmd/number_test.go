@@ -405,7 +405,8 @@ func TestNumberGet_JSONOutput(t *testing.T) {
 	}
 }
 
-func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
+func registerSmsParts(t *testing.T, extra ...string) (map[string]string, string) {
+	t.Helper()
 	var gotParts map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/verifications" || r.Method != http.MethodPost {
@@ -432,21 +433,31 @@ func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	stdout, _, err := runRoot(t,
-		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+	args := append([]string{
 		"numbers", "register-sms", "--subject", "business",
 		"--field", "legal_name=Acme Inc", "--field", "ein=12-3456789",
 		"--address", "city=Austin",
+	}, extra...)
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		args...,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	return gotParts, stdout
+}
+
+func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
+	gotParts, stdout := registerSmsParts(t)
+	if _, ok := gotParts["provider"]; ok {
+		t.Errorf("provider part sent without --provider: %q", gotParts["provider"])
 	}
 	tests := []struct{ part, want string }{
 		{"purpose", "sms"},
 		{"country_code", "US"},
 		{"number_type", "local"},
 		{"subject_type", "business"},
-		{"provider", "twilio"},
 	}
 	for _, tc := range tests {
 		if gotParts[tc.part] != tc.want {
@@ -462,5 +473,12 @@ func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "awaiting_review") {
 		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestNumberRegisterSms_ProviderFlagSendsPart(t *testing.T) {
+	gotParts, _ := registerSmsParts(t, "--provider", "x")
+	if gotParts["provider"] != "x" {
+		t.Errorf("provider part = %q, want x", gotParts["provider"])
 	}
 }

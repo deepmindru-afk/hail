@@ -483,7 +483,7 @@ and GET /v1/verifications/sms-fees.`,
 		},
 	}
 	cmd.Flags().StringVar(&f.subject, "subject", "business", "Who registers: person or business")
-	cmd.Flags().StringVar(&f.provider, "provider", "twilio", "Carrier: twilio or telnyx")
+	cmd.Flags().StringVar(&f.provider, "provider", "", "Carrier id of your number, as shown by `hail numbers list`. Omit to let the server choose.")
 	cmd.Flags().StringArrayVar(&f.fields, "field", nil, "Registration field as key=value (repeatable)")
 	cmd.Flags().StringArrayVar(&f.address, "address", nil, "Address part as key=value (repeatable): street, city, region, postal_code, customer_name")
 	return cmd
@@ -505,12 +505,16 @@ func parseKeyValues(pairs []string, flag string) (map[string]string, error) {
 // buildRegisterSmsBody builds the multipart body for POST /v1/verifications
 // with purpose=sms. The address always carries country_code US.
 func buildRegisterSmsBody(provider, subject string, fields, address map[string]string) ([]byte, string, error) {
-	address["country_code"] = "US"
+	addr := make(map[string]string, len(address)+1)
+	for k, v := range address {
+		addr[k] = v
+	}
+	addr["country_code"] = "US"
 	fieldsJSON, err := json.Marshal(fields)
 	if err != nil {
 		return nil, "", err
 	}
-	addressJSON, err := json.Marshal(address)
+	addressJSON, err := json.Marshal(addr)
 	if err != nil {
 		return nil, "", err
 	}
@@ -521,11 +525,15 @@ func buildRegisterSmsBody(provider, subject string, fields, address map[string]s
 		{"country_code", "US"},
 		{"number_type", "local"},
 		{"subject_type", subject},
-		{"provider", provider},
 		{"fields", string(fieldsJSON)},
 		{"address", string(addressJSON)},
 	} {
 		if err := w.WriteField(kv[0], kv[1]); err != nil {
+			return nil, "", fmt.Errorf("build request: %w", err)
+		}
+	}
+	if provider != "" {
+		if err := w.WriteField("provider", provider); err != nil {
 			return nil, "", fmt.Errorf("build request: %w", err)
 		}
 	}
