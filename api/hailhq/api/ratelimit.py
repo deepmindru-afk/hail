@@ -105,14 +105,16 @@ _DOCS_PATHS = frozenset({"/openapi.json", "/docs", "/docs/oauth2-redirect", "/re
 
 # Self-credentialed public routes with no Authorization header by design
 # (carrier signature auth for the SMS webhooks, added by ``exempt_path`` from
-# routes/sms_webhooks/; an HMAC token query param for unsubscribe, RFC 8058).
+# routes/sms_webhooks/; an HMAC token query param for unsubscribe, RFC 8058),
+# plus the static public webhook event catalog that the console fetches
+# without a key.
 # Without this exemption they fall back to the
 # remote-IP rate-limit key (_rate_limit_key below) — and in production every
 # anonymous caller resolves to the same upstream-proxy IP, so all anonymous
 # traffic would share one bucket with these legitimate routes. Listed
 # unprefixed; dual-mounted at both /v1/... and the legacy path (main.py), so
 # matching strips a leading /v1 before comparing.
-_EXEMPT_PATHS = {"/unsubscribe"}
+_EXEMPT_PATHS = {"/unsubscribe", "/webhooks/event-types"}
 
 
 def exempt_path(path: str) -> None:
