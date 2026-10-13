@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -97,6 +98,7 @@ def _provider(responses=None):
         account_sid="AC1",
         auth_token="t",
         client=Recorder(responses or _ok_responses()),
+        primary_profile_sid="BU0",
     )
 
 
@@ -558,3 +560,44 @@ async def test_attach_number_person_holds_one_number(caplog) -> None:
     )
     assert not _calls(p, "phone_numbers.create")
     assert "+1512" not in caplog.text
+
+
+def test_needs_the_primary_profile_sid(monkeypatch) -> None:
+    from hailhq.core.config import settings
+
+    monkeypatch.setattr(settings, "twilio_primary_profile_sid", "")
+    with pytest.raises(ValueError, match="TWILIO_PRIMARY_PROFILE_SID"):
+        TwilioSmsRegistrationProvider(
+            account_sid="AC1", auth_token="t", client=Recorder(_ok_responses())
+        )
+
+
+async def test_business_draft_assigns_the_primary_profile() -> None:
+    p = _provider()
+    await _draft(p)
+    assigned = [kw["object_sid"] for kw in _calls(p, "entity_assignments.create")]
+    assert "BU0" in assigned
+
+
+@pytest.mark.parametrize(("age_hours", "sends"), [(25, 1), (1, 0)])
+async def test_person_otp_is_sent_again_after_a_day(age_hours, sends) -> None:
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(
+        status="APPROVED", identity_status="UNVERIFIED", brand_feedback=None
+    )
+    p = _provider(r)
+    sent_at = (datetime.now(timezone.utc) - timedelta(hours=age_hours)).isoformat()
+    refs = {
+        "brand_sid": "BN1",
+        "messaging_service_sid": "MG1",
+        "subject_type": "person",
+        "campaign": _campaign("SOLE_PROPRIETOR"),
+        "otp_sent_at": sent_at,
+    }
+    st = await p.status(refs)
+    assert st.state == "pending"
+    assert len(_calls(p, "brand_registration_otps.create")) == sends
+    if sends:
+        assert refs["otp_sent_at"] > sent_at
+    else:
+        assert refs["otp_sent_at"] == sent_at

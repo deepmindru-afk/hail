@@ -76,10 +76,10 @@ Same flow as above with `purpose=sms`: each organization registers its own US A2
 | `rejected`        | Brand or campaign refused. `rejection_reason` carries the carrier's text. |
 | `cancelled`       | Customer withdrew or dismissed.                                           |
 
-- **Fee debit.** The carrier fee is debited from prepaid credit at filing. The ledger row in `account_credits` has `ref = sms_registration:<id>`.
-- **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it. Until then, texts from a US long code to a US number return 422.
-- **`TWILIO_PRIMARY_PROFILE_SID`.** The approved Trust Hub primary profile (business identity ISV Reseller or Partner) that every Twilio brand is created under.
-- **`HAIL_SMS_REGISTRATION_GATE`.** Default on. `false` turns the 422 check off for one release.
+- **Fee debit.** The carrier fee is debited from prepaid credit at filing. The ledger row in `account_credits` has `ref = sms_registration:<id>`. The shared self-hosted key (`HAIL_API_KEY`) is not debited.
+- **Attach step.** After the campaign is approved, Hail attaches the organization's US long-code numbers to it, each on its own. The row is approved even when a number fails; the failure is logged with the number id and counted in the `verification.sms_attached` audit row (`failed`). `POST /numbers/{id}/enable-sms` attaches that number again. Until approval, texts from a US long code to a US number return 422 (when the gate is on).
+- **`TWILIO_PRIMARY_PROFILE_SID`.** The approved Trust Hub primary profile (business identity ISV Reseller or Partner) that every Twilio brand is created under. Without it the Twilio SMS registration plug-in is off: `purpose=sms` with Twilio returns 404.
+- **`HAIL_SMS_REGISTRATION_GATE`.** Default off for the first release, so existing senders can register. Set `true` after the 30-day notice to turn on the 422 check.
 
 ## Cancel rules
 

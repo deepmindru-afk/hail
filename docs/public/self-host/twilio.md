@@ -55,8 +55,9 @@ Hail sends SMS from a dedicated number.
 campaign from the console (Numbers → Register for US texting) or with
 `POST /verifications` and `purpose=sms`. Set `TWILIO_PRIMARY_PROFILE_SID` to
 your approved Trust Hub primary profile (business identity ISV Reseller or
-Partner). Until an organization is approved, texts from its US long codes to US
-numbers return 422.
+Partner); without it, SMS registration through Twilio is off. With
+`HAIL_SMS_REGISTRATION_GATE=true`, texts from an organization's US long codes to
+US numbers return 422 until it is approved.
 
 **Sender ID (optional, rest-of-world).** For destinations that allow it, set a
 custom alphanumeric sender with `PATCH /sms/sender-id` (read the current value

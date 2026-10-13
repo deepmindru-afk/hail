@@ -31,8 +31,17 @@ _EIN = re.compile(r"^\d{2}-?\d{7}$")
 _OPT_OUT = "STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT"
 _HELP = "HELP,INFO"
 _VERIFIED = {"VERIFIED", "VETTED_VERIFIED"}
-_APPROVED = {"TCR_ACCEPTED", "MNO_ACCEPTED", "ACCEPTED", "ACTIVE"}
-_REJECTED = {"TCR_FAILED", "MNO_REJECTED", "REJECTED", "FAILED"}
+# A campaign is approved once the mobile carriers accept it; TCR_ACCEPTED
+# alone is pending (the carriers have not reviewed it yet).
+_APPROVED = {"MNO_ACCEPTED", "MNO_PROVISIONED", "ACTIVE"}
+_REJECTED = {
+    "TCR_FAILED",
+    "TELNYX_FAILED",
+    "MNO_REJECTED",
+    "MNO_PROVISIONING_FAILED",
+    "REJECTED",
+    "FAILED",
+}
 
 
 class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):

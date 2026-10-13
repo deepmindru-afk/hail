@@ -13,6 +13,8 @@
     {
       "provider": "telnyx",
       "last_verified": "2026-10-13",
+      "verification_method": "unverified",
+      "note": "Copied from TCR pass-through fees; not yet verified against a Telnyx invoice.",
       "source_url": "https://telnyx.com/pricing/messaging",
       "person": { "brand_usd": "4.50", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "2.00" },
       "business": { "brand_usd": "46.00", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "10.00" }

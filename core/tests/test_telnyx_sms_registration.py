@@ -191,7 +191,7 @@ async def test_status_rejected_brand() -> None:
 
 
 async def test_status_approved_and_rejected_from_campaign() -> None:
-    state = {"campaignStatus": "TCR_ACCEPTED", "failureReasons": None}
+    state = {"campaignStatus": "MNO_ACCEPTED", "failureReasons": None}
 
     def handler(req):
         if req.url.path.endswith("/10dlc/brand/B1"):
@@ -343,3 +343,40 @@ async def test_discard_order_and_never_raises() -> None:
     codes["campaign"] = 404
     await p.discard({"brand_id": "B1", "campaign_id": "C1"})
     await p.discard({})
+
+
+@pytest.mark.parametrize(
+    ("campaign_status", "state"),
+    [
+        ("TCR_ACCEPTED", "pending"),
+        ("TCR_PENDING", "pending"),
+        ("MNO_PENDING", "pending"),
+        ("MNO_ACCEPTED", "approved"),
+        ("MNO_PROVISIONED", "approved"),
+        ("ACTIVE", "approved"),
+        ("TCR_FAILED", "rejected"),
+        ("TELNYX_FAILED", "rejected"),
+        ("MNO_REJECTED", "rejected"),
+        ("MNO_PROVISIONING_FAILED", "rejected"),
+        ("REJECTED", "rejected"),
+        ("FAILED", "rejected"),
+    ],
+)
+async def test_campaign_status_mapping(campaign_status, state) -> None:
+    def handler(req):
+        if req.url.path.endswith("/10dlc/brand/B1"):
+            return httpx.Response(200, json={"identityStatus": "VERIFIED"})
+        if req.url.path.endswith("/10dlc/campaign/C1"):
+            return httpx.Response(
+                200, json={"campaignStatus": campaign_status, "failureReasons": None}
+            )
+        return httpx.Response(404)
+
+    refs = {
+        "brand_id": "B1",
+        "messaging_profile_id": "MP1",
+        "campaign_id": "C1",
+        "subject_type": "business",
+        "campaign": {},
+    }
+    assert (await _provider(handler).status(refs)).state == state

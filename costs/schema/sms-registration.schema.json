@@ -38,6 +38,11 @@
       "properties": {
         "provider": { "type": "string", "minLength": 1 },
         "last_verified": { "type": "string", "format": "date" },
+        "verification_method": {
+          "description": "How the fees were checked. \"unverified\" means copied from another source and not yet checked against the carrier.",
+          "enum": ["manual-confirmed", "community-pr", "carrier-sync", "unverified"]
+        },
+        "note": { "type": "string" },
         "source_url": { "type": "string", "format": "uri" },
         "person": { "$ref": "#/$defs/fees" },
         "business": { "$ref": "#/$defs/fees" }

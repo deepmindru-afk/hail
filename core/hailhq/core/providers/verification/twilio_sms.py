@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from hailhq.core.config import settings
 from hailhq.core.providers.verification.base import (
@@ -30,12 +30,28 @@ _STARTER_PROFILE_POLICY = "RN806dd6cd175f314e1f96a9727ee271f4"
 _A2P_TRUST_POLICY = "RNb0d4771c2c98518d916a3d4cd70a8f8b"
 _SOLE_PROP_TRUST_POLICY = "RN670d5d2e282a6130ae063b234b6019c8"
 _EIN = re.compile(r"^\d{2}-?\d{7}$")
+# A person's brand waits for them to confirm the code sent to their mobile.
+# Past this age, the code is sent again.
+_OTP_RESEND_AFTER = timedelta(hours=24)
 
 
 class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
     name = "twilio"
 
-    def __init__(self, account_sid=None, auth_token=None, client=None) -> None:
+    def __init__(
+        self,
+        account_sid=None,
+        auth_token=None,
+        client=None,
+        primary_profile_sid=None,
+    ) -> None:
+        self._primary_profile_sid = (
+            primary_profile_sid or settings.twilio_primary_profile_sid
+        )
+        if not self._primary_profile_sid:
+            raise ValueError(
+                "TwilioSmsRegistrationProvider needs TWILIO_PRIMARY_PROFILE_SID"
+            )
         self.account_sid = account_sid or settings.twilio_account_sid
         token = auth_token or settings.twilio_auth_token
         if client is None:
@@ -45,7 +61,6 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                 )
             client = TwilioClient(self.account_sid, token)
         self._client = client
-        self._primary_profile_sid = settings.twilio_primary_profile_sid
 
     # -- requirements ------------------------------------------------------
 
@@ -210,12 +225,11 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             th.customer_profiles(
                 profile.sid
             ).customer_profiles_entity_assignments.create(object_sid=doc.sid)
-            if self._primary_profile_sid:
-                th.customer_profiles(
-                    profile.sid
-                ).customer_profiles_entity_assignments.create(
-                    object_sid=self._primary_profile_sid
-                )
+            th.customer_profiles(
+                profile.sid
+            ).customer_profiles_entity_assignments.create(
+                object_sid=self._primary_profile_sid
+            )
             ev = th.customer_profiles(profile.sid).customer_profiles_evaluations.create(
                 policy_sid=_SECONDARY_PROFILE_POLICY
             )
@@ -303,6 +317,7 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
         if brand.status != "APPROVED":
             return ProviderStatus(state="pending")
         if refs.get("subject_type") == "person" and brand.identity_status != "VERIFIED":
+            self._resend_otp_if_old(refs)
             return ProviderStatus(state="pending")
         svc = self._client.messaging.v1.services(refs["messaging_service_sid"])
         if "campaign_sid" not in refs:
@@ -331,6 +346,18 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             )
             return ProviderStatus(state="rejected", reason=reason)
         return ProviderStatus(state="pending")
+
+    def _resend_otp_if_old(self, refs) -> None:
+        """Send the person's confirmation code again when the last one is
+        over a day old (or its time is unknown). The caller saves refs."""
+        now = datetime.now(timezone.utc)
+        sent = refs.get("otp_sent_at")
+        if sent and now - datetime.fromisoformat(sent) < _OTP_RESEND_AFTER:
+            return
+        self._client.messaging.v1.a2p.brand_registrations(
+            refs["brand_sid"]
+        ).brand_registration_otps.create()
+        refs["otp_sent_at"] = now.isoformat()
 
     async def purchase_handle(self, refs) -> dict:
         return {}
