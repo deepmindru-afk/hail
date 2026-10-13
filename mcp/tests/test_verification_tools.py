@@ -45,6 +45,7 @@ def _verification(vid: str | None = None, state: str = "submitted", **extra) -> 
         "country_code": "GB",
         "number_type": "mobile",
         "subject_type": "person",
+        "purpose": "number",
         "state": state,
         "rejection_reason": None,
         "created_at": "2026-10-01T10:00:00+00:00",
@@ -164,6 +165,7 @@ async def test_requirements_sends_query(client: HailClient) -> None:
         "country_code": "GB",
         "number_type": "mobile",
         "subject_type": "person",
+        "purpose": "number",
     }
     assert result["required"] is True
     assert result["documents"][0]["needs_input"] is True
@@ -414,6 +416,7 @@ async def test_submit_returns_only_the_api_response(client: HailClient) -> None:
         "country_code",
         "number_type",
         "subject_type",
+        "purpose",
         "state",
         "rejection_reason",
         "created_at",
@@ -838,3 +841,74 @@ async def test_attestation_schema_is_still_boolean(monkeypatch) -> None:
     )
     assert tool.inputSchema["properties"]["attest_authorized"]["type"] == "boolean"
     assert "attest_authorized" in tool.inputSchema["required"]
+
+
+# --------------------------------------------------------------------------- #
+# purpose
+# --------------------------------------------------------------------------- #
+
+
+@respx.mock
+async def test_requirements_sends_purpose(client: HailClient) -> None:
+    route = respx.get(f"{_BASE_URL}/verifications/requirements").mock(
+        return_value=httpx.Response(200, json=_requirements())
+    )
+    await tools.get_verification_requirements(
+        client=client, country_code="US", number_type="local", purpose="sms"
+    )
+    assert route.calls[0].request.url.params["purpose"] == "sms"
+
+
+@respx.mock
+async def test_list_verifications_sends_purpose(client: HailClient) -> None:
+    route = respx.get(f"{_BASE_URL}/verifications").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    await tools.list_verifications(client=client, purpose="sms")
+    assert route.calls[0].request.url.params["purpose"] == "sms"
+    await tools.list_verifications(client=client)
+    assert route.calls[1].request.url.params["purpose"] == "number"
+
+
+@respx.mock
+async def test_submit_passes_purpose(client: HailClient) -> None:
+    captured: dict = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["parts"] = _parse_multipart(request)
+        return httpx.Response(201, json=_verification())
+
+    respx.post(f"{_BASE_URL}/verifications").mock(side_effect=_handler)
+    await tools.submit_verification(**_kwargs(client, purpose="sms"))
+    assert captured["parts"]["purpose"]["body"] == b"sms"
+    await tools.submit_verification(**_kwargs(client))
+    assert captured["parts"]["purpose"]["body"] == b"number"
+
+
+@respx.mock
+async def test_bad_purpose_makes_no_call_and_is_not_echoed(
+    client: HailClient,
+) -> None:
+    bad = "SENTINEL_PURPOSE"
+    calls = [
+        respx.get(f"{_BASE_URL}/verifications/requirements").mock(
+            return_value=httpx.Response(200, json=_requirements())
+        ),
+        respx.get(f"{_BASE_URL}/verifications").mock(
+            return_value=httpx.Response(200, json=[])
+        ),
+        respx.post(f"{_BASE_URL}/verifications").mock(
+            return_value=httpx.Response(201, json=_verification())
+        ),
+    ]
+    results = [
+        await tools.get_verification_requirements(
+            client=client, country_code="US", number_type="local", purpose=bad
+        ),
+        await tools.list_verifications(client=client, purpose=bad),
+        await tools.submit_verification(**_kwargs(client, purpose=bad)),
+    ]
+    for r in results:
+        assert "purpose must be" in r["error"]
+        assert bad not in json.dumps(r)
+    assert all(not route.called for route in calls)
