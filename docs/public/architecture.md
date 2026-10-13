@@ -31,7 +31,7 @@ LiveKit Cloud is external. The `hail` Go CLI is a scriptable tool for humans, no
 2. The Hail API creates a LiveKit room and dispatches the voicebot into it.
 3. The voicebot joins the room. LiveKit places an outbound SIP call to `to` through the trunk of the carrier that owns `from` (Twilio, Telnyx or DIDWW; [`carrier_routing.py`](https://github.com/hail-hq/hail/blob/main/core/hailhq/core/carrier_routing.py)).
 4. On pickup, the voicebot classifies who answered before it speaks (refer to the section below). Then it speaks the AI disclosure and the `first_message` (if set), and runs the STT → LLM → TTS loop. If the call set `ai_disclosure: false`, the voicebot skips the disclosure; Hail audit-logs the opt-out, and the opt-out is the caller's responsibility.
-5. On hangup, the voicebot writes the call record to Postgres and uploads the recording to S3.
+5. On hangup, the voicebot writes the call record and the text transcript to Postgres. Call audio is not recorded or stored.
 
 ### Answering machine detection and DTMF
 
@@ -66,7 +66,7 @@ Precedence is B, then C, then A. See [Bring your own LLM](./byo-llm.md) for the 
 ## Data
 
 - **Postgres** — call, SMS, and email records; phone numbers; email domains; contacts; webhook subscriptions; API keys.
-- **S3** — call recordings.
+- **S3** — email content (MIME) and attachments. No call audio.
 - **LiveKit Cloud** — transient media (ephemeral).
 
 ## SMS
