@@ -670,6 +670,13 @@ async def list_numbers(
         return _format_api_error(exc)
 
 
+async def list_number_regions(*, client: HailClient) -> dict[str, Any]:
+    try:
+        return await client.list_number_regions()
+    except HailAPIError as exc:
+        return _format_api_error(exc)
+
+
 async def get_number(*, client: HailClient, number_id: str) -> dict[str, Any]:
     number_id_ = _as_uuid(number_id)
     if number_id_ is None:
@@ -2142,6 +2149,7 @@ def register_tools(
         omit it to search the whole country. ``city`` is a city name such
         as ``"London"``; in the US and CA also pass ``region``, the two-letter
         state or province code (``"AZ"``): city names repeat across states.
+        list_number_regions lists the codes.
 
         Returns ``{"offers": [...], "recommended_quote_id", "unavailable_providers",
         "expires_at"}``. Each offer has ``e164``, ``provider``, ``number_type``,
@@ -2253,6 +2261,29 @@ def register_tools(
         try:
             async with _client_for(ctx, mode=mode, singleton=singleton) as client:
                 return await list_numbers(client=client, limit=limit, cursor=cursor)
+        except RuntimeError as exc:
+            return {"error": str(exc)}
+
+    @mcp_app.tool(
+        name="list_number_regions",
+        title="List number search regions",
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def list_number_regions_tool(ctx: Context) -> dict[str, Any]:
+        """List the US state and Canadian province codes that quote_numbers
+        accepts as ``region``. In the US and CA a ``city`` needs one.
+
+        Returns ``{"regions": [{"country_code", "code", "name"}]}``, such as
+        ``{"country_code": "US", "code": "AZ", "name": "Arizona"}``, or
+        ``{"error": "<message>"}``."""
+        try:
+            async with _client_for(ctx, mode=mode, singleton=singleton) as client:
+                return await list_number_regions(client=client)
         except RuntimeError as exc:
             return {"error": str(exc)}
 

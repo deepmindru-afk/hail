@@ -249,6 +249,16 @@ class NumberOffer(BaseModel):
     quote_id: UUID | None = None
 
 
+class NumberRegion(BaseModel):
+    country_code: str
+    code: str
+    name: str
+
+
+class NumberRegionsResponse(BaseModel):
+    regions: list[NumberRegion]
+
+
 class NumberQuotesResponse(BaseModel):
     offers: list[NumberOffer]
     recommended_quote_id: UUID | None
@@ -854,6 +864,8 @@ __all__ = [
     "LLMConfig",
     "NumberOffer",
     "NumberQuotesResponse",
+    "NumberRegion",
+    "NumberRegionsResponse",
     "NumberType",
     "ObservedDnsRecord",
     "PhoneNumberListResponse",

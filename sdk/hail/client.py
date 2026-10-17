@@ -52,6 +52,7 @@ from hail.models import (
     EventStreamResponse,
     LLMConfig,
     NumberQuotesResponse,
+    NumberRegionsResponse,
     NumberType,
     PhoneNumberListResponse,
     PhoneNumberResponse,
@@ -729,6 +730,12 @@ class _NumbersResource:
         params = {"limit": limit, "cursor": cursor}
         data = await self._http.request("GET", "/numbers", params=params)
         return PhoneNumberListResponse.model_validate(data)
+
+    async def regions(self) -> NumberRegionsResponse:
+        """US state and Canadian province codes that :meth:`quotes` accepts
+        as ``region``. In the US and CA a ``city`` needs one."""
+        data = await self._http.request("GET", "/numbers/regions")
+        return NumberRegionsResponse.model_validate(data)
 
     async def enable_sms(self, number_id: str | UUID) -> PhoneNumberResponse:
         """Attach a Messaging Service so the number can send SMS.

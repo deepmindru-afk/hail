@@ -31,6 +31,7 @@ import httpx
 from hailhq.core.carrier_offer import NumberQuotesResponse
 from hailhq.core.config import settings
 from hailhq.core.providers.verification import Requirements
+from hailhq.core.regions import NumberRegionsResponse
 from hailhq.core.schemas import (
     AgentCreate,
     AgentListResponse,
@@ -361,6 +362,12 @@ class HailClient:
             params["cursor"] = cursor
         resp = await self._client.get("/numbers", params=params)
         return PhoneNumberListResponse.model_validate(_decode(resp)).model_dump(
+            mode="json"
+        )
+
+    async def list_number_regions(self) -> dict[str, Any]:
+        resp = await self._client.get("/numbers/regions")
+        return NumberRegionsResponse.model_validate(_decode(resp)).model_dump(
             mode="json"
         )
 

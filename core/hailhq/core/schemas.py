@@ -7,6 +7,7 @@ from uuid import UUID
 
 from hailhq.core.contact_ids import normalize_contact_id
 from hailhq.core.languages import Language
+from hailhq.core.regions import REGIONS
 from hailhq.core.sender_id import PLATFORM_DEFAULT_SENDER_ID
 from hailhq.core.webhook_events import WebhookEventType
 from pydantic import (
@@ -620,7 +621,7 @@ class NumberQuoteRequest(BaseModel):
     region: str | None = Field(
         default=None,
         pattern=r"^[A-Za-z]{2}$",
-        description="Two-letter state or province code, such as AZ. US and CA only, and only with city.",
+        description="Two-letter state or province code, such as AZ. US and CA only, and only with city. GET /numbers/regions lists the codes.",
     )
 
     @field_validator("country_code")
@@ -652,9 +653,18 @@ class NumberQuoteRequest(BaseModel):
     @field_validator("region")
     @classmethod
     def _region_needs_nanp(cls, v: str | None, info: ValidationInfo) -> str | None:
-        if v is not None and info.data.get("country_code") not in ("US", "CA"):
+        if v is None:
+            return None
+        country = info.data.get("country_code")
+        if country not in REGIONS:
             raise ValueError("region works for US and CA numbers only")
-        return v.upper() if v is not None else None
+        v = v.upper()
+        if v not in REGIONS[country]:
+            raise ValueError(
+                f"{v} is not a {country} state or province code; "
+                "GET /numbers/regions lists them"
+            )
+        return v
 
     @model_validator(mode="after")
     def _city_and_region_together(self) -> "NumberQuoteRequest":

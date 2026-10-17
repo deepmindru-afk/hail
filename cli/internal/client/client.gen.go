@@ -2661,7 +2661,7 @@ type NumberQuoteRequest struct {
 	// Provider Carrier restriction; twilio, telnyx, or didww returns that carrier's offers only. auto compares all by readiness, remaining verification effort, and rental/setup costs; Twilio wins equivalent ties.
 	Provider *NumberQuoteRequestProvider `json:"provider,omitempty"`
 
-	// Region Two-letter state or province code, such as AZ. US and CA only, and only with city.
+	// Region Two-letter state or province code, such as AZ. US and CA only, and only with city. GET /numbers/regions lists the codes.
 	Region *string `json:"region,omitempty"`
 }
 
@@ -2687,6 +2687,24 @@ type NumberQuotesResponse struct {
 
 	// UnavailableProviders Carriers whose inventory, price, or regulatory lookup failed; comparison may be incomplete.
 	UnavailableProviders []string `json:"unavailable_providers"`
+}
+
+// NumberRegion defines model for NumberRegion.
+type NumberRegion struct {
+	// Code Two-letter state or province code, such as AZ. Send it as region.
+	Code string `json:"code"`
+
+	// CountryCode ISO alpha-2 country code: US or CA.
+	CountryCode string `json:"country_code"`
+
+	// Name State or province name, such as Arizona.
+	Name string `json:"name"`
+}
+
+// NumberRegionsResponse defines model for NumberRegionsResponse.
+type NumberRegionsResponse struct {
+	// Regions Every state and province the number search accepts as region.
+	Regions []NumberRegion `json:"regions"`
 }
 
 // ObservedDnsRecord One record from EmailDomainResponse.dns_records, with a live DNS observation.
@@ -3538,6 +3556,11 @@ type QuoteNumbersV1NumbersQuotesPostParams struct {
 	Authorization *string `json:"authorization,omitempty"`
 }
 
+// ListNumberRegionsV1NumbersRegionsGetParams defines parameters for ListNumberRegionsV1NumbersRegionsGet.
+type ListNumberRegionsV1NumbersRegionsGetParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
 // ReleaseNumberV1NumbersNumberIdDeleteParams defines parameters for ReleaseNumberV1NumbersNumberIdDelete.
 type ReleaseNumberV1NumbersNumberIdDeleteParams struct {
 	Authorization *string `json:"authorization,omitempty"`
@@ -4291,6 +4314,9 @@ type ClientInterface interface {
 
 	QuoteNumbersV1NumbersQuotesPost(ctx context.Context, params *QuoteNumbersV1NumbersQuotesPostParams, body QuoteNumbersV1NumbersQuotesPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListNumberRegionsV1NumbersRegionsGet request
+	ListNumberRegionsV1NumbersRegionsGet(ctx context.Context, params *ListNumberRegionsV1NumbersRegionsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReleaseNumberV1NumbersNumberIdDelete request
 	ReleaseNumberV1NumbersNumberIdDelete(ctx context.Context, numberId openapi_types.UUID, params *ReleaseNumberV1NumbersNumberIdDeleteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4990,6 +5016,18 @@ func (c *Client) QuoteNumbersV1NumbersQuotesPostWithBody(ctx context.Context, pa
 
 func (c *Client) QuoteNumbersV1NumbersQuotesPost(ctx context.Context, params *QuoteNumbersV1NumbersQuotesPostParams, body QuoteNumbersV1NumbersQuotesPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewQuoteNumbersV1NumbersQuotesPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListNumberRegionsV1NumbersRegionsGet(ctx context.Context, params *ListNumberRegionsV1NumbersRegionsGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListNumberRegionsV1NumbersRegionsGetRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7858,6 +7896,48 @@ func NewQuoteNumbersV1NumbersQuotesPostRequestWithBody(server string, params *Qu
 	return req, nil
 }
 
+// NewListNumberRegionsV1NumbersRegionsGetRequest generates requests for ListNumberRegionsV1NumbersRegionsGet
+func NewListNumberRegionsV1NumbersRegionsGetRequest(server string, params *ListNumberRegionsV1NumbersRegionsGetParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/numbers/regions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewReleaseNumberV1NumbersNumberIdDeleteRequest generates requests for ReleaseNumberV1NumbersNumberIdDelete
 func NewReleaseNumberV1NumbersNumberIdDeleteRequest(server string, numberId openapi_types.UUID, params *ReleaseNumberV1NumbersNumberIdDeleteParams) (*http.Request, error) {
 	var err error
@@ -10012,6 +10092,9 @@ type ClientWithResponsesInterface interface {
 
 	QuoteNumbersV1NumbersQuotesPostWithResponse(ctx context.Context, params *QuoteNumbersV1NumbersQuotesPostParams, body QuoteNumbersV1NumbersQuotesPostJSONRequestBody, reqEditors ...RequestEditorFn) (*QuoteNumbersV1NumbersQuotesPostResponse, error)
 
+	// ListNumberRegionsV1NumbersRegionsGetWithResponse request
+	ListNumberRegionsV1NumbersRegionsGetWithResponse(ctx context.Context, params *ListNumberRegionsV1NumbersRegionsGetParams, reqEditors ...RequestEditorFn) (*ListNumberRegionsV1NumbersRegionsGetResponse, error)
+
 	// ReleaseNumberV1NumbersNumberIdDeleteWithResponse request
 	ReleaseNumberV1NumbersNumberIdDeleteWithResponse(ctx context.Context, numberId openapi_types.UUID, params *ReleaseNumberV1NumbersNumberIdDeleteParams, reqEditors ...RequestEditorFn) (*ReleaseNumberV1NumbersNumberIdDeleteResponse, error)
 
@@ -10995,6 +11078,29 @@ func (r QuoteNumbersV1NumbersQuotesPostResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r QuoteNumbersV1NumbersQuotesPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListNumberRegionsV1NumbersRegionsGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *NumberRegionsResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ListNumberRegionsV1NumbersRegionsGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListNumberRegionsV1NumbersRegionsGetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -12204,6 +12310,15 @@ func (c *ClientWithResponses) QuoteNumbersV1NumbersQuotesPostWithResponse(ctx co
 		return nil, err
 	}
 	return ParseQuoteNumbersV1NumbersQuotesPostResponse(rsp)
+}
+
+// ListNumberRegionsV1NumbersRegionsGetWithResponse request returning *ListNumberRegionsV1NumbersRegionsGetResponse
+func (c *ClientWithResponses) ListNumberRegionsV1NumbersRegionsGetWithResponse(ctx context.Context, params *ListNumberRegionsV1NumbersRegionsGetParams, reqEditors ...RequestEditorFn) (*ListNumberRegionsV1NumbersRegionsGetResponse, error) {
+	rsp, err := c.ListNumberRegionsV1NumbersRegionsGet(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListNumberRegionsV1NumbersRegionsGetResponse(rsp)
 }
 
 // ReleaseNumberV1NumbersNumberIdDeleteWithResponse request returning *ReleaseNumberV1NumbersNumberIdDeleteResponse
@@ -13779,6 +13894,39 @@ func ParseQuoteNumbersV1NumbersQuotesPostResponse(rsp *http.Response) (*QuoteNum
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest NumberQuotesResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListNumberRegionsV1NumbersRegionsGetResponse parses an HTTP response from a ListNumberRegionsV1NumbersRegionsGetWithResponse call
+func ParseListNumberRegionsV1NumbersRegionsGetResponse(rsp *http.Response) (*ListNumberRegionsV1NumbersRegionsGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListNumberRegionsV1NumbersRegionsGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NumberRegionsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

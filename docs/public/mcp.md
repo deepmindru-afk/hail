@@ -27,45 +27,46 @@ Every tool sets the MCP hints `readOnlyHint`, `destructiveHint`, `idempotentHint
 
 `place_call`, `send_sms` and `send_email` need `recipient_consent` set to the JSON boolean `true`. Strings such as `"true"` and numbers such as `1` are refused before any request is sent.
 
-| Tool                            | Does                                                                                |
-| ------------------------------- | ----------------------------------------------------------------------------------- |
-| `place_call`                    | Originate an outbound phone call.                                                   |
-| `get_call`                      | Fetch the current state of one call.                                                |
-| `list_calls`                    | List recent calls (cursor-paginated).                                               |
-| `send_sms`                      | Send an outbound SMS (recipient consent is required).                               |
-| `get_sms`                       | Fetch the current state of one SMS.                                                 |
-| `list_sms`                      | List recent SMS messages (cursor-paginated).                                        |
-| `send_email`                    | Send an outbound email (supports `attachment_ids`).                                 |
-| `upload_email_attachment`       | Upload a file, get back a reusable id.                                              |
-| `get_email`                     | Fetch one email's full record (body + inbound headers).                             |
-| `list_emails`                   | List emails (`direction="inbound"` for replies).                                    |
-| `get_email_raw`                 | Presigned URL for an inbound email's raw MIME.                                      |
-| `get_email_attachment`          | Presigned URL for one inbound attachment.                                           |
-| `get_email_events`              | Page through one email's event history.                                             |
-| `get_email_stats`               | Aggregate email counts for a time window.                                           |
-| `get_events`                    | Page through the event stream.                                                      |
-| `list_email_domains`            | List sending identities + the default `from` address.                               |
-| `whoami`                        | Identify the human behind the session (for `reply_to`).                             |
-| `list_contacts`                 | List the org's contacts (members + manual contacts).                                |
-| `lookup_contact`                | Find one contact by name, email, or phone fragment.                                 |
-| `create_contact`                | Add a manual contact.                                                               |
-| `list_agents`                   | List saved agents.                                                                  |
-| `get_agent`                     | Fetch one saved agent.                                                              |
-| `create_agent`                  | Save an agent that answers calls and texts.                                         |
-| `update_agent`                  | Change an agent. `clear_fields` removes optional values.                            |
-| `delete_agent`                  | Delete an agent. Destructive. Needs `confirm_name`.                                 |
-| `route_number`                  | Choose which agent answers a number.                                                |
-| `quote_numbers`                 | Compare live carrier offers for a new number (read-only).                           |
-| `acquire_number`                | Buy a quoted number. Spends money. Needs `confirm_total_cents`.                     |
-| `list_numbers`                  | List the org's numbers (cursor-paginated).                                          |
-| `get_number`                    | Fetch one number.                                                                   |
-| `release_number`                | Release a number. Destructive and permanent. Needs `confirm_e164`.                  |
-| `get_verification_requirements` | Read what a carrier needs to verify the org for a number type (read-only).          |
-| `submit_verification`           | Send details and documents to the carrier. Irreversible. Needs `attest_authorized`. |
-| `list_verifications`            | List the org's verifications and their states (read-only).                          |
-| `get_verification`              | Fetch one verification; poll it for `approved` (read-only).                         |
+| Tool                            | Does                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `place_call`                    | Originate an outbound phone call.                                                                  |
+| `get_call`                      | Fetch the current state of one call.                                                               |
+| `list_calls`                    | List recent calls (cursor-paginated).                                                              |
+| `send_sms`                      | Send an outbound SMS (recipient consent is required).                                              |
+| `get_sms`                       | Fetch the current state of one SMS.                                                                |
+| `list_sms`                      | List recent SMS messages (cursor-paginated).                                                       |
+| `send_email`                    | Send an outbound email (supports `attachment_ids`).                                                |
+| `upload_email_attachment`       | Upload a file, get back a reusable id.                                                             |
+| `get_email`                     | Fetch one email's full record (body + inbound headers).                                            |
+| `list_emails`                   | List emails (`direction="inbound"` for replies).                                                   |
+| `get_email_raw`                 | Presigned URL for an inbound email's raw MIME.                                                     |
+| `get_email_attachment`          | Presigned URL for one inbound attachment.                                                          |
+| `get_email_events`              | Page through one email's event history.                                                            |
+| `get_email_stats`               | Aggregate email counts for a time window.                                                          |
+| `get_events`                    | Page through the event stream.                                                                     |
+| `list_email_domains`            | List sending identities + the default `from` address.                                              |
+| `whoami`                        | Identify the human behind the session (for `reply_to`).                                            |
+| `list_contacts`                 | List the org's contacts (members + manual contacts).                                               |
+| `lookup_contact`                | Find one contact by name, email, or phone fragment.                                                |
+| `create_contact`                | Add a manual contact.                                                                              |
+| `list_agents`                   | List saved agents.                                                                                 |
+| `get_agent`                     | Fetch one saved agent.                                                                             |
+| `create_agent`                  | Save an agent that answers calls and texts.                                                        |
+| `update_agent`                  | Change an agent. `clear_fields` removes optional values.                                           |
+| `delete_agent`                  | Delete an agent. Destructive. Needs `confirm_name`.                                                |
+| `route_number`                  | Choose which agent answers a number.                                                               |
+| `quote_numbers`                 | Compare live carrier offers for a new number (read-only).                                          |
+| `list_number_regions`           | List the US/CA state codes `quote_numbers` takes as `region` (read-only).                          |
+| `acquire_number`                | Buy a quoted number. Spends money. Needs `confirm_total_cents`.                                    |
+| `list_numbers`                  | List the org's numbers (cursor-paginated).                                                         |
+| `get_number`                    | Fetch one number.                                                                                  |
+| `release_number`                | Release a number. Destructive and permanent. Needs `confirm_e164`.                                 |
+| `get_verification_requirements` | Read what a carrier needs to verify the org for a number type (read-only).                         |
+| `submit_verification`           | Send details and documents to the carrier. Irreversible. Needs `attest_authorized`.                |
+| `list_verifications`            | List the org's verifications and their states (read-only).                                         |
+| `get_verification`              | Fetch one verification; poll it for `approved` (read-only).                                        |
 | `cancel_verification`           | Cancel an `awaiting_review` one, dismiss a `rejected` one, or end an approved US SMS registration. |
-| `confirm_verification`          | Enter the code the carrier texted a person (`confirmation: "code"`).                |
+| `confirm_verification`          | Enter the code the carrier texted a person (`confirmation: "code"`).                               |
 
 ### Getting a number over MCP
 

@@ -54,6 +54,7 @@ from hailhq.core.providers.verification import (
     get_verification_provider,
 )
 from hailhq.core.providers.voice import CarrierNotConfigured
+from hailhq.core.regions import REGIONS_RESPONSE, NumberRegionsResponse
 from hailhq.core.schemas import (
     NumberAcquireRequest,
     NumberQuoteRequest,
@@ -511,6 +512,17 @@ async def route_number(
         actor_kind=actor_kind,
     )
     return PhoneNumberResponse.model_validate(number)
+
+
+# Declared before "/{number_id}": that route would read "regions" as an id.
+@router.get("/regions", response_model=NumberRegionsResponse)
+async def list_number_regions(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+) -> NumberRegionsResponse:
+    """US states and Canadian provinces for the ``region`` field of
+    ``POST /numbers/quotes``. In the US and Canada a city search needs one:
+    city names repeat across states."""
+    return REGIONS_RESPONSE
 
 
 @router.get(

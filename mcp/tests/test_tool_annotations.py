@@ -31,6 +31,7 @@ _READ_ONLY = {
     "whoami",
     "get_agent",
     "list_numbers",
+    "list_number_regions",
     "get_number",
     "quote_numbers",
     "get_verification_requirements",
@@ -67,7 +68,7 @@ _OPEN_WORLD_WRITES = {
     "confirm_verification",
 }
 
-_EXPECTED_COUNT = 37
+_EXPECTED_COUNT = 38
 
 
 @pytest.fixture()
