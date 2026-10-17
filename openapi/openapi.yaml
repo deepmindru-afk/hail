@@ -7584,7 +7584,7 @@ components:
         area_code:
           anyOf:
             - type: string
-              pattern: ^[2-9]\d{2}$
+              pattern: ^[2-9][0-9]{2}$
             - type: "null"
           title: Area Code
           description:

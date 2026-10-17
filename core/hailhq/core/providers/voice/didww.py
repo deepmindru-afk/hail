@@ -152,13 +152,16 @@ def _offers_sync(
         "include": "did_group,did_group.stock_keeping_units,did_group.address_requirement",
         "page[size]": 3,
     }
-    # DIDWW has no prefix filter: "contains" may also match mid-number, so
-    # the loop below keeps only numbers that start with "+1<area code>".
+    # DIDWW filters by "contains" (its prefix filter is per NPA-NXX, one id
+    # per call), and "contains" also matches mid-number. Results come back
+    # in random order, so ask for a bigger page and keep only numbers that
+    # start with "+1<area code>" in the loop below.
     prefix = f"+1{area_code}" if area_code else None
     if e164:
         params["filter[number_contains]"] = e164.lstrip("+")
     elif prefix:
-        params["filter[number_contains]"] = prefix.lstrip("+")
+        params["filter[number_contains]"] = f"1{area_code}"
+        params["page[size]"] = 50
     body = client.get("available_dids", params=params)
     index = _by_id(body.get("included", []))
     approved: dict | None = None

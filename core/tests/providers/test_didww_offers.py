@@ -254,6 +254,8 @@ async def test_area_code_keeps_only_numbers_that_start_with_it(monkeypatch):
     offers = await didww_offers(ORG, "US", "local", ["voice"], area_code="480")
     assert [o.e164 for o in offers] == ["+14805550001"]
     assert "filter%5Bnumber_contains%5D=1480" in responses.calls[0].request.url
+    # Mid-number matches are dropped after the call: ask for more than 3.
+    assert "page%5Bsize%5D=50" in responses.calls[0].request.url
 
 
 @responses.activate

@@ -607,7 +607,7 @@ class NumberQuoteRequest(BaseModel):
     )
     area_code: str | None = Field(
         default=None,
-        pattern=r"^[2-9]\d{2}$",
+        pattern=r"^[2-9][0-9]{2}$",
         description="Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.",
     )
 

@@ -86,7 +86,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&f.country, "country", "", "ISO 3166-1 alpha-2 country code (e.g. US)")
 	cmd.Flags().StringVar(&f.numberType, "type", "local", "Number type: local, mobile, toll_free, or national")
-	cmd.Flags().StringVar(&f.provider, "provider", "auto", "Carrier: auto, twilio, or telnyx")
+	cmd.Flags().StringVar(&f.provider, "provider", "auto", "Carrier: auto, twilio, telnyx, or didww")
 	cmd.Flags().StringVar(&f.areaCode, "area-code", "", "Three-digit US or CA area code (e.g. 480)")
 	cmd.Flags().StringVar(&f.quoteID, "quote-id", "", "Buy this quote (from POST /numbers/quotes) instead of the cheapest offer")
 	cmd.Flags().BoolVar(&f.voice, "voice-only", false, "Require voice only (default: voice and SMS)")
