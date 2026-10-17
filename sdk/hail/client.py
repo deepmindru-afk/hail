@@ -620,7 +620,7 @@ class _NumbersResource:
         number_type: NumberType | None = None,
         capabilities: list[Literal["voice", "sms"]] | None = None,
         quote_id: str | UUID | None = None,
-        provider: Literal["auto", "twilio", "telnyx"] | None = None,
+        provider: Literal["auto", "twilio", "telnyx", "didww"] | None = None,
         expected_total_cents: int | None = None,
         idempotency_key: str | None = None,
         area_code: str | None = None,
@@ -679,7 +679,7 @@ class _NumbersResource:
         country: str,
         capabilities: list[Literal["voice", "sms"]],
         number_type: NumberType | None = None,
-        provider: Literal["auto", "twilio", "telnyx"] = "auto",
+        provider: Literal["auto", "twilio", "telnyx", "didww"] = "auto",
         area_code: str | None = None,
     ) -> NumberQuotesResponse:
         """Compare live inventory, rental/setup costs and regulatory readiness.

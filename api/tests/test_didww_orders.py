@@ -803,6 +803,7 @@ async def test_quotes_reject_a_bad_area_code(client, org_and_key, body):
         headers={"Authorization": f"Bearer {key}"},
     )
     assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["body", "area_code"]
 
 
 async def test_quotes_for_one_carrier_search_only_its_kinds(
