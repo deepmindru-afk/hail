@@ -110,9 +110,11 @@ class Carrier:
     sms_status_path: str | None
     # True when a purchase is accepted first and completes later.
     async_orders: bool
-    # Live inventory: (org, country, number type, capabilities, exact e164).
+    # Live inventory: (org, country, number type, capabilities, exact e164,
+    # US/CA area code).
     offers: Callable[
-        [UUID, str, NumberType, list[str], str | None], Awaitable[list[CarrierOffer]]
+        [UUID, str, NumberType, list[str], str | None, str | None],
+        Awaitable[list[CarrierOffer]],
     ]
     # Buy one quoted number once, never retried: (number id, offer). Returns
     # the carrier order id when ``async_orders``, else the owned resource id.

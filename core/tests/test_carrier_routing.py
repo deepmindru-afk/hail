@@ -150,6 +150,8 @@ async def test_offers_reach_the_carrier(monkeypatch, name, inner, args) -> None:
     assert offers == [_offer(name)]
     assert found.await_args.args[:4] == (org, "PT", "national", ["voice"])
     assert found.await_args.kwargs["e164"] == "+351300000001"
+    await carrier(name).offers(org, "US", "local", ["voice"], None, "480")
+    assert found.await_args.kwargs["area_code"] == "480"
 
 
 async def test_place_order_reaches_each_carrier(monkeypatch) -> None:

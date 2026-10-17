@@ -557,3 +557,16 @@ async def test_shared_http_client_is_reused_and_closed():
     second = get_http_client()
     assert second is not first
     await close_http_client()
+
+
+async def test_twilio_area_code_reaches_inventory_search(monkeypatch):
+    api = MagicMock()
+    api.available_phone_numbers.return_value.local.list.return_value = []
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC_test")
+    monkeypatch.setattr(settings, "twilio_auth_token", "test")
+    monkeypatch.setattr(
+        "hailhq.core.providers.voice.twilio.TwilioClient", lambda *a, **kw: api
+    )
+    assert await twilio_offers(uuid4(), "US", "local", ["voice"], area_code="480") == []
+    kwargs = api.available_phone_numbers.return_value.local.list.call_args.kwargs
+    assert kwargs["area_code"] == 480

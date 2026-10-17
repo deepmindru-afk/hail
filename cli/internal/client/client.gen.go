@@ -2637,6 +2637,9 @@ type NumberAcquireRequestProvider string
 
 // NumberQuoteRequest defines model for NumberQuoteRequest.
 type NumberQuoteRequest struct {
+	// AreaCode Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.
+	AreaCode *string `json:"area_code,omitempty"`
+
 	// Capabilities Required channels; every returned offer must support all requested capabilities.
 	Capabilities []NumberQuoteRequestCapabilities `json:"capabilities"`
 

@@ -762,6 +762,49 @@ async def test_quotes_ask_each_kind_only_at_carriers_that_list_it(
     assert searched == {"local": ["twilio"], "national": ["didww"]}
 
 
+async def test_quotes_pass_the_area_code_to_every_carrier(
+    client, org_and_key, monkeypatch
+):
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+    # The test catalogs list PT only; area codes are US/CA only.
+    monkeypatch.setattr(
+        telephony_catalog, "capabilities", lambda *a: {"voice": True, "sms": False}
+    )
+
+    resp = await client.post(
+        "/numbers/quotes",
+        json={
+            "country_code": "US",
+            "number_type": "local",
+            "capabilities": ["voice"],
+            "area_code": "480",
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert discover.await_args.kwargs["area_code"] == "480"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"country_code": "PT", "area_code": "480"},
+        {"country_code": "US", "area_code": "48"},
+        {"country_code": "US", "area_code": "080"},
+    ],
+)
+async def test_quotes_reject_a_bad_area_code(client, org_and_key, body):
+    _, _, key = org_and_key
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"capabilities": ["voice"], **body},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
 async def test_quotes_for_one_carrier_search_only_its_kinds(
     client, org_and_key, monkeypatch
 ):

@@ -117,6 +117,18 @@ async def test_exact_number_preflight_uses_national_digits_and_checks_e164():
     assert [q.e164 for q in quotes] == ["+351300000001"]
 
 
+async def test_area_code_filters_national_destination_code():
+    def handler(request):
+        assert request.url.params["filter[national_destination_code]"] == "480"
+        return httpx.Response(200, json={"data": [offer(phone_number="+14805550100")]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        quotes = await TelnyxNumberDiscovery("key", client).search(
+            "US", "local", ["voice"], area_code="480"
+        )
+    assert [q.e164 for q in quotes] == ["+14805550100"]
+
+
 @pytest.mark.parametrize("no_coverage", [True, False])
 async def test_only_explicit_no_coverage_is_empty_inventory(no_coverage):
     detail = (

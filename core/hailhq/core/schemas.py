@@ -605,6 +605,11 @@ class NumberQuoteRequest(BaseModel):
         default="auto",
         description="Carrier restriction; twilio, telnyx, or didww returns that carrier's offers only. auto compares all by readiness, remaining verification effort, and rental/setup costs; Twilio wins equivalent ties.",
     )
+    area_code: str | None = Field(
+        default=None,
+        pattern=r"^[2-9]\d{2}$",
+        description="Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.",
+    )
 
     @field_validator("country_code")
     @classmethod
@@ -613,6 +618,13 @@ class NumberQuoteRequest(BaseModel):
         if not re.fullmatch(r"[A-Z]{2}", v):
             raise ValueError("country_code must be two letters")
         return v
+
+    @model_validator(mode="after")
+    def _area_code_needs_nanp(self) -> "NumberQuoteRequest":
+        # Twilio searches area codes in the US and Canada only.
+        if self.area_code is not None and self.country_code not in ("US", "CA"):
+            raise ValueError("area_code works for US and CA numbers only")
+        return self
 
 
 class PhoneNumberResponse(BaseModel):

@@ -134,7 +134,11 @@ def _friction(requirement: dict | None) -> Literal["information", "documents"]:
 
 
 def _offers_sync(
-    org: UUID, country: str, kind: NumberType, e164: str | None
+    org: UUID,
+    country: str,
+    kind: NumberType,
+    e164: str | None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     client = didww_client()
     country_id, types = lookup_ids(country)
@@ -148,8 +152,13 @@ def _offers_sync(
         "include": "did_group,did_group.stock_keeping_units,did_group.address_requirement",
         "page[size]": 3,
     }
+    # DIDWW has no prefix filter: "contains" may also match mid-number, so
+    # the loop below keeps only numbers that start with "+1<area code>".
+    prefix = f"+1{area_code}" if area_code else None
     if e164:
         params["filter[number_contains]"] = e164.lstrip("+")
+    elif prefix:
+        params["filter[number_contains]"] = prefix.lstrip("+")
     body = client.get("available_dids", params=params)
     index = _by_id(body.get("included", []))
     approved: dict | None = None
@@ -158,6 +167,8 @@ def _offers_sync(
     for did in body["data"]:
         number = "+" + did["attributes"]["number"]
         if e164 and number != e164:
+            continue
+        if prefix and not number.startswith(prefix):
             continue
         group = index.get(
             ("did_groups", did["relationships"]["did_group"]["data"]["id"])
@@ -215,6 +226,7 @@ async def didww_offers(
     kind: NumberType,
     capabilities: list[str],
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     """Live DIDWW inventory for one country and number type. Voice only:
     an ``sms`` request never gets a DIDWW offer. No offer without the
@@ -225,7 +237,7 @@ async def didww_offers(
         or "sms" in capabilities
     ):
         return []
-    return await asyncio.to_thread(_offers_sync, org, country, kind, e164)
+    return await asyncio.to_thread(_offers_sync, org, country, kind, e164, area_code)
 
 
 def _find_available(client: DidwwClient, e164: str) -> tuple[str, str]:
@@ -515,8 +527,11 @@ async def offers(
     kind: NumberType,
     capabilities: list[str],
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
-    return await didww_offers(org, country, kind, capabilities, e164=e164)
+    return await didww_offers(
+        org, country, kind, capabilities, e164=e164, area_code=area_code
+    )
 
 
 async def place_order(number_id: UUID, offer: CarrierOffer) -> str:

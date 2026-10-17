@@ -48,6 +48,7 @@ class TelnyxNumberDiscovery:
         limit: int = 20,
         *,
         e164: str | None = None,
+        area_code: str | None = None,
     ) -> list[NumberQuote]:
         country_code = country_code.upper()
         if (
@@ -72,6 +73,8 @@ class TelnyxNumberDiscovery:
             params["filter[phone_number][ends_with]"] = (
                 phonenumbers.national_significant_number(phonenumbers.parse(e164, None))
             )
+        if area_code:
+            params["filter[national_destination_code]"] = area_code
         try:
             data = await TelnyxClient(self._api_key, self._client).request(
                 "GET", "/available_phone_numbers", params=params
@@ -130,6 +133,7 @@ async def telnyx_offers(
     capabilities: list[str],
     client: httpx.AsyncClient,
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     if not settings.telnyx_api_key:
         return []
@@ -153,6 +157,7 @@ async def telnyx_offers(
         capabilities,
         limit=3,
         e164=e164,
+        area_code=area_code,
     )
     if not quotes:
         return []
@@ -342,9 +347,16 @@ async def offers(
     kind: NumberType,
     capabilities: list[str],
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     return await telnyx_offers(
-        org, country, kind, capabilities, get_http_client(), e164=e164
+        org,
+        country,
+        kind,
+        capabilities,
+        get_http_client(),
+        e164=e164,
+        area_code=area_code,
     )
 
 

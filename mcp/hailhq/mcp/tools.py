@@ -587,6 +587,7 @@ async def quote_numbers(
     capabilities: list[str] | None = None,
     number_type: str | None = None,
     provider: str = "auto",
+    area_code: str | None = None,
 ) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "country_code": country_code,
@@ -595,6 +596,8 @@ async def quote_numbers(
     }
     if number_type is not None:
         fields["number_type"] = number_type
+    if area_code is not None:
+        fields["area_code"] = area_code
     try:
         return await client.quote_numbers(**fields)
     except ValidationError as exc:
@@ -2079,6 +2082,7 @@ def register_tools(
         capabilities: list[str] | None = None,
         number_type: str | None = None,
         provider: str = "auto",
+        area_code: str | None = None,
     ) -> dict[str, Any]:
         """Compare live phone-number offers from the carriers. Read-only: it
         buys nothing and charges nothing.
@@ -2088,6 +2092,8 @@ def register_tools(
         ``number_type`` is ``local``, ``mobile``, ``national`` or
         ``toll_free``; omit it to compare all types. ``provider`` is
         ``auto`` (compare all carriers), ``twilio``, ``telnyx`` or ``didww``.
+        ``area_code`` is a three-digit US or CA area code such as ``"480"``;
+        omit it to search the whole country.
 
         Returns ``{"offers": [...], "recommended_quote_id", "unavailable_providers",
         "expires_at"}``. Each offer has ``e164``, ``provider``, ``number_type``,
@@ -2112,6 +2118,7 @@ def register_tools(
                     capabilities=capabilities,
                     number_type=number_type,
                     provider=provider,
+                    area_code=area_code,
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
