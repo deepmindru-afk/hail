@@ -1677,6 +1677,18 @@ async def test_quote_numbers_sends_area_code(client: HailClient) -> None:
     assert body["area_code"] == "480"
 
 
+@respx.mock
+async def test_quote_numbers_sends_city_and_region(client: HailClient) -> None:
+    route = respx.post(f"{_BASE_URL}/numbers/quotes").mock(
+        return_value=httpx.Response(200, json=_quotes_response())
+    )
+    await tools.quote_numbers(
+        client=client, country_code="US", city="Phoenix", region="AZ"
+    )
+    body = json.loads(route.calls[0].request.read())
+    assert (body["city"], body["region"]) == ("Phoenix", "AZ")
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -1686,6 +1698,7 @@ async def test_quote_numbers_sends_area_code(client: HailClient) -> None:
         {"country_code": "US", "provider": "acme"},
         {"country_code": "US", "area_code": "48"},
         {"country_code": "GB", "area_code": "480"},
+        {"country_code": "US", "city": "Phoenix"},
     ],
 )
 async def test_quote_numbers_validation_errors_surface(

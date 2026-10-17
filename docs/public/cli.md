@@ -85,7 +85,7 @@ hail numbers get <id>
 hail numbers enable-sms <id>   # repair SMS setup; Hail does this itself when a number becomes active
 ```
 
-`acquire` requests live quotes ([`POST /numbers/quotes`](../../openapi/openapi.yaml)), then buys the cheapest ready offer (monthly plus setup) with its `quote_id`. Flags: `--country` (required), `--type` (`local|mobile|toll_free|national`), `--provider` (`auto|twilio|telnyx|didww`), `--area-code` (US/CA only, e.g. `480`), `--quote-id` (skip the quote and buy that offer), `--voice-only`, `--sms-only` (default: voice and SMS), `--expected-total-cents` (refuse with 409 if the quoted monthly plus setup differs), `--idempotency-key`.
+`acquire` requests live quotes ([`POST /numbers/quotes`](../../openapi/openapi.yaml)), then buys the cheapest ready offer (monthly plus setup) with its `quote_id`. Flags: `--country` (required), `--type` (`local|mobile|toll_free|national`), `--provider` (`auto|twilio|telnyx|didww`), `--area-code` (US/CA only, e.g. `480`), `--city` (e.g. `London`; US/CA also need `--region`, e.g. `AZ`), `--quote-id` (skip the quote and buy that offer), `--voice-only`, `--sms-only` (default: voice and SMS), `--expected-total-cents` (refuse with 409 if the quoted monthly plus setup differs), `--idempotency-key`.
 
 ## Email
 

@@ -611,6 +611,17 @@ class NumberQuoteRequest(BaseModel):
         pattern=r"^[2-9][0-9]{2}$",
         description="Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.",
     )
+    city: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="City name as the carriers list it, such as Phoenix or London. In US and CA, also send region.",
+    )
+    region: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z]{2}$",
+        description="Two-letter state or province code, such as AZ. US and CA only, and only with city.",
+    )
 
     @field_validator("country_code")
     @classmethod
@@ -630,6 +641,31 @@ class NumberQuoteRequest(BaseModel):
         if v is not None and info.data.get("country_code") not in ("US", "CA"):
             raise ValueError("area_code works for US and CA numbers only")
         return v
+
+    @field_validator("city")
+    @classmethod
+    def _strip_city(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("city must not be blank")
+        return v.strip() if v is not None else None
+
+    @field_validator("region")
+    @classmethod
+    def _region_needs_nanp(cls, v: str | None, info: ValidationInfo) -> str | None:
+        if v is not None and info.data.get("country_code") not in ("US", "CA"):
+            raise ValueError("region works for US and CA numbers only")
+        return v.upper() if v is not None else None
+
+    @model_validator(mode="after")
+    def _city_and_region_together(self) -> "NumberQuoteRequest":
+        # A US or CA city name alone matches towns in other states (Phoenix,
+        # Oregon for Phoenix), so it needs the state; a state alone is not a
+        # search this endpoint offers.
+        if self.country_code in ("US", "CA") and (self.city is None) != (
+            self.region is None
+        ):
+            raise ValueError("send city and region together for US and CA numbers")
+        return self
 
 
 class PhoneNumberResponse(BaseModel):

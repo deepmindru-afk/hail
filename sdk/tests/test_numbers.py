@@ -100,9 +100,12 @@ async def test_numbers_acquire_passes_type_capabilities_and_provider_to_quotes(
             capabilities=["voice"],
             provider="telnyx",
             area_code="480",
+            city="Phoenix",
+            region="AZ",
         )
     quote_body = json.loads(quotes_route.calls.last.request.content)
     assert quote_body["area_code"] == "480"
+    assert (quote_body["city"], quote_body["region"]) == ("Phoenix", "AZ")
     assert quote_body["number_type"] == "toll_free"
     assert quote_body["capabilities"] == ["voice"]
     assert quote_body["provider"] == "telnyx"

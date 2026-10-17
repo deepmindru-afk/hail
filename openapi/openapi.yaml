@@ -7590,6 +7590,25 @@ components:
           description:
             Three-digit area code, such as 480. US and CA only; every returned
             offer is in this area code.
+        city:
+          anyOf:
+            - type: string
+              maxLength: 64
+              minLength: 1
+            - type: "null"
+          title: City
+          description:
+            City name as the carriers list it, such as Phoenix or London.
+            In US and CA, also send region.
+        region:
+          anyOf:
+            - type: string
+              pattern: ^[A-Za-z]{2}$
+            - type: "null"
+          title: Region
+          description:
+            Two-letter state or province code, such as AZ. US and CA only,
+            and only with city.
       additionalProperties: false
       type: object
       required:

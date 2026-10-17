@@ -111,9 +111,18 @@ class Carrier:
     # True when a purchase is accepted first and completes later.
     async_orders: bool
     # Live inventory: (org, country, number type, capabilities, exact e164,
-    # US/CA area code).
+    # US/CA area code, city, US/CA state or province code).
     offers: Callable[
-        [UUID, str, NumberType, list[str], str | None, str | None],
+        [
+            UUID,
+            str,
+            NumberType,
+            list[str],
+            str | None,
+            str | None,
+            str | None,
+            str | None,
+        ],
         Awaitable[list[CarrierOffer]],
     ]
     # Buy one quoted number once, never retried: (number id, offer). Returns

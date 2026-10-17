@@ -129,6 +129,19 @@ async def test_area_code_filters_national_destination_code():
     assert [q.e164 for q in quotes] == ["+14805550100"]
 
 
+async def test_city_and_region_filter_locality_and_state():
+    def handler(request):
+        assert request.url.params["filter[locality]"] == "Phoenix"
+        assert request.url.params["filter[administrative_area]"] == "AZ"
+        return httpx.Response(200, json={"data": [offer(phone_number="+16235550100")]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        quotes = await TelnyxNumberDiscovery("key", client).search(
+            "US", "local", ["voice"], city="Phoenix", region="AZ"
+        )
+    assert [q.e164 for q in quotes] == ["+16235550100"]
+
+
 async def test_no_numbers_for_the_filters_is_empty_inventory():
     """An area code with no stock is not a carrier outage."""
     detail = (
