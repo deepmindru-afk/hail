@@ -10,16 +10,16 @@ approved registration.
 monthly fee of an SMS registration is billed through the month of this
 date.
 
-Revision ID: 0058
-Revises: 0057
+Revision ID: 0059
+Revises: 0058
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision: str = "0058"
-down_revision: str | None = "0057"
+revision: str = "0059"
+down_revision: str | None = "0058"
 branch_labels = None
 depends_on = None
 
