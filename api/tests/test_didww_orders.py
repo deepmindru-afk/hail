@@ -841,6 +841,9 @@ async def test_quotes_pass_city_and_region_to_every_carrier(
         {"country_code": "PT", "city": "Lisbon", "region": "LI"},
         {"country_code": "US", "city": "  ", "region": "AZ"},
         {"country_code": "US", "city": "Phoenix", "region": "ARZ"},
+        {"country_code": "US", "city": "Phoenix", "region": "ZZ"},
+        # A Canadian province is not a US state.
+        {"country_code": "US", "city": "Toronto", "region": "ON"},
     ],
 )
 async def test_quotes_reject_a_bad_city_or_region(client, org_and_key, body):
@@ -851,6 +854,25 @@ async def test_quotes_reject_a_bad_city_or_region(client, org_and_key, body):
         headers={"Authorization": f"Bearer {key}"},
     )
     assert resp.status_code == 422, resp.text
+
+
+async def test_regions_list_us_states_and_canadian_provinces(client, org_and_key):
+    _, _, key = org_and_key
+    resp = await client.get(
+        "/numbers/regions", headers={"Authorization": f"Bearer {key}"}
+    )
+    assert resp.status_code == 200, resp.text
+    regions = {
+        (r["country_code"], r["code"]): r["name"] for r in resp.json()["regions"]
+    }
+    assert regions[("US", "AZ")] == "Arizona"
+    assert regions[("CA", "ON")] == "Ontario"
+    assert len(regions) == 51 + 13
+
+
+async def test_regions_need_an_api_key(client):
+    resp = await client.get("/numbers/regions")
+    assert resp.status_code == 401
 
 
 async def test_quotes_take_a_city_alone_outside_us_and_ca(

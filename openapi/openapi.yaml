@@ -2305,6 +2305,60 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+  /v1/numbers/regions:
+    get:
+      tags:
+        - numbers
+      summary: List Number Regions
+      description: "US states and Canadian provinces for the ``region`` field of
+
+        ``POST /numbers/quotes``. In the US and Canada a city search needs one:
+
+        city names repeat across states."
+      operationId: list_number_regions_v1_numbers_regions_get
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberRegionsResponse"
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
   /v1/numbers/{number_id}/enable-sms:
     post:
       tags:
@@ -7799,7 +7853,7 @@ components:
           title: Region
           description:
             Two-letter state or province code, such as AZ. US and CA only,
-            and only with city.
+            and only with city. GET /numbers/regions lists the codes.
       additionalProperties: false
       type: object
       required:
@@ -7848,6 +7902,38 @@ components:
         - unavailable_providers
         - expires_at
       title: NumberQuotesResponse
+    NumberRegion:
+      properties:
+        country_code:
+          type: string
+          title: Country Code
+          description: "ISO alpha-2 country code: US or CA."
+        code:
+          type: string
+          title: Code
+          description: Two-letter state or province code, such as AZ. Send it as region.
+        name:
+          type: string
+          title: Name
+          description: State or province name, such as Arizona.
+      type: object
+      required:
+        - country_code
+        - code
+        - name
+      title: NumberRegion
+    NumberRegionsResponse:
+      properties:
+        regions:
+          items:
+            $ref: "#/components/schemas/NumberRegion"
+          type: array
+          title: Regions
+          description: Every state and province the number search accepts as region.
+      type: object
+      required:
+        - regions
+      title: NumberRegionsResponse
     ObservedDnsRecord:
       properties:
         name:
