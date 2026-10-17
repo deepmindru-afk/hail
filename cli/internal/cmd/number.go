@@ -54,6 +54,7 @@ type numberAcquireFlags struct {
 	country    string
 	numberType string
 	provider   string
+	areaCode   string
 	quoteID    string
 	sms        bool
 	voice      bool
@@ -76,6 +77,9 @@ Examples:
   # A US local number (voice + SMS capable):
   hail numbers acquire --country US
 
+  # A local number in the 480 area code (Phoenix, Arizona):
+  hail numbers acquire --country US --area-code 480
+
   # A US toll-free number from Telnyx:
   hail numbers acquire --country US --type toll_free --provider telnyx
 
@@ -89,7 +93,8 @@ Examples:
 	}
 	cmd.Flags().StringVar(&f.country, "country", "", "ISO 3166-1 alpha-2 country code (e.g. US)")
 	cmd.Flags().StringVar(&f.numberType, "type", "local", "Number type: local, mobile, toll_free, or national")
-	cmd.Flags().StringVar(&f.provider, "provider", "auto", "Carrier: auto, twilio, or telnyx")
+	cmd.Flags().StringVar(&f.provider, "provider", "auto", "Carrier: auto, twilio, telnyx, or didww")
+	cmd.Flags().StringVar(&f.areaCode, "area-code", "", "Three-digit US or CA area code (e.g. 480)")
 	cmd.Flags().StringVar(&f.quoteID, "quote-id", "", "Buy this quote (from POST /numbers/quotes) instead of the cheapest offer")
 	cmd.Flags().BoolVar(&f.voice, "voice-only", false, "Require voice only (default: voice and SMS)")
 	cmd.Flags().BoolVar(&f.sms, "sms-only", false, "Require SMS only (default: voice and SMS)")
@@ -185,6 +190,10 @@ func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags) 
 	}
 	nt := client.NumberQuoteRequestNumberType(f.numberType)
 	provider := client.NumberQuoteRequestProvider(f.provider)
+	var areaCode *string
+	if f.areaCode != "" {
+		areaCode = &f.areaCode
+	}
 	apiClient, err := opts.newClient()
 	if err != nil {
 		return openapi_types.UUID{}, err
@@ -196,6 +205,7 @@ func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags) 
 			NumberType:   &nt,
 			Capabilities: caps,
 			Provider:     &provider,
+			AreaCode:     areaCode,
 		},
 	)
 	if err != nil {

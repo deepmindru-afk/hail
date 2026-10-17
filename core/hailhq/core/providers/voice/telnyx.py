@@ -26,6 +26,21 @@ class NumberQuote(BaseModel):
     currency: str = Field(pattern=r"^[A-Z]{3}$")
 
 
+# Telnyx error code -> detail prefix that means "no stock", not an outage.
+# 10031 comes back when a filter (such as an area code) matches no numbers.
+_EMPTY_INVENTORY = {
+    "10015": "No coverage found in the specified country",
+    "10031": "No numbers found for the given filters",
+}
+
+
+def _no_stock(error: object) -> bool:
+    if not isinstance(error, dict):
+        return False
+    prefix = _EMPTY_INVENTORY.get(str(error.get("code")))
+    return prefix is not None and str(error.get("detail") or "").startswith(prefix)
+
+
 class TelnyxNumberDiscovery:
     """Uses an injected async client; the caller owns its lifetime.
 
@@ -48,6 +63,7 @@ class TelnyxNumberDiscovery:
         limit: int = 20,
         *,
         e164: str | None = None,
+        area_code: str | None = None,
     ) -> list[NumberQuote]:
         country_code = country_code.upper()
         if (
@@ -72,6 +88,8 @@ class TelnyxNumberDiscovery:
             params["filter[phone_number][ends_with]"] = (
                 phonenumbers.national_significant_number(phonenumbers.parse(e164, None))
             )
+        if area_code:
+            params["filter[national_destination_code]"] = area_code
         try:
             data = await TelnyxClient(self._api_key, self._client).request(
                 "GET", "/available_phone_numbers", params=params
@@ -88,14 +106,7 @@ class TelnyxNumberDiscovery:
                 exc.response.status_code == 400
                 and isinstance(errors, list)
                 and errors
-                and all(
-                    isinstance(error, dict)
-                    and str(error.get("code")) == "10015"
-                    and str(error.get("detail") or "").startswith(
-                        "No coverage found in the specified country"
-                    )
-                    for error in errors
-                )
+                and all(_no_stock(error) for error in errors)
             ):
                 return []
             raise
@@ -130,6 +141,7 @@ async def telnyx_offers(
     capabilities: list[str],
     client: httpx.AsyncClient,
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     if not settings.telnyx_api_key:
         return []
@@ -153,6 +165,7 @@ async def telnyx_offers(
         capabilities,
         limit=3,
         e164=e164,
+        area_code=area_code,
     )
     if not quotes:
         return []
@@ -342,9 +355,16 @@ async def offers(
     kind: NumberType,
     capabilities: list[str],
     e164: str | None = None,
+    area_code: str | None = None,
 ) -> list[CarrierOffer]:
     return await telnyx_offers(
-        org, country, kind, capabilities, get_http_client(), e164=e164
+        org,
+        country,
+        kind,
+        capabilities,
+        get_http_client(),
+        e164=e164,
+        area_code=area_code,
     )
 
 

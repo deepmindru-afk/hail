@@ -14,6 +14,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -605,6 +606,11 @@ class NumberQuoteRequest(BaseModel):
         default="auto",
         description="Carrier restriction; twilio, telnyx, or didww returns that carrier's offers only. auto compares all by readiness, remaining verification effort, and rental/setup costs; Twilio wins equivalent ties.",
     )
+    area_code: str | None = Field(
+        default=None,
+        pattern=r"^[2-9][0-9]{2}$",
+        description="Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.",
+    )
 
     @field_validator("country_code")
     @classmethod
@@ -612,6 +618,17 @@ class NumberQuoteRequest(BaseModel):
         v = v.upper()
         if not re.fullmatch(r"[A-Z]{2}", v):
             raise ValueError("country_code must be two letters")
+        return v
+
+    @field_validator("area_code")
+    @classmethod
+    def _area_code_needs_nanp(cls, v: str | None, info: ValidationInfo) -> str | None:
+        # Carriers search area codes in the US and Canada only. A field
+        # validator (not a model validator) so the 422 names ``area_code``.
+        # ``country_code`` is declared first, so its validated value is in
+        # ``info.data`` unless it failed on its own.
+        if v is not None and info.data.get("country_code") not in ("US", "CA"):
+            raise ValueError("area_code works for US and CA numbers only")
         return v
 
 

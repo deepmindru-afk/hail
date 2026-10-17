@@ -9,14 +9,17 @@ way real usage would.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 import pytest
 import responses
+from hailhq.core.config import settings
 from hailhq.core.providers.voice import (
     ProviderCallStatus,
     TwilioVoiceProvider,
 )
+from hailhq.core.providers.voice.twilio import twilio_offers
 from twilio.base.exceptions import TwilioRestException
 
 ACCOUNT_SID = "ACtest1234567890abcdef1234567890ab"
@@ -177,3 +180,25 @@ def test_constructor_raises_without_creds(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(ValueError):
         TwilioVoiceProvider()
+
+
+@responses.activate
+async def test_area_code_reaches_inventory_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "twilio_account_sid", ACCOUNT_SID)
+    monkeypatch.setattr(settings, "twilio_auth_token", AUTH_TOKEN)
+    responses.add(
+        responses.GET,
+        f"{API_BASE}/AvailablePhoneNumbers/US/Local.json",
+        json={"available_phone_numbers": [], "uri": "/"},
+        status=200,
+    )
+
+    offers = await twilio_offers(uuid4(), "US", "local", ["voice"], area_code="480")
+
+    assert offers == []
+    assert len(responses.calls) == 1
+    query = parse_qs(urlparse(responses.calls[0].request.url).query)
+    assert query["AreaCode"] == ["480"]
+    assert query["VoiceEnabled"] == ["true"]

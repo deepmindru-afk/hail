@@ -710,6 +710,7 @@ async def quote_numbers(
                     if telephony_catalog.capabilities(body.country_code, kind, p)
                     is not None
                 ],
+                area_code=body.area_code,
             )
             for kind in kinds
         )

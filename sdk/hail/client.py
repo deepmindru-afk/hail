@@ -620,9 +620,10 @@ class _NumbersResource:
         number_type: NumberType | None = None,
         capabilities: list[Literal["voice", "sms"]] | None = None,
         quote_id: str | UUID | None = None,
-        provider: Literal["auto", "twilio", "telnyx"] | None = None,
+        provider: Literal["auto", "twilio", "telnyx", "didww"] | None = None,
         expected_total_cents: int | None = None,
         idempotency_key: str | None = None,
+        area_code: str | None = None,
     ) -> PhoneNumberResponse:
         """Buy a dedicated number from a live quote.
 
@@ -633,7 +634,8 @@ class _NumbersResource:
         (default ``"local"``) and ``capabilities`` (default voice and SMS),
         then buys the cheapest ready offer (monthly plus setup). It raises
         ``HailError`` if no offer is ready to buy. ``provider`` restricts the
-        carrier. ``expected_total_cents`` is the monthly plus setup price you
+        carrier; ``area_code`` (US and CA only, such as ``"480"``) restricts
+        the quote to that area code. ``expected_total_cents`` is the monthly plus setup price you
         expect to pay now; the order is refused with 409 if the quote differs.
         ``idempotency_key`` defaults to a fresh UUIDv4 and covers the
         purchase only.
@@ -644,6 +646,7 @@ class _NumbersResource:
                 capabilities=capabilities or ["voice", "sms"],
                 number_type=number_type or "local",
                 provider=provider or "auto",
+                area_code=area_code,
             )
             ready = [o for o in offers.offers if o.readiness == "ready" and o.quote_id]
             if not ready:
@@ -676,23 +679,26 @@ class _NumbersResource:
         country: str,
         capabilities: list[Literal["voice", "sms"]],
         number_type: NumberType | None = None,
-        provider: Literal["auto", "twilio", "telnyx"] = "auto",
+        provider: Literal["auto", "twilio", "telnyx", "didww"] = "auto",
+        area_code: str | None = None,
     ) -> NumberQuotesResponse:
         """Compare live inventory, rental/setup costs and regulatory readiness.
+
+        ``area_code`` (US and CA only, such as ``"480"``) limits offers to
+        that area code.
 
         Pass the selected quote_id to acquire (or call acquire without one to buy the cheapest ready offer). A quote is organization-scoped
         and expires; acquisition rechecks it before reserving credits.
         """
-        data = await self._http.request(
-            "POST",
-            "/numbers/quotes",
-            json={
-                "country_code": country.upper(),
-                "capabilities": capabilities,
-                "number_type": number_type,
-                "provider": provider,
-            },
-        )
+        body: dict[str, Any] = {
+            "country_code": country.upper(),
+            "capabilities": capabilities,
+            "number_type": number_type,
+            "provider": provider,
+        }
+        if area_code is not None:
+            body["area_code"] = area_code
+        data = await self._http.request("POST", "/numbers/quotes", json=body)
         return NumberQuotesResponse.model_validate(data)
 
     async def get(self, number_id: str | UUID) -> PhoneNumberResponse:
