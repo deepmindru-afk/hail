@@ -20,9 +20,9 @@ from hailhq.core.config import settings
 from hailhq.core.db import get_session
 from hailhq.core.models import (
     Agent,
-    CarrierVerification,
     AuditLog,
     Call,
+    CarrierVerification,
     Email,
     EmailDomain,
     Organization,

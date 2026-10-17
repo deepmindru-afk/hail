@@ -3,16 +3,16 @@ for buying a number) or 'sms' (US A2P 10DLC brand + campaign). The live
 uniqueness index includes it so an org can hold one of each per carrier
 and country.
 
-Revision ID: 0057
-Revises: 0056
+Revision ID: 0058
+Revises: 0057
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision: str = "0057"
-down_revision: str | None = "0056"
+revision: str = "0058"
+down_revision: str | None = "0057"
 branch_labels = None
 depends_on = None
 
