@@ -26,6 +26,21 @@ class NumberQuote(BaseModel):
     currency: str = Field(pattern=r"^[A-Z]{3}$")
 
 
+# Telnyx error code -> detail prefix that means "no stock", not an outage.
+# 10031 comes back when a filter (such as an area code) matches no numbers.
+_EMPTY_INVENTORY = {
+    "10015": "No coverage found in the specified country",
+    "10031": "No numbers found for the given filters",
+}
+
+
+def _no_stock(error: object) -> bool:
+    if not isinstance(error, dict):
+        return False
+    prefix = _EMPTY_INVENTORY.get(str(error.get("code")))
+    return prefix is not None and str(error.get("detail") or "").startswith(prefix)
+
+
 class TelnyxNumberDiscovery:
     """Uses an injected async client; the caller owns its lifetime.
 
@@ -91,14 +106,7 @@ class TelnyxNumberDiscovery:
                 exc.response.status_code == 400
                 and isinstance(errors, list)
                 and errors
-                and all(
-                    isinstance(error, dict)
-                    and str(error.get("code")) == "10015"
-                    and str(error.get("detail") or "").startswith(
-                        "No coverage found in the specified country"
-                    )
-                    for error in errors
-                )
+                and all(_no_stock(error) for error in errors)
             ):
                 return []
             raise
