@@ -1,0 +1,67 @@
+import pytest
+from hailhq.core.providers.verification.sms_form import campaign_text, sms_requirements
+
+
+def test_business_form_lists_company_and_campaign_fields() -> None:
+    req = sms_requirements("twilio", "business")
+    names = [f.name for f in req.fields]
+    assert names[:4] == ["legal_name", "business_type", "ein", "industry"]
+    assert "campaign_description" in names and "sample_2" in names
+    assert req.address_required is True
+    assert req.documents == ()
+    assert req.subject_types == ("person", "business")
+
+
+def test_person_form_asks_for_mobile_not_ein() -> None:
+    req = sms_requirements("telnyx", "person")
+    names = [f.name for f in req.fields]
+    assert "mobile_phone_number" in names and "ein" not in names
+    mobile = next(f for f in req.fields if f.name == "mobile_phone_number")
+    assert "not a Hail number" in mobile.help
+
+
+def test_campaign_text_pads_short_values_to_carrier_minimums() -> None:
+    text = campaign_text(
+        {
+            "campaign_description": "Order updates",
+            "sample_1": "Hi",
+            "sample_2": "Bye",
+            "opt_in_description": "Web form",
+            "has_links": "NO",
+        },
+        "business",
+    )
+    assert len(text.description) >= 40
+    assert len(text.message_flow) >= 40
+    assert all(len(s) >= 20 for s in text.samples)
+    assert text.use_case == "MIXED" and text.has_links is False
+
+
+def test_person_use_case() -> None:
+    assert (
+        campaign_text(
+            {
+                "campaign_description": "x",
+                "sample_1": "x",
+                "sample_2": "x",
+                "opt_in_description": "x",
+                "has_links": "YES",
+            },
+            "person",
+        ).use_case
+        == "SOLE_PROPRIETOR"
+    )
+
+
+@pytest.mark.parametrize("field", ["sample_1", "campaign_description"])
+def test_missing_required_field_raises(field) -> None:
+    data = {
+        "campaign_description": "x",
+        "sample_1": "x",
+        "sample_2": "x",
+        "opt_in_description": "x",
+        "has_links": "NO",
+    }
+    data.pop(field)
+    with pytest.raises(KeyError):
+        campaign_text(data, "business")

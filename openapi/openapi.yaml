@@ -2316,8 +2316,9 @@ paths:
         a texts agent is assigned, so this call is only needed to repair a number\n\
         whose setup failed, or an older one whose service lacks the inbound\ntext\
         \ settings. Idempotent \u2014 an already-enabled number gets those settings\n\
-        set again and returns its current state. Fails with 422 for a released number\
-        \ or one that lacks\nsms capability."
+        set again and returns its current state. A US long code is also put on\nthe\
+        \ org's approved US SMS registration. Fails with 422 for a released\nnumber\
+        \ or one that lacks sms capability."
       operationId: enable_sms_v1_numbers__number_id__enable_sms_post
       parameters:
         - name: number_id
@@ -4287,10 +4288,16 @@ paths:
         - verifications
       summary: Get Requirements
       description:
-        "What the carrier needs from you to buy this kind of number: the
-        fields,
+        "What the carrier needs from you: the fields, the documents, and
+        whether
 
-        the documents, and whether an address is needed. Build your form from it."
+        an address is needed. `purpose=number` (default) is for buying a number;
+
+        `purpose=sms` is for registering to send SMS in the US; without
+
+        `provider` it uses the carrier of your US numbers. Build your form
+
+        from it."
       operationId: get_verification_requirements
       parameters:
         - name: country_code
@@ -4325,6 +4332,13 @@ paths:
               - type: string
               - type: "null"
             title: Provider
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            type: string
+            default: number
+            title: Purpose
         - name: authorization
           in: header
           required: false
@@ -4375,7 +4389,13 @@ paths:
       description: 'Submit your details and documents (multipart/form-data).
 
 
-        Parts: `country_code`, `number_type`, `subject_type`, `provider` (optional),
+        Parts: `purpose` (`number`, the default, or `sms` to register to send SMS
+
+        in the US; `sms` takes `country_code=US` and `number_type=local` and charges
+
+        the filing fee), `country_code`, `number_type`, `subject_type`, `provider`
+
+        (optional; for `sms` it defaults to the carrier of your US numbers),
 
         `fields` (JSON object), `address` (JSON object, when required), `documents`
 
@@ -4439,9 +4459,20 @@ paths:
       tags:
         - verifications
       summary: List Verifications
-      description: Your organization's verifications, newest first.
+      description:
+        "Your organization's verifications, newest first. Pass `purpose`
+
+        (`number` or `sms`) to list only that kind."
       operationId: list_verifications
       parameters:
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Purpose
         - name: authorization
           in: header
           required: false
@@ -4460,6 +4491,65 @@ paths:
                 items:
                   $ref: "#/components/schemas/VerificationResponse"
                 title: Response List Verifications
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /v1/verifications/sms-fees:
+    get:
+      tags:
+        - verifications
+      summary: Get Sms Fees
+      description:
+        "Fees for US SMS registration, per carrier and subject type, in
+        cents.
+
+        Passed through at cost."
+      operationId: get_sms_registration_fees
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    $ref: "#/components/schemas/SmsFee"
+                title: Response Get Sms Registration Fees
         "429":
           description:
             Rate limited. This caller exceeded the general request-rate
@@ -4560,7 +4650,22 @@ paths:
 
         review cannot be cancelled: wait for the result; if it is rejected,
 
-        dismiss it."
+        dismiss it.
+
+
+        An approved US SMS registration (`purpose=sms`) can be cancelled too:
+
+        its numbers leave the campaign, the campaign is deleted at the carrier,
+
+        and US-to-US texts from those numbers get 422 again. Its monthly fee is
+
+        charged through the month of the cancellation, then stops. Telnyx bills
+
+        at least 3 monthly fees from approval (`minimum_months` in
+
+        GET /verifications/sms-fees), so a Telnyx registration cancelled sooner
+
+        is still charged for 3 months."
       operationId: cancel_verification
       parameters:
         - name: verification_id
@@ -4578,6 +4683,80 @@ paths:
               - type: string
               - type: "null"
             title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationResponse"
+        "429":
+          description:
+            Rate limited. This caller exceeded the general request-rate
+            ceiling. Retry after the Retry-After header (seconds).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+            RateLimit-Limit:
+              description: The request ceiling for the current window.
+              schema:
+                type: integer
+            RateLimit-Remaining:
+              description: Requests remaining in the current window.
+              schema:
+                type: integer
+            RateLimit-Reset:
+              description: Seconds until the current window resets.
+              schema:
+                type: integer
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /v1/verifications/{verification_id}/confirm:
+    post:
+      tags:
+        - verifications
+      summary: Confirm Verification
+      description:
+        'Enter the code the carrier texted to confirm a person''s US texting
+
+        registration. Use it when the verification shows `confirmation: "code"`.
+
+        On success the campaign is filed at once; poll GET /verifications/{id}
+
+        until `approved`. A wrong or expired code is 422 on `code`; after five
+
+        wrong codes, 429 until the carrier sends a new code (once a day). 409
+
+        when there is nothing to confirm.'
+      operationId: confirm_verification
+      parameters:
+        - name: verification_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            title: Verification Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
       responses:
         "200":
           description: Successful Response
@@ -5455,6 +5634,18 @@ components:
         - setup_cents
         - readiness
       title: CarrierOffer
+    ConfirmRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 10
+          minLength: 4
+          title: Code
+          description: The code the carrier texted to the person's mobile.
+      type: object
+      required:
+        - code
+      title: ConfirmRequest
     ContactCreate:
       properties:
         name:
@@ -8172,6 +8363,28 @@ components:
         - to
         - body
       title: SmsCreate
+    SmsFee:
+      properties:
+        filing_cents:
+          type: integer
+          title: Filing Cents
+          description: Charged once when the registration is filed.
+        monthly_cents:
+          type: integer
+          title: Monthly Cents
+          description: Charged each month while approved.
+        minimum_months:
+          type: integer
+          title: Minimum Months
+          description:
+            Monthly fees charged at least, counted from approval, even
+            when the registration is cancelled sooner.
+      type: object
+      required:
+        - filing_cents
+        - monthly_cents
+        - minimum_months
+      title: SmsFee
     SmsListResponse:
       properties:
         items:
@@ -8419,6 +8632,12 @@ components:
           type: string
           title: Subject Type
           description: "'person' or 'business'."
+        purpose:
+          type: string
+          title: Purpose
+          description:
+            "'number': permission to buy a number in this country. 'sms':
+            registration to text US numbers from a US number."
         state:
           type: string
           title: State
@@ -8455,6 +8674,15 @@ components:
             - type: "null"
           title: Approved At
           description: When the carrier approved it.
+        confirmation:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Confirmation
+          description: "For a person's US texting registration: 'code' when you
+            must enter the code the carrier texted (POST /verifications/{id}/confirm),
+            'reply' when you must answer the carrier's text, null when nothing
+            is pending."
       type: object
       required:
         - id
@@ -8462,6 +8690,7 @@ components:
         - country_code
         - number_type
         - subject_type
+        - purpose
         - state
         - created_at
         - updated_at

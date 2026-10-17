@@ -98,8 +98,13 @@ class TwilioSmsProvider(SmsProvider):
         )
 
     async def ensure_messaging_service(
-        self, organization_id: UUID, existing_sid: str | None
+        self,
+        organization_id: UUID,
+        existing_sid: str | None,
+        name: str | None = None,
     ) -> str:
+        """``name`` picks a service other than the organization's own (a
+        person's US texting campaign has one of its own)."""
         # Inbound texts to every number in the service reach Hail here; the
         # number's own "A Message Comes In" webhook is not used. An existing
         # service gets the same URL, so one created before this setting (or
@@ -117,7 +122,7 @@ class TwilioSmsProvider(SmsProvider):
                 return existing_sid
             # A first attach that failed left a service no row records.
             # Find it by name so a retry reuses it instead of adding another.
-            name = f"hail-org-{organization_id}"
+            name = name or f"hail-org-{organization_id}"
             found = await asyncio.to_thread(self._find_service_sid_by_name, name)
             if found is not None:
                 await asyncio.to_thread(
@@ -244,8 +249,13 @@ class LazyTwilioSmsProvider(SmsProvider):
         )
 
     async def ensure_messaging_service(
-        self, organization_id: UUID, existing_sid: str | None
+        self,
+        organization_id: UUID,
+        existing_sid: str | None,
+        name: str | None = None,
     ) -> str:
+        """``name`` picks a service other than the organization's own (a
+        person's US texting campaign has one of its own)."""
         return await self._provider().ensure_messaging_service(
             organization_id, existing_sid
         )

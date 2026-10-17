@@ -218,3 +218,22 @@ async def test_reply_waits_for_a_concurrent_request_in_the_same_thread(
     resp = await asyncio.wait_for(task, 10)
     assert resp.json()["state"] == "done"
     assert sms_mock.send_sms.await_count == 1
+
+
+async def test_reply_needs_us_sms_registration(
+    client, async_session, sms_mock, monkeypatch
+) -> None:
+    from hailhq.core.sms_registration_gate import BLOCK_MESSAGE
+
+    _org, _agent, _number, sms_id = await _seed(async_session)
+    inbound = await async_session.get(Sms, sms_id)
+    inbound.from_e164 = "+14155550199"  # a US person texting a US long code
+    await async_session.commit()
+    body = _payload(sms_id)
+    resp = await client.post(
+        "/internal/agent/reply-sms", content=body, headers=_signed(body)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["state"] == "skipped"
+    assert resp.json()["reason"] == BLOCK_MESSAGE
+    sms_mock.send_sms.assert_not_awaited()

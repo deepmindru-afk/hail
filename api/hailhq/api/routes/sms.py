@@ -63,6 +63,11 @@ from hailhq.core.schemas import (
     SuppressionResponse,
 )
 from hailhq.core.sender_id import PLATFORM_DEFAULT_SENDER_ID, resolve_sender
+from hailhq.core.sms_registration_gate import (
+    is_us,
+    registered_sms_number,
+    us_registration_block,
+)
 from hailhq.core.urls import join_url
 from hailhq.core.webhook_fanout import fanout_sms_event
 from sqlalchemy import delete, func, select
@@ -291,7 +296,13 @@ async def create_sms(
     if from_e164 is None:
         # Explicit ``from``, or a corridor that still requires a dedicated
         # SMS-capable number.
-        from_number = await resolve_org_number(
+        # No ``from`` and a US recipient: prefer a number on an approved US
+        # SMS registration, the only kind the gate below lets through.
+        from_number = (
+            await registered_sms_number(db, principal.organization_id)
+            if body.from_ is None and is_us(body.to)
+            else None
+        ) or await resolve_org_number(
             db, principal.organization_id, body.from_, capability="sms"
         )
         if from_number is None:
@@ -306,6 +317,11 @@ async def create_sms(
                     "SMS requires a dedicated number, not the shared voice pool"
                 )
             raise await cache_failure(idem, unprocessable(msg, loc=["body", "from"]))
+        block = await us_registration_block(
+            db, principal.organization_id, from_number, body.to
+        )
+        if block:
+            raise await cache_failure(idem, unprocessable(block, loc=["body", "from"]))
         from_e164 = from_number.e164
 
     sms = Sms(

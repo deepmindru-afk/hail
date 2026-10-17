@@ -1,11 +1,11 @@
 """SMS abuse-monitoring guardrail.
 
-Because all orgs share one Hail-owned A2P 10DLC Brand/Campaign (see the
-SMS design spec's Decision 2 and its accepted-risk note), one org's
-abusive traffic risks getting the whole platform's SMS sending throttled
-by carriers. This module computes each org's rolling opt-out rate over a
+Each organization registers its own US A2P 10DLC brand and campaign (see
+docs/superpowers/specs/2026-10-13-us-sms-registration-design.md). One
+org's abusive traffic still risks Hail's standing with the carrier, so this
+module computes each org's rolling opt-out rate over a
 configurable window and inserts a ChannelSuspension row when it crosses a
-threshold — the actual mitigation for that accepted risk, not optional
+threshold — the mitigation for that risk, not optional
 polish.
 
 Thresholds (core/hailhq/core/config.py's hail_sms_abuse_* settings) are

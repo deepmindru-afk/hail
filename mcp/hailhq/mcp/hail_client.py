@@ -548,19 +548,22 @@ class HailClient:
         number_type: str,
         subject_type: str = "person",
         provider: str | None = None,
+        purpose: str = "number",
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "country_code": country_code,
             "number_type": number_type,
             "subject_type": subject_type,
+            "purpose": purpose,
         }
         if provider is not None:
             params["provider"] = provider
         resp = await self._client.get("/verifications/requirements", params=params)
         return Requirements.model_validate(_decode(resp)).model_dump(mode="json")
 
-    async def list_verifications(self) -> dict[str, Any]:
-        resp = await self._client.get("/verifications")
+    async def list_verifications(self, *, purpose: str | None = None) -> dict[str, Any]:
+        params = {"purpose": purpose} if purpose is not None else None
+        resp = await self._client.get("/verifications", params=params)
         items = [VerificationResponse.model_validate(r) for r in _decode(resp)]
         return {"items": [i.model_dump(mode="json") for i in items]}
 
@@ -578,6 +581,17 @@ class HailClient:
             mode="json"
         )
 
+    async def confirm_verification(
+        self, verification_id: str, code: str = ""
+    ) -> dict[str, Any]:
+        verification_id_ = _path_id(verification_id, name="verification_id")
+        resp = await self._client.post(
+            f"/verifications/{verification_id_}/confirm", json={"code": code}
+        )
+        return VerificationResponse.model_validate(_decode(resp)).model_dump(
+            mode="json"
+        )
+
     async def submit_verification(
         self,
         *,
@@ -589,6 +603,7 @@ class HailClient:
         subject_type: str = "person",
         address: dict[str, str] | None = None,
         provider: str | None = None,
+        purpose: str = "number",
     ) -> dict[str, Any]:
         """POST /verifications — multipart/form-data, personal data in transit.
 
@@ -606,6 +621,7 @@ class HailClient:
             "country_code": country_code,
             "number_type": number_type,
             "subject_type": subject_type,
+            "purpose": purpose,
             "fields": json.dumps(fields),
             "documents": json.dumps(documents),
         }

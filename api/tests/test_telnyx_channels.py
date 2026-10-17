@@ -11,6 +11,8 @@ from hailhq.core.models import Sms, SmsEvent, Suppression
 from hailhq.core.providers.sms import ProviderSmsResult
 from sqlalchemy import select
 
+from .conftest import approve_us_sms
+
 
 async def telnyx_number(db, org, add_phone_number):
     number = await add_phone_number(db, org, provider_resource_id=str(uuid4()))
@@ -49,6 +51,8 @@ async def test_sms_sender_routes_to_telnyx(
 ):
     org, _, key = org_and_key
     number = await telnyx_number(async_session, org, add_phone_number)
+    # US-to-US texts from a long code need an approved SMS registration.
+    await approve_us_sms(async_session, org, "telnyx")
     monkeypatch.setattr(settings, "telnyx_api_key", "test")
     monkeypatch.setattr(settings, "telnyx_public_key", "configured")
     send = AsyncMock(

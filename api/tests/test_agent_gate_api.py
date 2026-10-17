@@ -13,10 +13,15 @@ import httpx
 import pytest
 from hailhq.core.agent_caps import AGENT_OUTBOUND_DISABLED_FLAG
 from hailhq.core.config import settings
-from hailhq.core.models import ApiKey, Organization, PhoneNumber, PlatformFlag
+from hailhq.core.models import (
+    ApiKey,
+    Organization,
+    PhoneNumber,
+    PlatformFlag,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .conftest import insert_org_and_key  # noqa: F401
+from .conftest import approve_us_sms, insert_org_and_key  # noqa: F401
 
 
 async def _register_custom_verified(
@@ -48,6 +53,8 @@ async def _seed_dedicated_number(
         )
     )
     await session.commit()
+    # US-to-US texts from a long code need an approved SMS registration.
+    await approve_us_sms(session, organization_id, "twilio")
 
 
 async def _flag_org_agent(db: AsyncSession, organization_id: uuid.UUID) -> None:

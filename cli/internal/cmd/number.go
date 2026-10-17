@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"text/tabwriter"
@@ -36,6 +40,9 @@ existing number doesn't support.`,
 	cmd.AddCommand(newNumberGetCmd(opts))
 	cmd.AddCommand(newNumberEnableSmsCmd(opts))
 	cmd.AddCommand(newNumberRouteCmd(opts))
+	cmd.AddCommand(newNumberRegisterSmsCmd(opts))
+	cmd.AddCommand(newNumberConfirmSmsCmd(opts))
+	cmd.AddCommand(newNumberCancelSmsCmd(opts))
 	return cmd
 }
 
@@ -398,4 +405,242 @@ func printPhoneNumberList(opts *Options, body *client.PhoneNumberListResponse) e
 		fmt.Fprintf(opts.Stdout, "\nMore: --cursor %s\n", *body.NextCursor)
 	}
 	return nil
+}
+
+// --------------------------------------------------------------------------- //
+// register-sms
+// --------------------------------------------------------------------------- //
+
+type numberRegisterSmsFlags struct {
+	subject  string
+	provider string
+	fields   []string
+	address  []string
+}
+
+func newNumberRegisterSmsCmd(opts *Options) *cobra.Command {
+	f := &numberRegisterSmsFlags{}
+	cmd := &cobra.Command{
+		Use:   "register-sms",
+		Short: "Register to send SMS from US numbers (A2P 10DLC brand and campaign)",
+		Long: `hail numbers register-sms — file your US SMS registration.
+
+Posts purpose=sms to POST /v1/verifications for a US local number. The carrier
+fee is debited from prepaid credit at filing. Required fields and fees:
+GET /v1/verifications/requirements?purpose=sms&country_code=US&number_type=local
+and GET /v1/verifications/sms-fees.`,
+		Example: `  hail numbers register-sms --subject business \
+    --field legal_name="Acme Inc" --field ein=12-3456789 \
+    --address customer_name="Acme Inc" --address street="1 Main St" \
+    --address city=Austin --address region=TX --address postal_code=78701`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if f.subject != "person" && f.subject != "business" {
+				return fmt.Errorf("--subject must be person or business")
+			}
+			fields, err := parseKeyValues(f.fields, "--field")
+			if err != nil {
+				return err
+			}
+			address, err := parseKeyValues(f.address, "--address")
+			if err != nil {
+				return err
+			}
+			body, contentType, err := buildRegisterSmsBody(f.provider, f.subject, fields, address)
+			if err != nil {
+				return err
+			}
+			apiClient, err := opts.newClient()
+			if err != nil {
+				return err
+			}
+			httpResp, err := apiClient.CreateVerification(
+				cmd.Context(), &client.CreateVerificationParams{}, func(c context.Context, r *http.Request) error {
+					r.Header.Set("Content-Type", contentType)
+					r.Body = io.NopCloser(bytes.NewReader(body))
+					r.ContentLength = int64(len(body))
+					return nil
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			defer httpResp.Body.Close()
+			raw, err := io.ReadAll(httpResp.Body)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			if httpResp.StatusCode < 200 || httpResp.StatusCode > 299 {
+				return apiError(httpResp.StatusCode, raw)
+			}
+			var v client.VerificationResponse
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return fmt.Errorf("decode verification: %w", err)
+			}
+			if opts.JSON {
+				return printJSON(opts.Stdout, v)
+			}
+			fmt.Fprintf(opts.Stdout, "✓ SMS registration %s: %s\n", v.Id.String(), v.State)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&f.subject, "subject", "business", "Who registers: person or business")
+	cmd.Flags().StringVar(&f.provider, "provider", "", "Carrier id of your number, as shown by `hail numbers list`. Omit to let the server choose.")
+	cmd.Flags().StringArrayVar(&f.fields, "field", nil, "Registration field as key=value (repeatable)")
+	cmd.Flags().StringArrayVar(&f.address, "address", nil, "Address part as key=value (repeatable): street, city, region, postal_code, customer_name")
+	return cmd
+}
+
+// parseKeyValues turns repeated key=value flags into a map.
+func parseKeyValues(pairs []string, flag string) (map[string]string, error) {
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		k, v, ok := strings.Cut(p, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("%s %q must be key=value", flag, p)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// buildRegisterSmsBody builds the multipart body for POST /v1/verifications
+// with purpose=sms. The address always carries country_code US.
+func buildRegisterSmsBody(provider, subject string, fields, address map[string]string) ([]byte, string, error) {
+	addr := make(map[string]string, len(address)+1)
+	for k, v := range address {
+		addr[k] = v
+	}
+	addr["country_code"] = "US"
+	fieldsJSON, err := json.Marshal(fields)
+	if err != nil {
+		return nil, "", err
+	}
+	addressJSON, err := json.Marshal(addr)
+	if err != nil {
+		return nil, "", err
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, kv := range [][2]string{
+		{"purpose", "sms"},
+		{"country_code", "US"},
+		{"number_type", "local"},
+		{"subject_type", subject},
+		{"fields", string(fieldsJSON)},
+		{"address", string(addressJSON)},
+	} {
+		if err := w.WriteField(kv[0], kv[1]); err != nil {
+			return nil, "", fmt.Errorf("build request: %w", err)
+		}
+	}
+	if provider != "" {
+		if err := w.WriteField("provider", provider); err != nil {
+			return nil, "", fmt.Errorf("build request: %w", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("build request: %w", err)
+	}
+	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
+// --------------------------------------------------------------------------- //
+// confirm-sms
+// --------------------------------------------------------------------------- //
+
+func newNumberConfirmSmsCmd(opts *Options) *cobra.Command {
+	var code string
+	cmd := &cobra.Command{
+		Use:   "confirm-sms <verification-id> --code <code>",
+		Short: "Enter the code the carrier texted to confirm a person's US SMS registration",
+		Long: `hail numbers confirm-sms — confirm a person's US SMS registration.
+
+Use it when the registration shows confirmation "code" (hail --json numbers
+register-sms, or GET /v1/verifications/{id}). Posts the code the carrier
+texted to the person's mobile to POST /v1/verifications/{id}/confirm.`,
+		Example: `  hail numbers confirm-sms 11111111-1111-1111-1111-111111111111 --code 482913`,
+		Args:    argsOrHelp(1, "<verification-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("verification id must be a full UUID")
+			}
+			code = strings.TrimSpace(code)
+			if len(code) < 4 || len(code) > 10 {
+				return fmt.Errorf("--code must be the 4 to 10 characters the carrier texted")
+			}
+			apiClient, err := opts.newClient()
+			if err != nil {
+				return err
+			}
+			resp, err := apiClient.ConfirmVerificationWithResponse(
+				cmd.Context(),
+				openapi_types.UUID(id),
+				&client.ConfirmVerificationParams{},
+				client.ConfirmVerificationJSONRequestBody{Code: code},
+			)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			if resp.HTTPResponse.StatusCode != http.StatusOK || resp.JSON200 == nil {
+				return apiError(resp.HTTPResponse.StatusCode, resp.Body)
+			}
+			if opts.JSON {
+				return printJSON(opts.Stdout, resp.JSON200)
+			}
+			fmt.Fprintf(opts.Stdout, "✓ SMS registration %s: %s\n", resp.JSON200.Id.String(), resp.JSON200.State)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "The code the carrier texted (4 to 10 characters)")
+	return cmd
+}
+
+// --------------------------------------------------------------------------- //
+// cancel-sms
+// --------------------------------------------------------------------------- //
+
+func newNumberCancelSmsCmd(opts *Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cancel-sms <verification-id>",
+		Short: "Cancel a US SMS registration (stops its monthly fee)",
+		Long: `hail numbers cancel-sms — cancel a US SMS registration.
+
+Calls DELETE /v1/verifications/{id}. An approved registration is cancelled at
+once: its numbers leave the campaign and US-to-US texts from them return 422.
+The monthly fee is charged through the month of the cancellation, then stops.
+Telnyx bills at least 3 monthly fees from approval, so a Telnyx registration
+cancelled sooner is still charged for 3 months. A registration not yet sent
+for review, or a rejected one, is withdrawn.`,
+		Example: `  hail numbers cancel-sms 11111111-1111-1111-1111-111111111111`,
+		Args:    argsOrHelp(1, "<verification-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := uuid.Parse(args[0])
+			if err != nil {
+				return fmt.Errorf("verification id must be a full UUID")
+			}
+			apiClient, err := opts.newClient()
+			if err != nil {
+				return err
+			}
+			resp, err := apiClient.CancelVerificationWithResponse(
+				cmd.Context(),
+				openapi_types.UUID(id),
+				&client.CancelVerificationParams{},
+			)
+			if err != nil {
+				return fmt.Errorf("verifications API: %w", err)
+			}
+			if resp.HTTPResponse.StatusCode != http.StatusOK || resp.JSON200 == nil {
+				return apiError(resp.HTTPResponse.StatusCode, resp.Body)
+			}
+			if opts.JSON {
+				return printJSON(opts.Stdout, resp.JSON200)
+			}
+			fmt.Fprintf(opts.Stdout, "✓ SMS registration %s: %s\n", resp.JSON200.Id.String(), resp.JSON200.State)
+			return nil
+		},
+	}
+	return cmd
 }

@@ -53,6 +53,55 @@ def mint_test_key() -> tuple[str, str]:
     return plain, hash_key(plain)
 
 
+async def approve_us_sms(
+    session: AsyncSession, organization_id, provider: str = "twilio"
+):
+    """An approved US SMS registration on ``provider`` (reused when one
+    exists) holding every active US number of the org on that carrier: the
+    send gate lets US-to-US texts leave those numbers."""
+    from hailhq.core.models import CarrierVerification, PhoneNumber
+    from sqlalchemy import select
+
+    row = (
+        await session.execute(
+            select(CarrierVerification).where(
+                CarrierVerification.organization_id == organization_id,
+                CarrierVerification.provider == provider,
+                CarrierVerification.purpose == "sms",
+                CarrierVerification.state == "approved",
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = CarrierVerification(
+            organization_id=organization_id,
+            provider=provider,
+            country_code="US",
+            number_type="local",
+            subject_type="business",
+            purpose="sms",
+            state="approved",
+            provider_refs={},
+            requirements_version="x",
+        )
+        session.add(row)
+        await session.flush()
+    numbers = (
+        await session.execute(
+            select(PhoneNumber).where(
+                PhoneNumber.organization_id == organization_id,
+                PhoneNumber.provider == provider,
+                PhoneNumber.country_code == "US",
+                PhoneNumber.provisioning_state == "active",
+            )
+        )
+    ).scalars()
+    for number in numbers:
+        number.sms_registration_id = row.id
+    await session.commit()
+    return row
+
+
 async def insert_org_and_key(
     session: AsyncSession,
     *,

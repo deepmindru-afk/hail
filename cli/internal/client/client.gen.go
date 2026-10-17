@@ -1693,6 +1693,12 @@ type CarrierOfferReadiness string
 // CarrierOfferRegulatoryFriction Remaining verification effort derived from live requirements: none, information/address entry, document uploads, or unknown. This does not establish legal eligibility.
 type CarrierOfferRegulatoryFriction string
 
+// ConfirmRequest defines model for ConfirmRequest.
+type ConfirmRequest struct {
+	// Code The code the carrier texted to the person's mobile.
+	Code string `json:"code"`
+}
+
 // ContactCreate defines model for ContactCreate.
 type ContactCreate struct {
 	// Email Email address, stored lowercased. At least one of phone_e164 or email is required.
@@ -2933,6 +2939,18 @@ type SmsCreate struct {
 // SmsCreateMessageType 'marketing' additionally requires a non-empty consent_source. Use 'informational' for transactional/service communications.
 type SmsCreateMessageType string
 
+// SmsFee defines model for SmsFee.
+type SmsFee struct {
+	// FilingCents Charged once when the registration is filed.
+	FilingCents int `json:"filing_cents"`
+
+	// MinimumMonths Monthly fees charged at least, counted from approval, even when the registration is cancelled sooner.
+	MinimumMonths int `json:"minimum_months"`
+
+	// MonthlyCents Charged each month while approved.
+	MonthlyCents int `json:"monthly_cents"`
+}
+
 // SmsListResponse defines model for SmsListResponse.
 type SmsListResponse struct {
 	// Items Messages in this page, newest first.
@@ -3054,6 +3072,9 @@ type VerificationResponse struct {
 	// ApprovedAt When the carrier approved it.
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 
+	// Confirmation For a person's US texting registration: 'code' when you must enter the code the carrier texted (POST /verifications/{id}/confirm), 'reply' when you must answer the carrier's text, null when nothing is pending.
+	Confirmation *string `json:"confirmation,omitempty"`
+
 	// CountryCode ISO alpha-2 country code.
 	CountryCode string `json:"country_code"`
 
@@ -3068,6 +3089,9 @@ type VerificationResponse struct {
 
 	// Provider The carrier this verification is with.
 	Provider string `json:"provider"`
+
+	// Purpose 'number': permission to buy a number in this country. 'sms': registration to text US numbers from a US number.
+	Purpose string `json:"purpose"`
 
 	// RejectionReason Why it was rejected. Null unless rejected.
 	RejectionReason *string `json:"rejection_reason,omitempty"`
@@ -3602,6 +3626,7 @@ type UnsubscribeV1UnsubscribeGetParams struct {
 
 // ListVerificationsParams defines parameters for ListVerifications.
 type ListVerificationsParams struct {
+	Purpose       *string `form:"purpose,omitempty" json:"purpose,omitempty"`
 	Authorization *string `json:"authorization,omitempty"`
 }
 
@@ -3616,11 +3641,17 @@ type GetVerificationRequirementsParams struct {
 	NumberType    string                                        `form:"number_type" json:"number_type"`
 	SubjectType   *GetVerificationRequirementsParamsSubjectType `form:"subject_type,omitempty" json:"subject_type,omitempty"`
 	Provider      *string                                       `form:"provider,omitempty" json:"provider,omitempty"`
+	Purpose       *string                                       `form:"purpose,omitempty" json:"purpose,omitempty"`
 	Authorization *string                                       `json:"authorization,omitempty"`
 }
 
 // GetVerificationRequirementsParamsSubjectType defines parameters for GetVerificationRequirements.
 type GetVerificationRequirementsParamsSubjectType string
+
+// GetSmsRegistrationFeesParams defines parameters for GetSmsRegistrationFees.
+type GetSmsRegistrationFeesParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
 
 // CancelVerificationParams defines parameters for CancelVerification.
 type CancelVerificationParams struct {
@@ -3629,6 +3660,11 @@ type CancelVerificationParams struct {
 
 // GetVerificationParams defines parameters for GetVerification.
 type GetVerificationParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// ConfirmVerificationParams defines parameters for ConfirmVerification.
+type ConfirmVerificationParams struct {
 	Authorization *string `json:"authorization,omitempty"`
 }
 
@@ -3734,6 +3770,9 @@ type CreateSmsV1SmsPostJSONRequestBody = SmsCreate
 
 // PatchSenderIdV1SmsSenderIdPatchJSONRequestBody defines body for PatchSenderIdV1SmsSenderIdPatch for application/json ContentType.
 type PatchSenderIdV1SmsSenderIdPatchJSONRequestBody = SenderIdPatch
+
+// ConfirmVerificationJSONRequestBody defines body for ConfirmVerification for application/json ContentType.
+type ConfirmVerificationJSONRequestBody = ConfirmRequest
 
 // CreateSubscriptionV1WebhooksPostJSONRequestBody defines body for CreateSubscriptionV1WebhooksPost for application/json ContentType.
 type CreateSubscriptionV1WebhooksPostJSONRequestBody = WebhookSubscriptionCreate
@@ -4315,11 +4354,19 @@ type ClientInterface interface {
 	// GetVerificationRequirements request
 	GetVerificationRequirements(ctx context.Context, params *GetVerificationRequirementsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetSmsRegistrationFees request
+	GetSmsRegistrationFees(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CancelVerification request
 	CancelVerification(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetVerification request
 	GetVerification(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfirmVerificationWithBody request with any body
+	ConfirmVerificationWithBody(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ConfirmVerification(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSubscriptionsV1WebhooksGet request
 	ListSubscriptionsV1WebhooksGet(ctx context.Context, params *ListSubscriptionsV1WebhooksGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5256,6 +5303,18 @@ func (c *Client) GetVerificationRequirements(ctx context.Context, params *GetVer
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetSmsRegistrationFees(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSmsRegistrationFeesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) CancelVerification(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCancelVerificationRequest(c.Server, verificationId, params)
 	if err != nil {
@@ -5270,6 +5329,30 @@ func (c *Client) CancelVerification(ctx context.Context, verificationId openapi_
 
 func (c *Client) GetVerification(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetVerificationRequest(c.Server, verificationId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmVerificationWithBody(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmVerificationRequestWithBody(c.Server, verificationId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmVerification(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmVerificationRequest(c.Server, verificationId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -8776,6 +8859,28 @@ func NewListVerificationsRequest(server string, params *ListVerificationsParams)
 		return nil, err
 	}
 
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -8919,7 +9024,65 @@ func NewGetVerificationRequirementsRequest(server string, params *GetVerificatio
 
 		}
 
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetSmsRegistrationFeesRequest generates requests for GetSmsRegistrationFees
+func NewGetSmsRegistrationFeesRequest(server string, params *GetSmsRegistrationFeesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/verifications/sms-fees")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -9024,6 +9187,68 @@ func NewGetVerificationRequest(server string, verificationId openapi_types.UUID,
 	if err != nil {
 		return nil, err
 	}
+
+	if params != nil {
+
+		if params.Authorization != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "authorization", *params.Authorization, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("authorization", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewConfirmVerificationRequest calls the generic ConfirmVerification builder with application/json body
+func NewConfirmVerificationRequest(server string, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConfirmVerificationRequestWithBody(server, verificationId, params, "application/json", bodyReader)
+}
+
+// NewConfirmVerificationRequestWithBody generates requests for ConfirmVerification with any type of body
+func NewConfirmVerificationRequestWithBody(server string, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "verification_id", verificationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/verifications/%s/confirm", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -9850,11 +10075,19 @@ type ClientWithResponsesInterface interface {
 	// GetVerificationRequirementsWithResponse request
 	GetVerificationRequirementsWithResponse(ctx context.Context, params *GetVerificationRequirementsParams, reqEditors ...RequestEditorFn) (*GetVerificationRequirementsResponse, error)
 
+	// GetSmsRegistrationFeesWithResponse request
+	GetSmsRegistrationFeesWithResponse(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*GetSmsRegistrationFeesResponse, error)
+
 	// CancelVerificationWithResponse request
 	CancelVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*CancelVerificationResponse, error)
 
 	// GetVerificationWithResponse request
 	GetVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *GetVerificationParams, reqEditors ...RequestEditorFn) (*GetVerificationResponse, error)
+
+	// ConfirmVerificationWithBodyWithResponse request with any body
+	ConfirmVerificationWithBodyWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error)
+
+	ConfirmVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error)
 
 	// ListSubscriptionsV1WebhooksGetWithResponse request
 	ListSubscriptionsV1WebhooksGetWithResponse(ctx context.Context, params *ListSubscriptionsV1WebhooksGetParams, reqEditors ...RequestEditorFn) (*ListSubscriptionsV1WebhooksGetResponse, error)
@@ -11214,6 +11447,29 @@ func (r GetVerificationRequirementsResponse) StatusCode() int {
 	return 0
 }
 
+type GetSmsRegistrationFeesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]map[string]SmsFee
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSmsRegistrationFeesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSmsRegistrationFeesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type CancelVerificationResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -11254,6 +11510,29 @@ func (r GetVerificationResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetVerificationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ConfirmVerificationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *VerificationResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status
+func (r ConfirmVerificationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConfirmVerificationResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -12146,6 +12425,15 @@ func (c *ClientWithResponses) GetVerificationRequirementsWithResponse(ctx contex
 	return ParseGetVerificationRequirementsResponse(rsp)
 }
 
+// GetSmsRegistrationFeesWithResponse request returning *GetSmsRegistrationFeesResponse
+func (c *ClientWithResponses) GetSmsRegistrationFeesWithResponse(ctx context.Context, params *GetSmsRegistrationFeesParams, reqEditors ...RequestEditorFn) (*GetSmsRegistrationFeesResponse, error) {
+	rsp, err := c.GetSmsRegistrationFees(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSmsRegistrationFeesResponse(rsp)
+}
+
 // CancelVerificationWithResponse request returning *CancelVerificationResponse
 func (c *ClientWithResponses) CancelVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *CancelVerificationParams, reqEditors ...RequestEditorFn) (*CancelVerificationResponse, error) {
 	rsp, err := c.CancelVerification(ctx, verificationId, params, reqEditors...)
@@ -12162,6 +12450,23 @@ func (c *ClientWithResponses) GetVerificationWithResponse(ctx context.Context, v
 		return nil, err
 	}
 	return ParseGetVerificationResponse(rsp)
+}
+
+// ConfirmVerificationWithBodyWithResponse request with arbitrary body returning *ConfirmVerificationResponse
+func (c *ClientWithResponses) ConfirmVerificationWithBodyWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error) {
+	rsp, err := c.ConfirmVerificationWithBody(ctx, verificationId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmVerificationResponse(rsp)
+}
+
+func (c *ClientWithResponses) ConfirmVerificationWithResponse(ctx context.Context, verificationId openapi_types.UUID, params *ConfirmVerificationParams, body ConfirmVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmVerificationResponse, error) {
+	rsp, err := c.ConfirmVerification(ctx, verificationId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmVerificationResponse(rsp)
 }
 
 // ListSubscriptionsV1WebhooksGetWithResponse request returning *ListSubscriptionsV1WebhooksGetResponse
@@ -14107,6 +14412,39 @@ func ParseGetVerificationRequirementsResponse(rsp *http.Response) (*GetVerificat
 	return response, nil
 }
 
+// ParseGetSmsRegistrationFeesResponse parses an HTTP response from a GetSmsRegistrationFeesWithResponse call
+func ParseGetSmsRegistrationFeesResponse(rsp *http.Response) (*GetSmsRegistrationFeesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSmsRegistrationFeesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]map[string]SmsFee
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCancelVerificationResponse parses an HTTP response from a CancelVerificationWithResponse call
 func ParseCancelVerificationResponse(rsp *http.Response) (*CancelVerificationResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -14149,6 +14487,39 @@ func ParseGetVerificationResponse(rsp *http.Response) (*GetVerificationResponse,
 	}
 
 	response := &GetVerificationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VerificationResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConfirmVerificationResponse parses an HTTP response from a ConfirmVerificationWithResponse call
+func ParseConfirmVerificationResponse(rsp *http.Response) (*ConfirmVerificationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConfirmVerificationResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

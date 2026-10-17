@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -400,5 +402,187 @@ func TestNumberGet_JSONOutput(t *testing.T) {
 	}
 	if got.Id != resp.Id {
 		t.Errorf("Id = %v", got.Id)
+	}
+}
+
+func registerSmsParts(t *testing.T, extra ...string) (map[string]string, string) {
+	t.Helper()
+	var gotParts map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/verifications" || r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Errorf("content type: %v", err)
+		}
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		gotParts = map[string]string{}
+		for {
+			p, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			b, _ := io.ReadAll(p)
+			gotParts[p.FormName()] = string(b)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"11111111-1111-1111-1111-111111111111","state":"awaiting_review","purpose":"sms","country_code":"US","number_type":"local","provider":"twilio","subject_type":"business","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	args := append([]string{
+		"numbers", "register-sms", "--subject", "business",
+		"--field", "legal_name=Acme Inc", "--field", "ein=12-3456789",
+		"--address", "city=Austin",
+	}, extra...)
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return gotParts, stdout
+}
+
+func TestNumberRegisterSms_PostsPurposeSmsMultipart(t *testing.T) {
+	gotParts, stdout := registerSmsParts(t)
+	if _, ok := gotParts["provider"]; ok {
+		t.Errorf("provider part sent without --provider: %q", gotParts["provider"])
+	}
+	tests := []struct{ part, want string }{
+		{"purpose", "sms"},
+		{"country_code", "US"},
+		{"number_type", "local"},
+		{"subject_type", "business"},
+	}
+	for _, tc := range tests {
+		if gotParts[tc.part] != tc.want {
+			t.Errorf("part %s = %q, want %q", tc.part, gotParts[tc.part], tc.want)
+		}
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(gotParts["fields"]), &fields); err != nil || fields["ein"] != "12-3456789" {
+		t.Errorf("fields part = %q (%v)", gotParts["fields"], err)
+	}
+	if !strings.Contains(gotParts["address"], `"country_code":"US"`) || !strings.Contains(gotParts["address"], `"city":"Austin"`) {
+		t.Errorf("address part = %q", gotParts["address"])
+	}
+	if !strings.Contains(stdout, "awaiting_review") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestNumberRegisterSms_ProviderFlagSendsPart(t *testing.T) {
+	gotParts, _ := registerSmsParts(t, "--provider", "x")
+	if gotParts["provider"] != "x" {
+		t.Errorf("provider part = %q, want x", gotParts["provider"])
+	}
+}
+
+func TestNumberConfirmSms_PostsTheCode(t *testing.T) {
+	const vid = "11111111-1111-1111-1111-111111111111"
+	tests := []struct {
+		name     string
+		code     string
+		wantBody string
+	}{
+		{"digits", "482913", `{"code":"482913"}`},
+		{"trimmed", " 4829 ", `{"code":"4829"}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.Method + " " + r.URL.Path
+				b, _ := io.ReadAll(r.Body)
+				gotBody = strings.TrimSpace(string(b))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"` + vid + `","state":"submitted","purpose":"sms","country_code":"US","number_type":"local","provider":"telnyx","subject_type":"person","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+			}))
+			t.Cleanup(srv.Close)
+			stdout, _, err := runRoot(t,
+				map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+				"numbers", "confirm-sms", vid, "--code", tc.code,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotPath != "POST /v1/verifications/"+vid+"/confirm" {
+				t.Errorf("route = %q", gotPath)
+			}
+			if gotBody != tc.wantBody {
+				t.Errorf("body = %q, want %q", gotBody, tc.wantBody)
+			}
+			if !strings.Contains(stdout, "submitted") {
+				t.Errorf("stdout = %q", stdout)
+			}
+		})
+	}
+}
+
+func TestNumberConfirmSms_RejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"no code", []string{"numbers", "confirm-sms", "11111111-1111-1111-1111-111111111111"}},
+		{"bad id", []string{"numbers", "confirm-sms", "xyz", "--code", "123456"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newFakeServer(t, http.StatusOK, nil)
+			_, _, err := runRoot(t,
+				map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+				tc.args...,
+			)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if hits := atomic.LoadInt32(&srv.hits); hits != 0 {
+				t.Errorf("expected 0 HTTP calls, got %d", hits)
+			}
+		})
+	}
+}
+
+func TestNumberCancelSms_DeletesTheVerification(t *testing.T) {
+	const vid = "11111111-1111-1111-1111-111111111111"
+	var gotRoute string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRoute = r.Method + " " + r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + vid + `","state":"cancelled","purpose":"sms","country_code":"US","number_type":"local","provider":"twilio","subject_type":"business","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}`))
+	}))
+	t.Cleanup(srv.Close)
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		"numbers", "cancel-sms", vid,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotRoute != "DELETE /v1/verifications/"+vid {
+		t.Errorf("route = %q", gotRoute)
+	}
+	if !strings.Contains(stdout, "cancelled") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestNumberCancelSms_RejectsBadID(t *testing.T) {
+	srv := newFakeServer(t, http.StatusOK, nil)
+	_, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL},
+		"numbers", "cancel-sms", "xyz",
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if hits := atomic.LoadInt32(&srv.hits); hits != 0 {
+		t.Errorf("expected 0 HTTP calls, got %d", hits)
 	}
 }

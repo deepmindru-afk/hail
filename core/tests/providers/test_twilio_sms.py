@@ -300,6 +300,38 @@ async def test_ensure_messaging_service_reuses_a_service_found_by_name(
 
 
 @responses.activate
+async def test_ensure_messaging_service_by_name_skips_the_org_service(
+    provider: TwilioSmsProvider,
+) -> None:
+    """A named service (a person's US texting campaign) is not the org's."""
+    org_id = uuid.uuid4()
+    responses.add(
+        responses.GET,
+        "https://messaging.twilio.com/v1/Services",
+        json={
+            "services": [{"sid": "MG_org", "friendly_name": f"hail-org-{org_id}"}],
+            "meta": {"next_page_url": None, "key": "services"},
+        },
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        "https://messaging.twilio.com/v1/Services",
+        json={"sid": "MG_person"},
+        status=201,
+    )
+    sid = await provider.ensure_messaging_service(
+        organization_id=org_id,
+        existing_sid=None,
+        name=f"hail-org-{org_id}-person",
+    )
+    assert sid == "MG_person"
+    sent = parse_qs(responses.calls[-1].request.body)
+    assert sent["FriendlyName"] == [f"hail-org-{org_id}-person"]
+    assert sent["InboundRequestUrl"] == ["http://localhost:8080/sms/inbound"]
+
+
+@responses.activate
 async def test_ensure_messaging_service_reuses_existing_and_sets_its_webhook(
     provider: TwilioSmsProvider,
 ) -> None:

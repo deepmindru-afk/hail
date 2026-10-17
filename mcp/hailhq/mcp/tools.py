@@ -41,7 +41,10 @@ Exposes the following tools to the calling agent:
   carrier (irreversible once submitted; needs ``attest_authorized=True``)
 * ``list_verifications`` — the org's verifications and their states
 * ``get_verification`` — one verification; poll it until ``approved``
-* ``cancel_verification`` — cancel or dismiss (``awaiting_review``/``rejected`` only)
+* ``cancel_verification`` — cancel or dismiss (``awaiting_review``/``rejected``, or an
+  approved US SMS registration)
+* ``confirm_verification`` — enter the code the carrier texted a person
+  (when a registration shows ``confirmation: "code"``)
 
 Every tool sets explicit ``ToolAnnotations`` hints (read-only, destructive,
 idempotent, open-world) and a human title; ``tests/test_tool_annotations.py``
@@ -739,6 +742,10 @@ def _is_str_map(value: Any) -> bool:
     )
 
 
+_VERIFICATION_PURPOSES = ("number", "sms")
+_PURPOSE_ERROR = "purpose must be 'number' or 'sms'"
+
+
 def _verification_shape_error(
     fields: Any, documents: Any, files: Any, address: Any
 ) -> str | None:
@@ -843,13 +850,17 @@ async def get_verification_requirements(
     number_type: str,
     subject_type: str = "person",
     provider: str | None = None,
+    purpose: str = "number",
 ) -> dict[str, Any]:
+    if purpose not in _VERIFICATION_PURPOSES:
+        return {"error": f"{_PURPOSE_ERROR}."}
     try:
         return await client.get_verification_requirements(
             country_code=country_code,
             number_type=number_type,
             subject_type=subject_type,
             provider=provider,
+            purpose=purpose,
         )
     except HailAPIError as exc:
         return _format_api_error(exc)
@@ -859,9 +870,13 @@ async def get_verification_requirements(
         return {"error": _UNEXPECTED_ERROR}
 
 
-async def list_verifications(*, client: HailClient) -> dict[str, Any]:
+async def list_verifications(
+    *, client: HailClient, purpose: str | None = None
+) -> dict[str, Any]:
+    if purpose is not None and purpose not in _VERIFICATION_PURPOSES:
+        return {"error": f"{_PURPOSE_ERROR}."}
     try:
-        return await client.list_verifications()
+        return await client.list_verifications(purpose=purpose)
     except HailAPIError as exc:
         return _format_api_error(exc)
     except httpx.TransportError:
@@ -903,6 +918,25 @@ async def cancel_verification(
         return {"error": _UNEXPECTED_ERROR}
 
 
+async def confirm_verification(
+    *, client: HailClient, verification_id: str, code: Any
+) -> dict[str, Any]:
+    verification_id_ = _as_uuid(verification_id)
+    if verification_id_ is None:
+        return _not_uuid("verification_id")
+    # Checked here so a bad code is never echoed back in an error.
+    if not isinstance(code, str) or not 4 <= len(code.strip()) <= 10:
+        return {"error": "code must be the 4 to 10 characters the carrier texted"}
+    try:
+        return await client.confirm_verification(verification_id_, code.strip())
+    except HailAPIError as exc:
+        return _format_api_error(exc)
+    except httpx.TransportError:
+        return {"error": _TRANSPORT_ERROR}
+    except Exception:
+        return {"error": _UNEXPECTED_ERROR}
+
+
 async def submit_verification(
     *,
     client: HailClient,
@@ -915,7 +949,10 @@ async def submit_verification(
     subject_type: str = "person",
     address: Any = None,
     provider: str | None = None,
+    purpose: str = "number",
 ) -> dict[str, Any]:
+    if purpose not in _VERIFICATION_PURPOSES:
+        return {"error": f"{_PURPOSE_ERROR}. Nothing was sent."}
     if attest_authorized is not True:
         return {
             "error": "attest_authorized must be true. Pass true only if the "
@@ -958,6 +995,7 @@ async def submit_verification(
             files=decoded,
             address=address,
             provider=provider,
+            purpose=purpose,
         )
     except httpx.TransportError:
         return {
@@ -2280,6 +2318,7 @@ def register_tools(
         number_type: str,
         subject_type: str = "person",
         provider: str | None = None,
+        purpose: str = "number",
     ) -> dict[str, Any]:
         """Read what the carrier needs to verify the organization before it
         can buy a number. Call this when quote_numbers shows an offer with
@@ -2290,6 +2329,11 @@ def register_tools(
         ``subject_type`` is ``person`` (default) or ``business``; the result's
         ``subject_types`` lists what the carrier accepts. ``provider`` is
         optional.
+
+        ``purpose`` is ``number`` (default, to buy a number) or ``sms``.
+        ``purpose='sms'`` registers the organization to text US numbers from a
+        US number (country_code US, number_type local). The carrier fee is
+        debited from credit at filing.
 
         Returns ``required`` (false means no verification is needed and
         submit_verification would fail), ``fields`` (values to collect),
@@ -2308,6 +2352,7 @@ def register_tools(
                     number_type=number_type,
                     subject_type=subject_type,
                     provider=provider,
+                    purpose=purpose,
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}
@@ -2333,6 +2378,7 @@ def register_tools(
         subject_type: str = "person",
         address: Any = None,
         provider: str | None = None,
+        purpose: str = "number",
     ) -> dict[str, Any]:
         """Send the user's personal or company details and identity documents
         to the carrier for verification. IRREVERSIBLE: once submitted it
@@ -2343,6 +2389,12 @@ def register_tools(
         the details and files in this conversation. Never invent, guess, infer
         or reuse personal data or documents. Anything else: pass false (the
         call then sends nothing).
+
+        ``purpose`` is ``number`` (default) or ``sms``. ``purpose='sms'``
+        registers the organization to text US numbers from a US number
+        (country_code US, number_type local). The carrier fee is debited from
+        credit at filing. Pass the same ``purpose`` to
+        get_verification_requirements.
 
         Steps: 1) call get_verification_requirements. 2) Ask the user for each
         field and file. 3) Call this once. Do not submit twice: a 409 means
@@ -2386,6 +2438,7 @@ def register_tools(
                     subject_type=subject_type,
                     address=address,
                     provider=provider,
+                    purpose=purpose,
                 )
         except RuntimeError:
             # Not the exception text: it must never carry submitted values.
@@ -2401,20 +2454,28 @@ def register_tools(
             openWorldHint=True,
         ),
     )
-    async def list_verifications_tool(ctx: Context) -> dict[str, Any]:
+    async def list_verifications_tool(
+        ctx: Context, purpose: str | None = None
+    ) -> dict[str, Any]:
         """List the organization's carrier verifications, newest first.
 
+        ``purpose`` is ``number`` or ``sms``; only that kind is listed.
+        Omit to see every registration. ``purpose='sms'`` lists the
+        registrations to text US numbers from a US number.
+
         Returns ``{"items": [{"id", "provider", "country_code", "number_type",
-        "subject_type", "state", "rejection_reason", "created_at",
-        "updated_at", "submitted_at", "approved_at"}]}``. ``state`` is
-        ``awaiting_review``, ``submitting``, ``submitted``, ``approved``,
-        ``rejected`` or ``cancelled``. Use it to check whether a submission
-        already exists before submitting again.
+        "subject_type", "purpose", "state", "rejection_reason", "created_at",
+        "updated_at", "submitted_at", "approved_at", "confirmation"}]}``.
+        ``state`` is ``awaiting_review``, ``submitting``, ``submitted``,
+        ``approved``, ``rejected`` or ``cancelled``. Use it to check whether a
+        submission already exists before submitting again. ``confirmation``
+        ``code``: call confirm_verification with the code the carrier texted
+        the person.
 
         Errors come back as ``{"error": "<message>"}``."""
         try:
             async with _client_for(ctx, mode=mode, singleton=singleton) as client:
-                return await list_verifications(client=client)
+                return await list_verifications(client=client, purpose=purpose)
         except RuntimeError as exc:
             return {"error": str(exc)}
 
@@ -2470,7 +2531,12 @@ def register_tools(
         a rejected one (needed before submitting a new one for the same
         country and number type). The draft is discarded.
 
-        Works only in state ``awaiting_review`` or ``rejected``. A
+        Works in state ``awaiting_review`` or ``rejected``, and for an
+        ``approved`` US SMS registration (``purpose: "sms"``): its numbers
+        leave the campaign, US-to-US texts from them fail again, and its
+        monthly fee stops after the current month. Telnyx bills at least 3
+        monthly fees from approval, so a Telnyx registration cancelled sooner
+        is still charged for 3 months. Ask the user first. A
         ``submitting`` or ``submitted`` verification is under review and
         cannot be cancelled (409): wait for the result with get_verification.
 
@@ -2480,6 +2546,38 @@ def register_tools(
             async with _client_for(ctx, mode=mode, singleton=singleton) as client:
                 return await cancel_verification(
                     client=client, verification_id=verification_id
+                )
+        except RuntimeError as exc:
+            return {"error": str(exc)}
+
+    @mcp_app.tool(
+        name="confirm_verification",
+        title="Confirm a verification with a code",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
+    )
+    async def confirm_verification_tool(
+        ctx: Context, verification_id: str, code: str
+    ) -> dict[str, Any]:
+        """When a registration shows confirmation 'code', ask the person for
+        the code the carrier texted and submit it here.
+
+        ``verification_id`` comes from submit_verification or
+        list_verifications. ``code`` is 4 to 10 characters. A wrong or expired
+        code is an error naming ``code``; the carrier sends a new one after a
+        day. On success the registration moves on; poll get_verification
+        until ``approved``. A ``confirmation`` of ``reply`` means the person
+        answers the carrier's text instead; nothing is entered here.
+
+        Returns the verification or ``{"error": "<message>"}``."""
+        try:
+            async with _client_for(ctx, mode=mode, singleton=singleton) as client:
+                return await confirm_verification(
+                    client=client, verification_id=verification_id, code=code
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}

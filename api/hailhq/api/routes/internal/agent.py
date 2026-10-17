@@ -68,6 +68,7 @@ from hailhq.core.models import (
     Sms,
 )
 from hailhq.core.providers.email import EmailProvider
+from hailhq.core.sms_registration_gate import us_registration_block
 from hailhq.core.telephony_catalog import sells_in
 from hailhq.core.text_agent import (
     MAX_REPLIES_PER_THREAD,
@@ -316,9 +317,19 @@ async def agent_send_sms(
         if call.direction == "inbound" and call.to_number_id is not None
         else None
     )
-    from_number = await resolve_sms_number(db, org, call.agent_id, dialed)
+    from_number = await resolve_sms_number(db, org, call.agent_id, dialed, counterpart)
     if from_number is None:
         return AgentSendResponse(ok=False, spoken=_SPOKEN_SMS_UNCONFIGURED)
+
+    block = await us_registration_block(db, org, from_number, counterpart)
+    if block is not None:
+        return await _deny(
+            org,
+            action="agent.sms.blocked",
+            resource_type="sms",
+            spoken=_SPOKEN_NOT_ALLOWED,
+            payload={**_meta(body), "reason": block},
+        )
 
     auto_bound = db.info.pop("auto_bound_sms_number_id", None) == from_number.id
 
@@ -478,6 +489,9 @@ async def agent_reply_sms(
     cap_denial = await check_agent_send_allowed(db, org, "sms", [inbound.from_e164])
     if cap_denial is not None:
         return AgentReplySmsResponse(ok=False, state="skipped", reason="agent_caps")
+    block = await us_registration_block(db, org, number, inbound.from_e164)
+    if block is not None:
+        return AgentReplySmsResponse(ok=False, state="skipped", reason=block)
 
     reply = Sms(
         organization_id=org,

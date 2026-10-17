@@ -2533,6 +2533,12 @@ class VerificationResponse(BaseModel):
         description="Kind of number: 'local', 'mobile', 'toll_free', or 'national'."
     )
     subject_type: str = Field(description="'person' or 'business'.")
+    purpose: str = Field(
+        description=(
+            "'number': permission to buy a number in this country. "
+            "'sms': registration to text US numbers from a US number."
+        )
+    )
     state: str = Field(
         description=(
             "'awaiting_review', 'submitting', 'submitted', 'approved', 'rejected', "
@@ -2549,4 +2555,13 @@ class VerificationResponse(BaseModel):
     )
     approved_at: datetime | None = Field(
         default=None, description="When the carrier approved it."
+    )
+    confirmation: str | None = Field(
+        default=None,
+        description=(
+            "For a person's US texting registration: 'code' when you must enter "
+            "the code the carrier texted (POST /verifications/{id}/confirm), "
+            "'reply' when you must answer the carrier's text, null when nothing "
+            "is pending."
+        ),
     )

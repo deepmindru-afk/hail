@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "license": "CC-BY-4.0",
+  "note": "Carrier fees for US A2P 10DLC registration, USD, passed through at cost. Refresh with the weekly cost job.",
+  "providers": [
+    {
+      "provider": "twilio",
+      "last_verified": "2026-10-13",
+      "source_url": "https://support.twilio.com/hc/en-us/articles/1260803965530",
+      "person": { "brand_usd": "4.50", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "2.00" },
+      "business": { "brand_usd": "46.00", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "10.00" }
+    },
+    {
+      "provider": "telnyx",
+      "last_verified": "2026-10-13",
+      "verification_method": "unverified",
+      "note": "Brand $4.50, campaign review $15, campaign $2/month (sole proprietor) or $10/month (mixed), from source_url. Campaign fees are billed for three months initially. business.brand_usd is the $4.50 brand plus about $41 Aegis standard vetting, which source_url does not list; the vetting price is from https://api.support.vonage.com/hc/en-us/articles/360058158511-10-DLC-Pricing-and-Fees ($41.50) and https://www.telgorithm.com/news/how-much-does-10dlc-registration-cost-2025-guide-for-isvs. Not yet checked against a Telnyx invoice.",
+      "source_url": "https://support.telnyx.com/en/articles/5634625-10dlc-fees-and-charges",
+      "person": { "brand_usd": "4.50", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "2.00", "minimum_months": 3 },
+      "business": { "brand_usd": "45.50", "campaign_vetting_usd": "15.00", "campaign_monthly_usd": "10.00", "minimum_months": 3 }
+    }
+  ]
+}

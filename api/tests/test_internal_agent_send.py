@@ -20,6 +20,7 @@ from hailhq.core.config import settings
 from hailhq.core.db import get_session
 from hailhq.core.models import (
     Agent,
+    CarrierVerification,
     AuditLog,
     Call,
     Email,
@@ -33,6 +34,8 @@ from hailhq.core.models import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from .conftest import approve_us_sms
 
 HMAC_SECRET = "test-internal-secret"
 
@@ -49,6 +52,25 @@ def _internal_secret(monkeypatch):
     monkeypatch.setattr(settings, "hail_internal_secret", HMAC_SECRET)
 
 
+@pytest.fixture()
+def add_phone_number(add_phone_number):
+    """The conftest factory, plus an approved US SMS registration for the
+    number's org and carrier: texts from a US long code to a US number are
+    always gated. Pass ``register_sms=False`` to leave the org unregistered."""
+
+    async def _add(session, organization_id, *args, register_sms=True, **kwargs):
+        number = await add_phone_number(session, organization_id, *args, **kwargs)
+        if register_sms and organization_id is not None:
+            await _approve_sms(session, organization_id, number.provider)
+        return number
+
+    return _add
+
+
+async def _approve_sms(session: AsyncSession, org_id, provider: str) -> None:
+    await approve_us_sms(session, org_id, provider)
+
+
 async def _insert_live_call(
     session: AsyncSession,
     org_id,
@@ -57,12 +79,13 @@ async def _insert_live_call(
     to_e164="+14155550123",
     billed=False,
     agent_id=None,
+    register_sms=True,
 ) -> Call:
     # add_phone_number (conftest.py factory fixture, see test_calls_api.py)
     # covers the same required columns this used to hand-roll: PhoneNumber
     # needs country_code/number_type/provider_resource_id, all NOT NULL with
     # no server default.
-    number = await add_phone_number(session, org_id)
+    number = await add_phone_number(session, org_id, register_sms=register_sms)
     call = Call(
         organization_id=org_id,
         from_number_id=number.id,
@@ -1021,3 +1044,173 @@ async def test_locked_free_number_is_not_used_unbound(
     await async_session.rollback()
     await async_session.refresh(free)
     assert free.sms_agent_id is None
+
+
+async def test_send_sms_needs_us_sms_registration(
+    client, async_session, sms_mock, add_phone_number, monkeypatch
+):
+    from hailhq.core.sms_registration_gate import BLOCK_MESSAGE
+
+    org = uuid.uuid4()
+    call = await _insert_live_call(
+        async_session,
+        org,
+        add_phone_number,
+        to_e164="+14155550123",
+        register_sms=False,
+    )
+    body = _sms_payload(call.id)
+    resp = await client.post(
+        "/internal/agent/send-sms", content=body, headers=_signed(body)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    sms_mock.send_sms.assert_not_awaited()
+    assert (await async_session.execute(Sms.__table__.select())).fetchall() == []
+    audit = (
+        await async_session.execute(
+            select(AuditLog).where(AuditLog.action == "agent.sms.blocked")
+        )
+    ).scalar_one()
+    assert audit.payload["reason"] == BLOCK_MESSAGE
+
+
+async def _register_one(session: AsyncSession, number: PhoneNumber) -> None:
+    """Put just ``number`` on a new approved US SMS registration."""
+    row = CarrierVerification(
+        organization_id=number.organization_id,
+        provider=number.provider,
+        country_code="US",
+        number_type="local",
+        subject_type="business",
+        purpose="sms",
+        state="approved",
+        provider_refs={},
+        requirements_version="x",
+    )
+    session.add(row)
+    await session.flush()
+    number.sms_registration_id = row.id
+    await session.commit()
+
+
+async def test_us_text_prefers_a_registered_number(async_session, add_phone_number):
+    org = uuid.uuid4()
+    await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550061",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550062",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    got = await resolve_sms_number(async_session, org, None, None, "+14155550199")
+    assert got.id == registered.id
+    # A text to outside the US keeps the oldest number.
+    got = await resolve_sms_number(async_session, org, None, None, "+447700900123")
+    assert got.e164 == "+14155550061"
+
+
+async def test_us_text_skips_an_unregistered_dialed_number(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    agent = Agent(organization_id=org, name="A", system_prompt="x", sms_enabled=True)
+    async_session.add(agent)
+    await async_session.commit()
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550071",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550072",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    got = await resolve_sms_number(async_session, org, agent.id, dialed, "+14155550199")
+    assert got.id == registered.id
+    await async_session.refresh(dialed)
+    assert dialed.sms_agent_id is None  # the dialed number was not taken
+
+
+async def test_us_text_keeps_a_registered_dialed_number(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    agent = Agent(organization_id=org, name="A", system_prompt="x", sms_enabled=True)
+    async_session.add(agent)
+    await async_session.commit()
+    older = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550081",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550082",
+        provider_resource_id="PN_2",
+        register_sms=False,
+    )
+    await _register_one(async_session, older)
+    row_id = older.sms_registration_id
+    dialed.sms_registration_id = row_id
+    await async_session.commit()
+    got = await resolve_sms_number(async_session, org, agent.id, dialed, "+14155550199")
+    assert got.id == dialed.id
+
+
+async def test_us_text_without_registered_numbers_keeps_the_old_order(
+    async_session, add_phone_number
+):
+    org = uuid.uuid4()
+    dialed = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550091",
+        provider_resource_id="PN_1",
+        register_sms=False,
+    )
+    got = await resolve_sms_number(async_session, org, None, dialed, "+14155550199")
+    assert got.id == dialed.id
+
+
+async def test_send_sms_texts_from_the_registered_number(
+    client, async_session, sms_mock, add_phone_number
+):
+    org = uuid.uuid4()
+    # The dialed number (the call's from number here) is not registered.
+    call = await _insert_live_call(
+        async_session, org, add_phone_number, register_sms=False
+    )
+    registered = await add_phone_number(
+        async_session,
+        org,
+        e164="+14155550098",
+        provider_resource_id="PN_R",
+        register_sms=False,
+    )
+    await _register_one(async_session, registered)
+    body = _sms_payload(call.id)
+    resp = await client.post(
+        "/internal/agent/send-sms", content=body, headers=_signed(body)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True, resp.text
+    sent = (await async_session.execute(select(Sms))).scalar_one()
+    assert sent.from_e164 == "+14155550098"

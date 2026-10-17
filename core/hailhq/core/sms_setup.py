@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import logging
 from typing import Literal
+from uuid import UUID
 
 from hailhq.core.carrier_routing import sms_route
-from hailhq.core.models import PhoneNumber
+from hailhq.core.models import CarrierVerification, PhoneNumber
 from hailhq.core.providers.sms.base import SmsProvisioningError
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -38,26 +39,45 @@ def _provider(number: PhoneNumber):
         raise SmsSetupError("unavailable", str(exc)) from exc
 
 
+async def org_messaging_service_sid(
+    db: AsyncSession, organization_id: UUID, provider: str
+) -> str | None:
+    """The organization's messaging service (Twilio) or profile (Telnyx) on
+    this carrier, from any number that has one. One per organization and
+    carrier (a shared sender pool): only when the org has none is a fresh
+    one created, so numbers never spawn orphan services. A number on a
+    person's US SMS registration sits in that registration's own service
+    (it may hold one number), so it is never the one picked."""
+    person_registrations = select(CarrierVerification.id).where(
+        CarrierVerification.subject_type == "person",
+        CarrierVerification.purpose == "sms",
+    )
+    return (
+        await db.execute(
+            select(PhoneNumber.messaging_service_sid)
+            .where(
+                PhoneNumber.organization_id == organization_id,
+                PhoneNumber.messaging_service_sid.is_not(None),
+                PhoneNumber.provider == provider,
+                or_(
+                    PhoneNumber.sms_registration_id.is_(None),
+                    PhoneNumber.sms_registration_id.not_in(person_registrations),
+                ),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def ensure_sms(db: AsyncSession, number: PhoneNumber) -> None:
     """Attach ``number`` to its organization's messaging service. The caller
     holds the org lock and commits. Idempotent: an attached number is left
     alone."""
     if number.messaging_service_sid is not None:
         return
-    # One service per organization and carrier (a shared sender pool). Reuse
-    # the one any sibling number already has; only when the org has none is
-    # a fresh one created, so numbers never spawn orphan services.
-    existing_sid = (
-        await db.execute(
-            select(PhoneNumber.messaging_service_sid)
-            .where(
-                PhoneNumber.organization_id == number.organization_id,
-                PhoneNumber.messaging_service_sid.is_not(None),
-                PhoneNumber.provider == number.provider,
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    existing_sid = await org_messaging_service_sid(
+        db, number.organization_id, number.provider
+    )
     provider = _provider(number)
     try:
         sid = await provider.ensure_messaging_service(

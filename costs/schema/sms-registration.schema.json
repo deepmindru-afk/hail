@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hail.so/costs/schema/sms-registration.json",
+  "title": "SMS Registration Fees",
+  "description": "Carrier fees for US A2P 10DLC registration, per carrier and subject type, in USD. Passed through to the customer at cost.",
+  "type": "object",
+  "required": ["version", "license", "providers"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "license": { "const": "CC-BY-4.0" },
+    "note": { "type": "string" },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/provider" }
+    }
+  },
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,2})?$"
+    },
+    "fees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brand_usd", "campaign_vetting_usd", "campaign_monthly_usd"],
+      "properties": {
+        "brand_usd": { "$ref": "#/$defs/decimal" },
+        "campaign_vetting_usd": { "$ref": "#/$defs/decimal" },
+        "campaign_monthly_usd": { "$ref": "#/$defs/decimal" },
+        "minimum_months": {
+          "description": "Monthly campaign fees the carrier bills at least, counted from approval, even when the registration is cancelled sooner. Absent means 1.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "last_verified", "source_url", "person", "business"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "last_verified": { "type": "string", "format": "date" },
+        "verification_method": {
+          "description": "How the fees were checked. \"unverified\" means copied from another source and not yet checked against the carrier.",
+          "enum": ["manual-confirmed", "community-pr", "carrier-sync", "unverified"]
+        },
+        "note": { "type": "string" },
+        "source_url": { "type": "string", "format": "uri" },
+        "person": { "$ref": "#/$defs/fees" },
+        "business": { "$ref": "#/$defs/fees" }
+      }
+    }
+  }
+}

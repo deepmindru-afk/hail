@@ -51,11 +51,12 @@ Hail sends SMS from a dedicated number.
 3. **Send.** Call `POST /sms` with the recipient and body. Hail sends from your
    organization's dedicated number.
 
-**A2P 10DLC (United States).** US carriers deliver application-to-person SMS on
-long-code numbers only after you register an A2P 10DLC brand and campaign. Do
-this in the Twilio console (**Messaging → Regulatory Compliance → A2P 10DLC**)
-before you send to US numbers. Registration is a Twilio-side requirement; Hail
-does not manage it.
+**A2P 10DLC (United States).** Each organization registers its own brand and
+campaign from the console (Numbers → Register for US texting) or with
+`POST /verifications` and `purpose=sms`. Set `TWILIO_PRIMARY_PROFILE_SID` to
+your approved Trust Hub primary profile (business identity ISV Reseller or
+Partner); without it, SMS registration through Twilio is off. Texts from an
+organization's US long codes to US numbers return 422 until it is approved.
 
 **Sender ID (optional, rest-of-world).** For destinations that allow it, set a
 custom alphanumeric sender with `PATCH /sms/sender-id` (read the current value

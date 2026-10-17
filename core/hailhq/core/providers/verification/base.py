@@ -27,6 +27,7 @@ __all__ = [
     "Problem",
     "ProviderStatus",
     "Requirements",
+    "SmsRegistrationProvider",
     "SubjectType",
     "UnsupportedSubjectType",
     "UploadedFile",
@@ -277,3 +278,47 @@ class VerificationProvider(ABC):
     @abstractmethod
     async def discard(self, refs: dict) -> None:
         """Delete a draft. Best effort; never raises."""
+
+
+class SmsRegistrationProvider(VerificationProvider):
+    """A carrier's US A2P 10DLC registration, driven through the same
+    lifecycle as number verification. ``purpose`` is 'sms'.
+
+    ``create_draft`` takes one extra keyword: the organization's messaging
+    service (Twilio) or messaging profile (Telnyx) id, when one exists.
+    ``status`` creates the campaign once the brand is approved and reports
+    'approved' only when the campaign is approved. ``attach_number`` puts
+    one of the organization's US long codes on the approved campaign;
+    ``detach_number`` takes it off."""
+
+    purpose = "sms"
+
+    @abstractmethod
+    async def attach_number(
+        self, refs: dict, *, provider_resource_id: str, e164: str
+    ) -> None:
+        """Attach a number to the approved campaign. Idempotent. A plug-in
+        that keeps the campaign on a messaging service stores its id in
+        ``refs['messaging_service_sid']``; the number is then in it."""
+
+    async def detach_number(
+        self, refs: dict, *, provider_resource_id: str, e164: str
+    ) -> bool:
+        """Take a number off the campaign (before a release, or when the
+        registration is cancelled). Best effort; never raises. True when the
+        number also left its messaging service, so the caller clears
+        ``messaging_service_sid`` and may set the number up again."""
+        return False
+
+    async def confirm(self, refs: dict, code: str) -> list[Problem]:
+        """Submit the confirmation code the carrier texted to the person.
+        Empty list on success. A wrong or expired code is a Problem on
+        field 'code'. Carriers that confirm by reply (not by code) raise
+        NotImplementedError."""
+        raise NotImplementedError
+
+    def confirmation(self, refs: dict) -> str | None:
+        """How the person confirms identity while the brand waits:
+        'code' (type a code into Hail), 'reply' (answer the carrier's
+        text), or None (no confirmation pending)."""
+        return None

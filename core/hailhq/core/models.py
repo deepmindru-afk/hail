@@ -569,6 +569,18 @@ class PhoneNumber(Base):
         JSONB, server_default=text("'{}'::jsonb"), nullable=False
     )
     messaging_service_sid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The US SMS registration (carrier_verifications, purpose='sms') whose
+    # campaign holds this number. US-to-US texts need it approved.
+    sms_registration_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "carrier_verifications.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="phone_numbers_sms_registration_id_fkey",
+        ),
+        nullable=True,
+    )
     acquired_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     released_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -1709,6 +1721,7 @@ class CarrierVerification(Base):
     country_code: Mapped[str] = mapped_column(Text, nullable=False)
     number_type: Mapped[str] = mapped_column(Text, nullable=False)
     subject_type: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, server_default="number", nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False)
     provider_refs: Mapped[dict] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb"), nullable=False
@@ -1726,6 +1739,9 @@ class CarrierVerification(Base):
     )
     submitted_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    # When it was cancelled. An SMS registration's monthly fee is billed
+    # through the month of this date.
+    cancelled_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -1737,12 +1753,17 @@ class CarrierVerification(Base):
             "subject_type IN ('person','business')",
             name="carrier_verifications_subject_type_check",
         ),
+        CheckConstraint(
+            "purpose IN ('number','sms')",
+            name="carrier_verifications_purpose_check",
+        ),
         Index(
             "carrier_verifications_live_uniq",
             "organization_id",
             "provider",
             "country_code",
             "number_type",
+            "purpose",
             unique=True,
             postgresql_where=text("state NOT IN ('cancelled','rejected')"),
         ),

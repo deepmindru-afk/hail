@@ -64,7 +64,8 @@ Every tool sets the MCP hints `readOnlyHint`, `destructiveHint`, `idempotentHint
 | `submit_verification`           | Send details and documents to the carrier. Irreversible. Needs `attest_authorized`. |
 | `list_verifications`            | List the org's verifications and their states (read-only).                          |
 | `get_verification`              | Fetch one verification; poll it for `approved` (read-only).                         |
-| `cancel_verification`           | Cancel an `awaiting_review` one or dismiss a `rejected` one.                        |
+| `cancel_verification`           | Cancel an `awaiting_review` one, dismiss a `rejected` one, or end an approved US SMS registration. |
+| `confirm_verification`          | Enter the code the carrier texted a person (`confirmation: "code"`).                |
 
 ### Getting a number over MCP
 
@@ -126,9 +127,26 @@ Some numbers, for example a UK mobile, need a carrier check of the organization 
 6. On `approved`: `quote_numbers` again. The offer is now `ready`. Then `acquire_number` and `route_number` as above.
 7. On `rejected`: read `rejection_reason`, ask the user, call `cancel_verification` to dismiss it, and submit a new one.
 
+A person's US texting registration may wait on the person. `confirmation: "code"`: ask them for the code the carrier texted and call `confirm_verification` with `{"verification_id": "<id>", "code": "<code>"}`. `confirmation: "reply"`: they answer the carrier's text; nothing to call.
+
+To register the organization to text US numbers from a US number, pass `purpose: "sms"` (default `"number"`) with `country_code: "US"` and `number_type: "local"` to `get_verification_requirements`, `submit_verification` and `list_verifications`. The carrier fee is debited from credit at filing:
+
+```json
+{
+  "country_code": "US",
+  "number_type": "local",
+  "subject_type": "business",
+  "purpose": "sms",
+  "fields": { "legal_name": "Acme Inc" },
+  "documents": {},
+  "files": [],
+  "attest_authorized": true
+}
+```
+
 Limits: JPG, PNG or PDF files, 10 MiB each, 29 MiB in total, at most 20 files and 20 fields. Compress photos to under about 7 MiB. Slot names use letters, digits, `-` and `_` (at most 64). Each file must match its type. A second submission for the same country and number type returns 409 while one exists.
 
-> **Warning:** The user's details and documents pass through the model's context and are kept in the client's transcript. Keep the human approval prompt on for `submit_verification`, and have the user hand over each value and file in the conversation. A submitted verification cannot be cancelled, and the carrier keeps the documents. Only `awaiting_review` and `rejected` ones can be cancelled.
+> **Warning:** The user's details and documents pass through the model's context and are kept in the client's transcript. Keep the human approval prompt on for `submit_verification`, and have the user hand over each value and file in the conversation. A submitted verification cannot be cancelled, and the carrier keeps the documents. Only `awaiting_review` and `rejected` ones can be cancelled, plus an approved US SMS registration.
 
 ## Claude.ai (web)
 

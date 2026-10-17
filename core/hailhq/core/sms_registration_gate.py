@@ -1,0 +1,89 @@
+"""Whether a text may leave a US long code for a US number: only when that
+number is on an approved US SMS registration of its organization."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+import phonenumbers
+from hailhq.core.models import CarrierVerification, PhoneNumber
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+BLOCK_MESSAGE = (
+    "US texting from this number needs SMS registration. Open Numbers in the "
+    "console and choose Register for US texting."
+)
+
+
+def is_us(e164: str) -> bool:
+    """A +1 number outside the US (Canada, the Caribbean) is not US. An
+    unknown +1 area code counts as US, so the gate errs toward blocking."""
+    if not e164.startswith("+1"):
+        return False
+    try:
+        region = phonenumbers.region_code_for_number(phonenumbers.parse(e164))
+    except phonenumbers.NumberParseException:
+        return True
+    return region in (None, "US")
+
+
+def approved_registration_ids(organization_id: UUID):
+    """Subquery: ids of the org's approved US SMS registrations."""
+    return select(CarrierVerification.id).where(
+        CarrierVerification.organization_id == organization_id,
+        CarrierVerification.purpose == "sms",
+        CarrierVerification.state == "approved",
+    )
+
+
+async def on_approved_registration(
+    db: AsyncSession, organization_id: UUID, number: PhoneNumber | None
+) -> bool:
+    """True when ``number`` is on an approved US SMS registration of the
+    org."""
+    if number is None or number.sms_registration_id is None:
+        return False
+    found = (
+        await db.execute(
+            approved_registration_ids(organization_id).where(
+                CarrierVerification.id == number.sms_registration_id
+            )
+        )
+    ).scalar_one_or_none()
+    return found is not None
+
+
+async def us_registration_block(
+    db: AsyncSession, organization_id: UUID, from_number: PhoneNumber, to_e164: str
+) -> str | None:
+    if from_number.country_code != "US" or not is_us(to_e164):
+        return None  # a Canadian long code, or a text to outside the US
+    if from_number.number_type == "toll_free":
+        return None
+    if await on_approved_registration(db, organization_id, from_number):
+        return None
+    return BLOCK_MESSAGE
+
+
+async def registered_sms_number(
+    db: AsyncSession, organization_id: UUID
+) -> PhoneNumber | None:
+    """The org's oldest active number that can text and is on an approved
+    US SMS registration. POST /sms without ``from`` prefers it for a US
+    destination."""
+    return (
+        await db.execute(
+            select(PhoneNumber)
+            .where(
+                PhoneNumber.organization_id == organization_id,
+                PhoneNumber.provisioning_state == "active",
+                PhoneNumber.capabilities.any("sms"),
+                PhoneNumber.sms_registration_id.in_(
+                    approved_registration_ids(organization_id)
+                ),
+            )
+            .order_by(PhoneNumber.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
