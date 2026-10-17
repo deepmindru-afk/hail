@@ -375,6 +375,9 @@ class NumberDunning(Base):
     )
     warned_at: Mapped[datetime] = mapped_column(TS, nullable=False)
     release_after: Mapped[datetime] = mapped_column(TS, nullable=False)
+    # Set once the 3-day / 1-day reminder reached at least one owner.
+    reminder_3d_sent_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    reminder_1d_sent_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TS, server_default=text("now()"), nullable=False
     )
