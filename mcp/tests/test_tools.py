@@ -1942,6 +1942,15 @@ async def test_acquire_number_requires_confirm_total_cents_in_the_tool_schema(
 
 
 @respx.mock
+async def test_list_number_regions_returns_the_api_list(client: HailClient) -> None:
+    region = {"country_code": "US", "code": "AZ", "name": "Arizona"}
+    respx.get(f"{_BASE_URL}/numbers/regions").mock(
+        return_value=httpx.Response(200, json={"regions": [region]})
+    )
+    assert await tools.list_number_regions(client=client) == {"regions": [region]}
+
+
+@respx.mock
 async def test_list_numbers_sends_limit_and_cursor(client: HailClient) -> None:
     n = _number_response()
     route = respx.get(f"{_BASE_URL}/numbers").mock(

@@ -867,7 +867,8 @@ async def test_regions_list_us_states_and_canadian_provinces(client, org_and_key
     }
     assert regions[("US", "AZ")] == "Arizona"
     assert regions[("CA", "ON")] == "Ontario"
-    assert len(regions) == 51 + 13
+    assert regions[("US", "PR")] == "Puerto Rico"
+    assert len(regions) == 51 + 5 + 13
 
 
 async def test_regions_need_an_api_key(client):

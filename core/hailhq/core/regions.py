@@ -63,6 +63,12 @@ REGIONS: dict[str, dict[str, str]] = {
         "WV": "West Virginia",
         "WI": "Wisconsin",
         "WY": "Wyoming",
+        # Territories: US numbers with their own area codes (787, 671, ...).
+        "AS": "American Samoa",
+        "GU": "Guam",
+        "MP": "Northern Mariana Islands",
+        "PR": "Puerto Rico",
+        "VI": "U.S. Virgin Islands",
     },
     "CA": {
         "AB": "Alberta",
@@ -96,11 +102,11 @@ class NumberRegionsResponse(BaseModel):
     )
 
 
-def regions_response() -> NumberRegionsResponse:
-    return NumberRegionsResponse(
-        regions=[
-            NumberRegion(country_code=country, code=code, name=name)
-            for country, names in REGIONS.items()
-            for code, name in names.items()
-        ]
-    )
+# Built once: the list never changes while the process runs.
+REGIONS_RESPONSE = NumberRegionsResponse(
+    regions=[
+        NumberRegion(country_code=country, code=code, name=name)
+        for country, names in REGIONS.items()
+        for code, name in names.items()
+    ]
+)

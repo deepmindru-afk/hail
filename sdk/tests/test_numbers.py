@@ -207,6 +207,17 @@ async def test_numbers_get_happy_path(base_url: str, api_key: str) -> None:
 
 
 @respx.mock
+async def test_numbers_regions(base_url: str, api_key: str) -> None:
+    region = {"country_code": "CA", "code": "ON", "name": "Ontario"}
+    respx.get(f"{base_url}/numbers/regions").mock(
+        return_value=httpx.Response(200, json={"regions": [region]})
+    )
+    async with Client(api_key=api_key, base_url=base_url) as c:
+        result = await c.numbers.regions()
+    assert result.regions[0].code == "ON"
+
+
+@respx.mock
 async def test_numbers_list_with_pagination(base_url: str, api_key: str) -> None:
     payload = {
         "items": [make_phone_number_response(), make_phone_number_response()],

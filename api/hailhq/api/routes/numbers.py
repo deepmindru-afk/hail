@@ -54,7 +54,7 @@ from hailhq.core.providers.verification import (
     get_verification_provider,
 )
 from hailhq.core.providers.voice import CarrierNotConfigured
-from hailhq.core.regions import NumberRegionsResponse, regions_response
+from hailhq.core.regions import REGIONS_RESPONSE, NumberRegionsResponse
 from hailhq.core.schemas import (
     NumberAcquireRequest,
     NumberQuoteRequest,
@@ -522,7 +522,7 @@ async def list_number_regions(
     """US states and Canadian provinces for the ``region`` field of
     ``POST /numbers/quotes``. In the US and Canada a city search needs one:
     city names repeat across states."""
-    return regions_response()
+    return REGIONS_RESPONSE
 
 
 @router.get(
