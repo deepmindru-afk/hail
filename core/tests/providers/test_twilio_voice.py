@@ -200,7 +200,8 @@ async def test_area_code_reaches_inventory_search(
     assert offers == []
     assert len(responses.calls) == 1
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
-    assert query["AreaCode"] == ["480"]
+    # A prefix search, not AreaCode: AreaCode works in the US and Canada only.
+    assert query["Contains"] == ["+1480"]
     assert query["VoiceEnabled"] == ["true"]
 
 

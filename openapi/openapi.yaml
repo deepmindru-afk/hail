@@ -5668,6 +5668,22 @@ components:
           description:
             Server-selected verified address identifier, when supported;
             null otherwise.
+        locality:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Locality
+          description:
+            City or area the carrier lists for this number, such as Phoenix
+            or London; null when unknown.
+        region:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Region
+          description:
+            State, province or region the carrier lists, such as AZ or
+            England; null when unknown.
         quote_id:
           anyOf:
             - type: string
@@ -7829,12 +7845,13 @@ components:
         area_code:
           anyOf:
             - type: string
-              pattern: ^[2-9][0-9]{2}$
+              pattern: ^[0-9]{1,6}$
             - type: "null"
           title: Area Code
           description:
-            Three-digit area code, such as 480. US and CA only; every returned
-            offer is in this area code.
+            "Area code or first digits of the number, as dialed inside
+            the country: 020 or 20 (London), 480 (Arizona). Any country; every returned
+            offer starts with these digits."
         city:
           anyOf:
             - type: string
@@ -7843,8 +7860,8 @@ components:
             - type: "null"
           title: City
           description:
-            City name as the carriers list it, such as Phoenix or London.
-            In US and CA, also send region.
+            City name as the carriers list it, such as London or Phoenix.
+            Each offer's locality and region tell same-named cities apart.
         region:
           anyOf:
             - type: string
@@ -7852,8 +7869,8 @@ components:
             - type: "null"
           title: Region
           description:
-            Two-letter state or province code, such as AZ. US and CA only,
-            and only with city. GET /numbers/regions lists the codes.
+            "Optional, with city: a US state or Canadian province code,
+            such as AZ. GET /numbers/regions lists the codes."
       additionalProperties: false
       type: object
       required:

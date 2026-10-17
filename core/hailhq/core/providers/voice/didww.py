@@ -18,7 +18,7 @@ import requests
 from didww.client import DidwwClient
 from didww.configuration import Environment
 from didww.exceptions import DidwwApiError
-from hailhq.core.carrier_offer import CarrierOffer, cents
+from hailhq.core.carrier_offer import CarrierOffer, cents, number_prefix
 from hailhq.core.config import settings
 from hailhq.core.providers.voice.base import (
     CarrierNotConfigured,
@@ -26,11 +26,16 @@ from hailhq.core.providers.voice.base import (
     CarrierRequestError,
     OrderState,
 )
+from hailhq.core.regions import REGIONS
 from hailhq.core.schemas import NumberType
 
 logger = logging.getLogger(__name__)
 
 PROVIDER = "didww"
+# DIDWW names US states in full; offers carry the code, like the other carriers.
+_REGION_CODES = {
+    c: {name: code for code, name in r.items()} for c, r in REGIONS.items()
+}
 
 _ENVIRONMENTS = {
     "production": Environment.PRODUCTION,
@@ -186,18 +191,21 @@ def _offers_sync(
         "filter[country.id]": country_id,
         "filter[did_group_type.id]": type_id,
         "filter[did_group.features]": "voice_out",
-        "include": "did_group,did_group.stock_keeping_units,did_group.address_requirement",
+        "include": (
+            "did_group,did_group.stock_keeping_units,did_group.address_requirement,"
+            "did_group.city,did_group.region"
+        ),
         "page[size]": 3,
     }
     # DIDWW filters by "contains" (its prefix filter is per NPA-NXX, one id
     # per call), and "contains" also matches mid-number. Results come back
     # in random order, so ask for a bigger page and keep only numbers that
-    # start with "+1<area code>" in the loop below.
-    prefix = f"+1{area_code}" if area_code else None
+    # start with the prefix in the loop below.
+    prefix = number_prefix(country, area_code) if area_code else None
     if e164:
         params["filter[number_contains]"] = e164.lstrip("+")
     elif prefix:
-        params["filter[number_contains]"] = f"1{area_code}"
+        params["filter[number_contains]"] = prefix.lstrip("+")
         params["page[size]"] = 50
     if city_id:
         params["filter[city.id]"] = city_id
@@ -240,6 +248,11 @@ def _offers_sync(
             index.get(("address_requirements", req_ref["id"])) if req_ref else None
         )
         ready = not needs_registration or approved is not None
+        city_ref = group["relationships"].get("city", {}).get("data")
+        region_ref = group["relationships"].get("region", {}).get("data")
+        city_row = index.get(("cities", city_ref["id"])) if city_ref else None
+        region_row = index.get(("regions", region_ref["id"])) if region_ref else None
+        region_name = region_row["attributes"].get("name") if region_row else None
         results.append(
             CarrierOffer(
                 provider=PROVIDER,
@@ -256,6 +269,9 @@ def _offers_sync(
                 ),
                 verification_id=approved["id"] if approved else None,
                 address_id=approved["id"] if approved else None,
+                locality=city_row["attributes"].get("name") if city_row else None,
+                # Same form as the other carriers: AZ, not Arizona.
+                region=_REGION_CODES.get(country, {}).get(region_name, region_name),
             )
         )
         break  # One offer per carrier, like Telnyx.

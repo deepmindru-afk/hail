@@ -788,11 +788,68 @@ async def test_quotes_pass_the_area_code_to_every_carrier(
 
 
 @pytest.mark.parametrize(
+    ("country", "typed", "searched"),
+    [
+        # Typed as dialed at home; carriers match what follows the country code.
+        ("GB", "020", "20"),
+        ("DE", "030", "30"),
+        ("US", "1480", "480"),
+        ("US", "480", "480"),
+        # Italy keeps its 0 after +39.
+        ("IT", "06", "06"),
+    ],
+)
+async def test_quotes_drop_the_trunk_prefix_from_the_area_code(
+    client, org_and_key, monkeypatch, country, typed, searched
+):
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+    monkeypatch.setattr(
+        telephony_catalog, "capabilities", lambda *a: {"voice": True, "sms": False}
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={
+            "country_code": country,
+            "number_type": "local",
+            "capabilities": ["voice"],
+            "area_code": typed,
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert discover.await_args.kwargs["area_code"] == searched
+
+
+async def test_quotes_take_a_us_city_without_a_state(client, org_and_key, monkeypatch):
+    """Each offer names its city and state, so the state is optional."""
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+    monkeypatch.setattr(
+        telephony_catalog, "capabilities", lambda *a: {"voice": True, "sms": False}
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={
+            "country_code": "US",
+            "number_type": "local",
+            "capabilities": ["voice"],
+            "city": "Phoenix",
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert discover.await_args.kwargs["region"] is None
+
+
+@pytest.mark.parametrize(
     "body",
     [
-        {"country_code": "PT", "area_code": "480"},
-        {"country_code": "US", "area_code": "48"},
-        {"country_code": "US", "area_code": "080"},
+        {"country_code": "US", "area_code": "4-80"},
+        {"country_code": "GB", "area_code": "1234567"},
+        {"country_code": "GB", "area_code": ""},
     ],
 )
 async def test_quotes_reject_a_bad_area_code(client, org_and_key, body):
@@ -835,8 +892,7 @@ async def test_quotes_pass_city_and_region_to_every_carrier(
 @pytest.mark.parametrize(
     "body",
     [
-        # A US city name alone also matches towns in other states.
-        {"country_code": "US", "city": "Phoenix"},
+        # A state alone is not a search.
         {"country_code": "US", "region": "AZ"},
         {"country_code": "PT", "city": "Lisbon", "region": "LI"},
         {"country_code": "US", "city": "  ", "region": "AZ"},

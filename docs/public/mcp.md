@@ -56,7 +56,7 @@ Every tool sets the MCP hints `readOnlyHint`, `destructiveHint`, `idempotentHint
 | `delete_agent`                  | Delete an agent. Destructive. Needs `confirm_name`.                                                |
 | `route_number`                  | Choose which agent answers a number.                                                               |
 | `quote_numbers`                 | Compare live carrier offers for a new number (read-only).                                          |
-| `list_number_regions`           | List the US/CA state codes `quote_numbers` takes as `region` (read-only).                          |
+| `list_number_regions`           | List the US/CA state codes `quote_numbers` takes as optional `region` (read-only).                 |
 | `acquire_number`                | Buy a quoted number. Spends money. Needs `confirm_total_cents`.                                    |
 | `list_numbers`                  | List the org's numbers (cursor-paginated).                                                         |
 | `get_number`                    | Fetch one number.                                                                                  |

@@ -1653,6 +1653,9 @@ type CarrierOffer struct {
 	// E164 Available phone number in E.164 format.
 	E164 string `json:"e164"`
 
+	// Locality City or area the carrier lists for this number, such as Phoenix or London; null when unknown.
+	Locality *string `json:"locality,omitempty"`
+
 	// MonthlyCents Monthly number rental in USD cents, charged from organization credits.
 	MonthlyCents int `json:"monthly_cents"`
 
@@ -1667,6 +1670,9 @@ type CarrierOffer struct {
 
 	// Readiness Whether regulatory preflight permits purchase for this organization; rechecked at purchase.
 	Readiness CarrierOfferReadiness `json:"readiness"`
+
+	// Region State, province or region the carrier lists, such as AZ or England; null when unknown.
+	Region *string `json:"region,omitempty"`
 
 	// RegulatoryFriction Remaining verification effort derived from live requirements: none, information/address entry, document uploads, or unknown. This does not establish legal eligibility.
 	RegulatoryFriction *CarrierOfferRegulatoryFriction `json:"regulatory_friction,omitempty"`
@@ -2643,13 +2649,13 @@ type NumberAcquireRequestProvider string
 
 // NumberQuoteRequest defines model for NumberQuoteRequest.
 type NumberQuoteRequest struct {
-	// AreaCode Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.
+	// AreaCode Area code or first digits of the number, as dialed inside the country: 020 or 20 (London), 480 (Arizona). Any country; every returned offer starts with these digits.
 	AreaCode *string `json:"area_code,omitempty"`
 
 	// Capabilities Required channels; every returned offer must support all requested capabilities.
 	Capabilities []NumberQuoteRequestCapabilities `json:"capabilities"`
 
-	// City City name as the carriers list it, such as Phoenix or London. In US and CA, also send region.
+	// City City name as the carriers list it, such as London or Phoenix. Each offer's locality and region tell same-named cities apart.
 	City *string `json:"city,omitempty"`
 
 	// CountryCode ISO alpha-2 country code to search. Case-insensitive.
@@ -2661,7 +2667,7 @@ type NumberQuoteRequest struct {
 	// Provider Carrier restriction; twilio, telnyx, or didww returns that carrier's offers only. auto compares all by readiness, remaining verification effort, and rental/setup costs; Twilio wins equivalent ties.
 	Provider *NumberQuoteRequestProvider `json:"provider,omitempty"`
 
-	// Region Two-letter state or province code, such as AZ. US and CA only, and only with city. GET /numbers/regions lists the codes.
+	// Region Optional, with city: a US state or Canadian province code, such as AZ. GET /numbers/regions lists the codes.
 	Region *string `json:"region,omitempty"`
 }
 

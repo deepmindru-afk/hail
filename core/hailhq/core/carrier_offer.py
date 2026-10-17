@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from uuid import UUID
 
+import phonenumbers
 from hailhq.core.schemas import NumberType
 from pydantic import BaseModel, Field
 
@@ -53,10 +54,23 @@ class CarrierOffer(BaseModel):
         default=None,
         description="Server-selected verified address identifier, when supported; null otherwise.",
     )
+    locality: str | None = Field(
+        default=None,
+        description="City or area the carrier lists for this number, such as Phoenix or London; null when unknown.",
+    )
+    region: str | None = Field(
+        default=None,
+        description="State, province or region the carrier lists, such as AZ or England; null when unknown.",
+    )
     quote_id: UUID | None = Field(
         default=None,
         description="Organization-bound quote identifier to pass to POST /numbers before expiry.",
     )
+
+
+def number_prefix(country: str, area_code: str) -> str:
+    """E.164 start of every number in ``area_code``: ("GB", "20") -> "+4420"."""
+    return f"+{phonenumbers.country_code_for_region(country)}{area_code}"
 
 
 def cents(value) -> int:
