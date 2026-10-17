@@ -53,13 +53,17 @@ async def discover_offers(
     e164: str | None = None,
     providers: list[str] | tuple[str, ...] = PROVIDERS,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> tuple[list[CarrierOffer], list[str]]:
     """Live offers from ``providers`` (every carrier by default) and the
     carriers whose lookup failed."""
     asked = [p for p in PROVIDERS if p in providers]
     results = await asyncio.gather(
         *(
-            carrier(p).offers(org, country, kind, capabilities, e164, area_code)
+            carrier(p).offers(
+                org, country, kind, capabilities, e164, area_code, city, region
+            )
             for p in asked
         ),
         return_exceptions=True,

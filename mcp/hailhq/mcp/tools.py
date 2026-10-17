@@ -591,6 +591,8 @@ async def quote_numbers(
     number_type: str | None = None,
     provider: str = "auto",
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "country_code": country_code,
@@ -601,6 +603,10 @@ async def quote_numbers(
         fields["number_type"] = number_type
     if area_code is not None:
         fields["area_code"] = area_code
+    if city is not None:
+        fields["city"] = city
+    if region is not None:
+        fields["region"] = region
     try:
         return await client.quote_numbers(**fields)
     except ValidationError as exc:
@@ -2121,6 +2127,8 @@ def register_tools(
         number_type: str | None = None,
         provider: str = "auto",
         area_code: str | None = None,
+        city: str | None = None,
+        region: str | None = None,
     ) -> dict[str, Any]:
         """Compare live phone-number offers from the carriers. Read-only: it
         buys nothing and charges nothing.
@@ -2131,7 +2139,9 @@ def register_tools(
         ``toll_free``; omit it to compare all types. ``provider`` is
         ``auto`` (compare all carriers), ``twilio``, ``telnyx`` or ``didww``.
         ``area_code`` is a three-digit US or CA area code such as ``"480"``;
-        omit it to search the whole country.
+        omit it to search the whole country. ``city`` is a city name such
+        as ``"London"``; in the US and CA also pass ``region``, the two-letter
+        state or province code (``"AZ"``): city names repeat across states.
 
         Returns ``{"offers": [...], "recommended_quote_id", "unavailable_providers",
         "expires_at"}``. Each offer has ``e164``, ``provider``, ``number_type``,
@@ -2157,6 +2167,8 @@ def register_tools(
                     number_type=number_type,
                     provider=provider,
                     area_code=area_code,
+                    city=city,
+                    region=region,
                 )
         except RuntimeError as exc:
             return {"error": str(exc)}

@@ -64,6 +64,8 @@ class TelnyxNumberDiscovery:
         *,
         e164: str | None = None,
         area_code: str | None = None,
+        city: str | None = None,
+        region: str | None = None,
     ) -> list[NumberQuote]:
         country_code = country_code.upper()
         if (
@@ -90,6 +92,10 @@ class TelnyxNumberDiscovery:
             )
         if area_code:
             params["filter[national_destination_code]"] = area_code
+        if city:
+            params["filter[locality]"] = city
+        if region:
+            params["filter[administrative_area]"] = region
         try:
             data = await TelnyxClient(self._api_key, self._client).request(
                 "GET", "/available_phone_numbers", params=params
@@ -142,6 +148,8 @@ async def telnyx_offers(
     client: httpx.AsyncClient,
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     if not settings.telnyx_api_key:
         return []
@@ -166,6 +174,8 @@ async def telnyx_offers(
         limit=3,
         e164=e164,
         area_code=area_code,
+        city=city,
+        region=region,
     )
     if not quotes:
         return []
@@ -356,6 +366,8 @@ async def offers(
     capabilities: list[str],
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     return await telnyx_offers(
         org,
@@ -365,6 +377,8 @@ async def offers(
         get_http_client(),
         e164=e164,
         area_code=area_code,
+        city=city,
+        region=region,
     )
 
 

@@ -111,6 +111,38 @@ def lookup_ids(country: str) -> tuple[str | None, dict[str, str]]:
     return country_id, types
 
 
+def _city_id(
+    client: DidwwClient, country_id: str, country: str, city: str, region: str | None
+) -> str | None:
+    """DIDWW's id for a city name, or None. With ``region`` (a US/CA state
+    code), only the city in that state: Phoenix exists in AZ and in OR."""
+    # Without "include", DIDWW leaves out the city's region id.
+    cities = client.get(
+        "cities",
+        params={
+            "filter[country.id]": country_id,
+            "filter[name]": city,
+            "include": "region",
+        },
+    )["data"]
+    if region:
+        regions = client.get(
+            "regions",
+            params={
+                "filter[country.id]": country_id,
+                "filter[iso]": f"{country}-{region}",
+            },
+        )["data"]
+        region_ids = {r["id"] for r in regions}
+        cities = [
+            c
+            for c in cities
+            if (c["relationships"].get("region", {}).get("data") or {}).get("id")
+            in region_ids
+        ]
+    return cities[0]["id"] if cities else None
+
+
 def _by_id(included: list[dict]) -> dict[tuple[str, str], dict]:
     return {(r["type"], r["id"]): r for r in included}
 
@@ -139,12 +171,17 @@ def _offers_sync(
     kind: NumberType,
     e164: str | None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     client = didww_client()
     country_id, types = lookup_ids(country)
     type_id = types.get(kind)
     if not country_id or not type_id:
         return []
+    city_id = _city_id(client, country_id, country, city, region) if city else None
+    if city and not city_id:
+        return []  # DIDWW does not know this city: no stock there.
     params = {
         "filter[country.id]": country_id,
         "filter[did_group_type.id]": type_id,
@@ -162,6 +199,8 @@ def _offers_sync(
     elif prefix:
         params["filter[number_contains]"] = f"1{area_code}"
         params["page[size]"] = 50
+    if city_id:
+        params["filter[city.id]"] = city_id
     body = client.get("available_dids", params=params)
     index = _by_id(body.get("included", []))
     approved: dict | None = None
@@ -230,6 +269,8 @@ async def didww_offers(
     capabilities: list[str],
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     """Live DIDWW inventory for one country and number type. Voice only:
     an ``sms`` request never gets a DIDWW offer. No offer without the
@@ -240,7 +281,9 @@ async def didww_offers(
         or "sms" in capabilities
     ):
         return []
-    return await asyncio.to_thread(_offers_sync, org, country, kind, e164, area_code)
+    return await asyncio.to_thread(
+        _offers_sync, org, country, kind, e164, area_code, city, region
+    )
 
 
 def _find_available(client: DidwwClient, e164: str) -> tuple[str, str]:
@@ -531,9 +574,18 @@ async def offers(
     capabilities: list[str],
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     return await didww_offers(
-        org, country, kind, capabilities, e164=e164, area_code=area_code
+        org,
+        country,
+        kind,
+        capabilities,
+        e164=e164,
+        area_code=area_code,
+        city=city,
+        region=region,
     )
 
 

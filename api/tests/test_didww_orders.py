@@ -806,6 +806,70 @@ async def test_quotes_reject_a_bad_area_code(client, org_and_key, body):
     assert resp.json()["detail"][0]["loc"] == ["body", "area_code"]
 
 
+async def test_quotes_pass_city_and_region_to_every_carrier(
+    client, org_and_key, monkeypatch
+):
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+    monkeypatch.setattr(
+        telephony_catalog, "capabilities", lambda *a: {"voice": True, "sms": False}
+    )
+
+    resp = await client.post(
+        "/numbers/quotes",
+        json={
+            "country_code": "US",
+            "number_type": "local",
+            "capabilities": ["voice"],
+            "city": " Phoenix ",
+            "region": "az",
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert discover.await_args.kwargs["city"] == "Phoenix"
+    assert discover.await_args.kwargs["region"] == "AZ"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A US city name alone also matches towns in other states.
+        {"country_code": "US", "city": "Phoenix"},
+        {"country_code": "US", "region": "AZ"},
+        {"country_code": "PT", "city": "Lisbon", "region": "LI"},
+        {"country_code": "US", "city": "  ", "region": "AZ"},
+        {"country_code": "US", "city": "Phoenix", "region": "ARZ"},
+    ],
+)
+async def test_quotes_reject_a_bad_city_or_region(client, org_and_key, body):
+    _, _, key = org_and_key
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"capabilities": ["voice"], **body},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_quotes_take_a_city_alone_outside_us_and_ca(
+    client, org_and_key, monkeypatch
+):
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"country_code": "PT", "capabilities": ["voice"], "city": "Lisbon"},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert discover.await_args.kwargs["city"] == "Lisbon"
+    assert discover.await_args.kwargs["region"] is None
+
+
 async def test_quotes_for_one_carrier_search_only_its_kinds(
     client, org_and_key, monkeypatch
 ):

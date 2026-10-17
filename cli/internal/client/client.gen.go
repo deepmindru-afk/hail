@@ -2649,6 +2649,9 @@ type NumberQuoteRequest struct {
 	// Capabilities Required channels; every returned offer must support all requested capabilities.
 	Capabilities []NumberQuoteRequestCapabilities `json:"capabilities"`
 
+	// City City name as the carriers list it, such as Phoenix or London. In US and CA, also send region.
+	City *string `json:"city,omitempty"`
+
 	// CountryCode ISO alpha-2 country code to search. Case-insensitive.
 	CountryCode string `json:"country_code"`
 
@@ -2657,6 +2660,9 @@ type NumberQuoteRequest struct {
 
 	// Provider Carrier restriction; twilio, telnyx, or didww returns that carrier's offers only. auto compares all by readiness, remaining verification effort, and rental/setup costs; Twilio wins equivalent ties.
 	Provider *NumberQuoteRequestProvider `json:"provider,omitempty"`
+
+	// Region Two-letter state or province code, such as AZ. US and CA only, and only with city.
+	Region *string `json:"region,omitempty"`
 }
 
 // NumberQuoteRequestCapabilities defines model for NumberQuoteRequest.Capabilities.

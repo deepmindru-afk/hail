@@ -159,6 +159,8 @@ async def twilio_offers(
     capabilities: list[str],
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     if not settings.twilio_account_sid or not settings.twilio_auth_token:
         return []
@@ -174,6 +176,8 @@ async def twilio_offers(
                 **{f"{c}_enabled": True for c in capabilities},
                 **({"contains": e164} if e164 else {}),
                 **({"area_code": int(area_code)} if area_code else {}),
+                **({"in_locality": city} if city else {}),
+                **({"in_region": region} if region else {}),
             )
         except TwilioRestException as exc:
             # Twilio answers 404 (20404) for a number type it does not sell in
@@ -326,9 +330,18 @@ async def offers(
     capabilities: list[str],
     e164: str | None = None,
     area_code: str | None = None,
+    city: str | None = None,
+    region: str | None = None,
 ) -> list[CarrierOffer]:
     return await twilio_offers(
-        org, country, kind, capabilities, e164=e164, area_code=area_code
+        org,
+        country,
+        kind,
+        capabilities,
+        e164=e164,
+        area_code=area_code,
+        city=city,
+        region=region,
     )
 
 

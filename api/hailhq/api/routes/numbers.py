@@ -711,6 +711,8 @@ async def quote_numbers(
                     is not None
                 ],
                 area_code=body.area_code,
+                city=body.city,
+                region=body.region,
             )
             for kind in kinds
         )

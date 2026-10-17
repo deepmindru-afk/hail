@@ -624,6 +624,8 @@ class _NumbersResource:
         expected_total_cents: int | None = None,
         idempotency_key: str | None = None,
         area_code: str | None = None,
+        city: str | None = None,
+        region: str | None = None,
     ) -> PhoneNumberResponse:
         """Buy a dedicated number from a live quote.
 
@@ -635,7 +637,8 @@ class _NumbersResource:
         then buys the cheapest ready offer (monthly plus setup). It raises
         ``HailError`` if no offer is ready to buy. ``provider`` restricts the
         carrier; ``area_code`` (US and CA only, such as ``"480"``) restricts
-        the quote to that area code. ``expected_total_cents`` is the monthly plus setup price you
+        the quote to that area code; ``city`` (with ``region``, a state or
+        province code, in the US and CA) restricts it to that city. ``expected_total_cents`` is the monthly plus setup price you
         expect to pay now; the order is refused with 409 if the quote differs.
         ``idempotency_key`` defaults to a fresh UUIDv4 and covers the
         purchase only.
@@ -647,6 +650,8 @@ class _NumbersResource:
                 number_type=number_type or "local",
                 provider=provider or "auto",
                 area_code=area_code,
+                city=city,
+                region=region,
             )
             ready = [o for o in offers.offers if o.readiness == "ready" and o.quote_id]
             if not ready:
@@ -681,11 +686,14 @@ class _NumbersResource:
         number_type: NumberType | None = None,
         provider: Literal["auto", "twilio", "telnyx", "didww"] = "auto",
         area_code: str | None = None,
+        city: str | None = None,
+        region: str | None = None,
     ) -> NumberQuotesResponse:
         """Compare live inventory, rental/setup costs and regulatory readiness.
 
         ``area_code`` (US and CA only, such as ``"480"``) limits offers to
-        that area code.
+        that area code. ``city`` (such as ``"London"``) limits them to that
+        city; in the US and CA also pass ``region`` (``"AZ"``).
 
         Pass the selected quote_id to acquire (or call acquire without one to buy the cheapest ready offer). A quote is organization-scoped
         and expires; acquisition rechecks it before reserving credits.
@@ -698,6 +706,10 @@ class _NumbersResource:
         }
         if area_code is not None:
             body["area_code"] = area_code
+        if city is not None:
+            body["city"] = city
+        if region is not None:
+            body["region"] = region
         data = await self._http.request("POST", "/numbers/quotes", json=body)
         return NumberQuotesResponse.model_validate(data)
 

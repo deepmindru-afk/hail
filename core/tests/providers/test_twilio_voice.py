@@ -202,3 +202,23 @@ async def test_area_code_reaches_inventory_search(
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     assert query["AreaCode"] == ["480"]
     assert query["VoiceEnabled"] == ["true"]
+
+
+@responses.activate
+async def test_city_and_region_reach_inventory_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "twilio_account_sid", ACCOUNT_SID)
+    monkeypatch.setattr(settings, "twilio_auth_token", AUTH_TOKEN)
+    responses.add(
+        responses.GET,
+        f"{API_BASE}/AvailablePhoneNumbers/US/Local.json",
+        json={"available_phone_numbers": [], "uri": "/"},
+        status=200,
+    )
+
+    await twilio_offers(uuid4(), "US", "local", ["voice"], city="Phoenix", region="AZ")
+
+    query = parse_qs(urlparse(responses.calls[0].request.url).query)
+    assert query["InLocality"] == ["Phoenix"]
+    assert query["InRegion"] == ["AZ"]

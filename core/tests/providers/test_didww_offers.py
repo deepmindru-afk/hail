@@ -258,6 +258,60 @@ async def test_area_code_keeps_only_numbers_that_start_with_it(monkeypatch):
     assert "page%5Bsize%5D=50" in responses.calls[0].request.url
 
 
+def _cities(*cities):
+    """(city id, region id) pairs, as DIDWW returns them with include=region."""
+    responses.add(
+        responses.GET,
+        f"{BASE}/cities",
+        json={
+            "data": [
+                {
+                    "id": city,
+                    "type": "cities",
+                    "attributes": {"name": "Phoenix"},
+                    "relationships": {
+                        "region": {"data": {"id": region, "type": "regions"}}
+                    },
+                }
+                for city, region in cities
+            ]
+        },
+    )
+
+
+@responses.activate
+async def test_city_in_a_state_filters_by_that_city_id(monkeypatch):
+    monkeypatch.setattr(
+        mod, "lookup_ids", lambda country: (COUNTRY_ID, {"local": "t-local"})
+    )
+    # Phoenix, Oregon comes first: the state must pick Phoenix, Arizona.
+    _cities(("city-or", "region-or"), ("city-az", "region-az"))
+    responses.add(
+        responses.GET,
+        f"{BASE}/regions",
+        json={"data": [{"id": "region-az", "type": "regions"}]},
+    )
+    _inventory(numbers=("16235550100",))
+    _no_address()
+    offers = await didww_offers(
+        ORG, "US", "local", ["voice"], city="Phoenix", region="AZ"
+    )
+    assert [o.e164 for o in offers] == ["+16235550100"]
+    assert "include=region" in responses.calls[0].request.url
+    assert "filter%5Biso%5D=US-AZ" in responses.calls[1].request.url
+    assert "filter%5Bcity.id%5D=city-az" in responses.calls[2].request.url
+
+
+@responses.activate
+async def test_unknown_city_is_no_stock(monkeypatch):
+    monkeypatch.setattr(
+        mod, "lookup_ids", lambda country: (COUNTRY_ID, {"local": "t-local"})
+    )
+    _cities()
+    assert await didww_offers(ORG, "GB", "local", ["voice"], city="Atlantis") == []
+    assert len(responses.calls) == 1  # No inventory search without a city id.
+
+
 @responses.activate
 @pytest.mark.parametrize("status", [401, 429, 500])
 async def test_errors_propagate(status):
