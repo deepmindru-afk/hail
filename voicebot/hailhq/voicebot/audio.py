@@ -6,17 +6,15 @@ https://docs.livekit.io/transport/media/noise-cancellation/
 
 from __future__ import annotations
 
-from urllib.parse import urlsplit
-
 from hailhq.core.config import settings
 from livekit import rtc
 from livekit.agents import room_io
+from livekit.agents.utils.misc import is_cloud
 
 
 def room_options() -> room_io.RoomOptions:
-    host = urlsplit(settings.livekit_url).hostname or ""
     selector = None
-    if host.endswith(".livekit.cloud"):
+    if is_cloud(settings.livekit_url):
         # Proprietary Cloud filter, loaded only for the supported transport.
         # It processes subscribed input frames without republishing cleaned audio;
         # composite Egress continues to capture the original room tracks.

@@ -413,7 +413,7 @@ def build_stt(
     its provider matches ``provider``; a row the auto-route degraded away
     from (e.g. an unsupported-language fallback) is ignored rather than
     billed. ``stt_drives_turns`` is set when the session's turn detection
-    is ``"stt"`` — Speechmatics then runs its VAD end-of-utterance
+    is ``"stt"``: Speechmatics then runs its VAD end-of-utterance
     mode instead of EXTERNAL.
 
     An org row on a provider outside ``("deepgram", "speechmatics")`` fails
@@ -617,11 +617,8 @@ def build_session(
         llm=build_llm(llm_cfg, org_cfgs.get("llm")),
         turn_handling=TurnHandlingOptions(
             turn_detection=turn_detection,
-            interruption={
-                "min_duration": 0.5,
-                "min_words": 1,
-                "false_interruption_timeout": 2.0,
-                "resume_false_interruption": True,
-            },
+            # Only the setting that differs from the SDK defaults: a transcribed
+            # word, not VAD energy alone, is needed to interrupt the agent.
+            interruption={"min_words": 1},
         ),
     )

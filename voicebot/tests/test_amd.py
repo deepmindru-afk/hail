@@ -133,6 +133,35 @@ async def test_audio_ready_is_published_after_amd_is_armed(monkeypatch):
     assert order == ["armed", "ready", "classify"]
 
 
+async def test_dial_gate_is_released_when_amd_is_skipped() -> None:
+    """A session without a plain LLM skips AMD but must still let the API dial."""
+    released = []
+
+    async def ready():
+        released.append(True)
+
+    session = SimpleNamespace(llm=object(), stt=object())
+    assert await run_amd(session, UUID(int=1), on_ready=ready) is None  # type: ignore[arg-type]
+    assert released == [True]
+
+
+async def test_dial_gate_is_released_once_when_amd_fails_to_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    released = []
+
+    class Broken(_RecordingAMD):
+        async def __aenter__(self):
+            raise ValueError("classifier could not be resolved")
+
+    async def ready():
+        released.append(True)
+
+    monkeypatch.setattr(amd_mod, "AMD", Broken)
+    assert await run_amd(_session_with_layers(), UUID(int=1), on_ready=ready) is None  # type: ignore[arg-type]
+    assert released == [True]
+
+
 async def test_run_amd_gives_up_when_detection_never_settles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

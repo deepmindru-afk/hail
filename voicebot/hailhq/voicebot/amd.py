@@ -91,12 +91,18 @@ def build_amd_models(
             )
             models.owned.append(models.stt)
         elif (org_stt := org_cfgs.get("stt")) and org_stt.provider == "deepgram":
-            # Nova-3's streaming multi model covers ten languages, not its whole
-            # monolingual catalog. Never remove Arabic (or another pinned language)
-            # from a BYO call by changing it to an unsupported multi model.
+            # Only nova-3 has a streaming "multi" mode, and it covers ten
+            # languages, not the whole monolingual catalog. Never remove Arabic
+            # (or another pinned language) from a BYO call, and never send
+            # "multi" to a model that rejects it (the stream would fail and AMD
+            # would classify on VAD alone).
             multi = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
+            model = org_stt.params.get("model") or settings.deepgram_model
             amd_language = (
-                "multi" if language is None or language in multi else language
+                "multi"
+                if model.startswith("nova-3")
+                and (language is None or language in multi)
+                else language
             )
             models.stt = build_stt(org_stt, language=amd_language, provider="deepgram")
             models.owned.append(models.stt)
@@ -130,14 +136,16 @@ _END_REASON_BY_CATEGORY: dict[str, CallEndReason] = {
 # regression than a slightly less certain verdict.
 NO_SPEECH_THRESHOLD_SECONDS = 6.0
 
-# Backstop on the whole detection. AMD's own 20s budget is armed only once
-# the SIP audio track publishes (``AMD._setup`` awaits
-# ``wait_for_track_publication``, which takes no timeout), so a leg that
-# never publishes — trunk failure, no early media — would otherwise leave
-# ``execute()`` waiting on its verdict forever, with entrypoint blocked
-# behind it. Comfortably above AMD's internal budget so this fires only when
-# that budget never started.
-DETECTION_TIMEOUT_SECONDS = 30.0
+# Backstop on the whole detection. ``execute()`` now starts BEFORE the API
+# dials (``on_ready`` releases the dial gate from inside the AMD context), so
+# this window spans SIP participant creation, the whole ring phase and the
+# callee's greeting. AMD's own 20s budget only arms on ``sip.callStatus ==
+# active``; a leg that never publishes audio settles ``participant_missing``
+# within 5s on 1.8.8 and a leg that drops before answer settles on its
+# disconnect, so this only has to outlast the carrier ring timeout plus the
+# 20s budget. 30s was too short: a voicemail that picks up after 25s of
+# ringing left 5s and the greeting was spoken into the mailbox.
+DETECTION_TIMEOUT_SECONDS = 90.0
 
 # The verdict that means "we are talking to a phone tree, not a person".
 MACHINE_IVR_CATEGORY = "machine-ivr"
@@ -190,7 +198,22 @@ async def run_amd(
     the session layers for backwards compatibility and direct dispatches.
     ``on_ready`` releases the API's dialing gate only after AMD is armed.
     Detection failure stays distinct from a positive human classification.
+
+    ``on_ready`` fires on EVERY exit path. The API will not dial until it
+    does, so an AMD that is skipped (no plain LLM, no STT) or that fails to
+    arm must still release the gate; otherwise the API times out and marks
+    the call ``agent_dispatch_failed`` instead of proceeding without AMD.
     """
+    released = on_ready is None
+
+    async def _release() -> None:
+        nonlocal released
+        if released:
+            return
+        released = True
+        assert on_ready is not None
+        await on_ready()
+
     try:
         # session.llm is typed LLM | RealtimeModel | None; Hail never uses a
         # RealtimeModel, so narrow rather than widen AMD's parameter type.
@@ -213,8 +236,7 @@ async def run_amd(
                 "prompt": GREETING_CLASSIFICATION_PROMPT,
             },
         ) as detector:
-            if on_ready is not None:
-                await on_ready()
+            await _release()
             return await asyncio.wait_for(
                 detector.execute(), timeout=DETECTION_TIMEOUT_SECONDS
             )
@@ -232,6 +254,10 @@ async def run_amd(
     finally:
         if models is not None:
             await models.aclose()
+        try:
+            await _release()
+        except Exception:
+            logger.exception("call_id=%s could not release the dial gate", call_id)
 
 
 __all__ = [

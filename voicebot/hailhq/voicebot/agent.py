@@ -1864,10 +1864,11 @@ async def _run_call(
         captured["end_reason"] = CallEndReason.SOFT_CAP_REACHED.value
         # Status stays None → on_call_end falls back to "completed".
 
+    agent_hangup = make_agent_hangup(ctx, captured, bridge_state)
     agent_tools, agent_api = await build_tools_safely(
         metadata,
         call_id,
-        make_agent_hangup(ctx, captured, bridge_state),
+        agent_hangup,
         make_agent_send_dtmf(ctx),
         make_agent_bridge(
             ctx,
@@ -1951,7 +1952,7 @@ async def _run_call(
     shutting_down = False
     recovery = ConversationRecovery(
         session,
-        on_exhausted=make_agent_hangup(ctx, captured, bridge_state),
+        on_exhausted=agent_hangup,
         can_recover=lambda: (
             not shutting_down
             and captured["end_reason"] is None
