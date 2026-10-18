@@ -21,7 +21,11 @@ from hailhq.core.providers.verification.base import (
     SmsRegistrationProvider,
     VerificationProviderError,
 )
-from hailhq.core.providers.verification.sms_form import campaign_text, sms_requirements
+from hailhq.core.providers.verification.sms_form import (
+    campaign_text,
+    field_problems,
+    sms_requirements,
+)
 from twilio.base.exceptions import TwilioException, TwilioRestException
 from twilio.rest import Client as TwilioClient
 
@@ -100,15 +104,7 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
             return False
 
     def _validate(self, fields, address, subject_type) -> list[Problem]:
-        problems: list[Problem] = []
-        required = [
-            f.name
-            for f in sms_requirements(self.name, subject_type).fields
-            if f.required
-        ]
-        for name in required:
-            if not (fields.get(name) or "").strip():
-                problems.append(Problem(field=name, message="This is required."))
+        problems = field_problems(fields, subject_type)
         if (
             subject_type == "business"
             and fields.get("ein")

@@ -511,6 +511,13 @@ async def test_draft_cleans_up_on_non_twilio_error() -> None:
     ]
 
 
+async def test_bad_link_is_a_problem_and_sends_nothing() -> None:
+    p = _provider()
+    draft = await _draft(p, privacy_policy_url="acme.example/privacy")
+    assert [pr.field for pr in draft.problems] == ["privacy_policy_url"]
+    assert draft.refs == {} and p._client.calls == []
+
+
 async def test_draft_4xx_becomes_neutral_problem() -> None:
     r = _ok_responses()
     r["brand_registrations.create"] = _raise(_tw(400, "EIN 12-3456789 not found"))

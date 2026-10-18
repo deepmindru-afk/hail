@@ -89,6 +89,20 @@ async def test_business_draft_creates_brand_and_requests_vetting() -> None:
     assert calls[1][2] == {"vettingProvider": "AEGIS", "vettingClass": "STANDARD"}
 
 
+async def test_bad_link_is_a_problem_and_sends_nothing() -> None:
+    calls = []
+
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={})
+
+    draft = await _draft(
+        _provider(handler), fields={**FIELDS, "terms_url": "acme.example/terms"}
+    )
+    assert [p.field for p in draft.problems] == ["terms_url"]
+    assert draft.refs == {} and calls == []
+
+
 async def test_missing_field_is_a_problem_and_sends_nothing() -> None:
     calls = []
 

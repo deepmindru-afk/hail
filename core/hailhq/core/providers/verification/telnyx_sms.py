@@ -24,6 +24,7 @@ from hailhq.core.providers.verification.base import (
 )
 from hailhq.core.providers.verification.sms_form import (
     campaign_text,
+    field_problems,
     sms_requirements,
 )
 
@@ -76,10 +77,7 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
         return sms_requirements(self.name, subject_type)
 
     def _validate(self, fields, address, subject_type) -> list[Problem]:
-        problems: list[Problem] = []
-        for spec in sms_requirements(self.name, subject_type).fields:
-            if spec.required and not (fields.get(spec.name) or "").strip():
-                problems.append(Problem(field=spec.name, message="This is required."))
+        problems = field_problems(fields, subject_type)
         mobile = (fields.get("mobile_phone_number") or "").strip()
         if subject_type == "person" and mobile and not mobile.startswith("+1"):
             problems.append(

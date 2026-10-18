@@ -1,5 +1,9 @@
 import pytest
-from hailhq.core.providers.verification.sms_form import campaign_text, sms_requirements
+from hailhq.core.providers.verification.sms_form import (
+    campaign_text,
+    field_problems,
+    sms_requirements,
+)
 
 
 def test_business_form_lists_company_and_campaign_fields() -> None:
@@ -130,3 +134,68 @@ def test_missing_required_field_raises(field) -> None:
     data.pop(field)
     with pytest.raises(KeyError):
         campaign_text(data, "business")
+
+
+GOOD = {
+    "campaign_description": "x",
+    "sample_1": "x",
+    "sample_2": "x",
+    "opt_in_description": "x",
+    "has_links": "NO",
+    "privacy_policy_url": "https://acme.example/privacy",
+    "terms_url": "https://acme.example/terms",
+    "first_name": "Ada",
+    "last_name": "Lovelace",
+    "email": "ada@example.com",
+    "mobile_phone_number": "+15125550199",
+}
+
+
+def test_field_problems_accepts_a_complete_form() -> None:
+    assert field_problems(GOOD, "person") == []
+
+
+def test_field_problems_names_missing_required_fields() -> None:
+    data = {**GOOD, "terms_url": " "}
+    data.pop("sample_1")
+    assert [(p.field, p.message) for p in field_problems(data, "person")] == [
+        ("sample_1", "This is required."),
+        ("terms_url", "This is required."),
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["acme.example/privacy", "ftp://acme.example/privacy", "https://", "n/a"],
+)
+def test_field_problems_rejects_a_link_without_scheme_or_host(value) -> None:
+    problems = field_problems({**GOOD, "privacy_policy_url": value}, "person")
+    assert [p.field for p in problems] == ["privacy_policy_url"]
+    assert problems[0].message.startswith("Enter the full link")
+
+
+def test_field_problems_rejects_a_link_over_the_cap() -> None:
+    long = "https://acme.example/" + "a" * 500
+    problems = field_problems({**GOOD, "terms_url": long}, "person")
+    assert [(p.field, p.message) for p in problems] == [
+        ("terms_url", "Use a shorter link.")
+    ]
+
+
+def test_message_flow_keeps_own_text_with_links_at_the_cap() -> None:
+    link = "https://acme.example/" + "a" * 491
+    text = campaign_text(
+        {
+            "campaign_description": "x",
+            "sample_1": "x",
+            "sample_2": "x",
+            "opt_in_description": "own text " * 300,
+            "has_links": "NO",
+            "privacy_policy_url": link,
+            "terms_url": link,
+        },
+        "business",
+    )
+    assert len(text.message_flow) <= 2048
+    assert text.message_flow.startswith("own text own text")
+    assert text.message_flow.endswith(f"Terms: {link}")
