@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -45,6 +46,7 @@ from hailhq.core.disclosure import disclosure_text
 from hailhq.core.handover import HANDOVER_DEFAULT_MAX_SECONDS
 from hailhq.core.inbound_calls import Rejected, SipAttributes, open_inbound_call
 from hailhq.core.internal_webhook import notify_usage_event_recorded
+from hailhq.core.livekit import VOICE_READY_ATTRIBUTE
 from hailhq.core.models import Call, CallEvent, UsageEvent
 from hailhq.core.pool import release_pool_reservation
 from hailhq.core.prompts import (
@@ -72,9 +74,11 @@ from hailhq.voicebot.amd import (
     MACHINE_HANGUP_CATEGORIES,
     MACHINE_IVR_CATEGORY,
     amd_end_reason,
+    build_amd_models,
     ivr_navigation_instructions,
     run_amd,
 )
+from hailhq.voicebot.audio import room_options
 from hailhq.voicebot.pipeline import (
     ProviderKeyError,
     build_session,
@@ -82,6 +86,7 @@ from hailhq.voicebot.pipeline import (
     resolve_org_configs,
 )
 from hailhq.voicebot.recording import upload_recording
+from hailhq.voicebot.recovery import ConversationRecovery
 from hailhq.voicebot.telemetry import connect_livekit_tracing
 from hailhq.voicebot.tools import build_agent_tools
 from livekit import rtc
@@ -639,6 +644,7 @@ def arm_deferred_greeting(
     metadata: dict[str, Any],
     call_id: UUID,
     tasks: set[asyncio.Task[None]],
+    on_greeted: Callable[[], None] | None = None,
 ) -> None:
     """Hold the greeting until the tree hands us to someone, then say it once.
 
@@ -689,6 +695,8 @@ def arm_deferred_greeting(
                 # just spoke, and the normal turn loop answers them. The
                 # injected opening turn is for cold-open pickups only.
                 await speak_greeting(session, metadata, generate_opening=False)
+                if on_greeted is not None:
+                    on_greeted()
             except Exception:
                 logger.exception(
                     "call_id=%s deferred greeting failed after IVR", call_id
@@ -1506,6 +1514,23 @@ def attach_event_handlers(
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
+    @session.on("metrics_collected")
+    def _on_metrics(ev: Any) -> None:
+        metric = ev.metrics
+        kind = getattr(metric, "type", "")
+        if kind not in ("llm_metrics", "tts_metrics", "eou_metrics"):
+            return
+        # Numeric timing only: no transcript, prompts, tool arguments, or keys.
+        payload: dict[str, Any] = {"type": kind}
+        for key in ("ttft", "ttfb", "end_of_utterance_delay", "transcription_delay"):
+            value = getattr(metric, key, None)
+            if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
+                payload[key] = value
+        speech_id = getattr(metric, "speech_id", None)
+        if speech_id:
+            payload["speech_id"] = speech_id
+        _spawn("voice_metrics", payload)
+
     @session.on("conversation_item_added")
     def _on_item(ev: Any) -> None:
         item = ev.item
@@ -1871,7 +1896,7 @@ async def _run_call(
         ),
         tools=agent_tools,
     )
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(agent=agent, room=ctx.room, room_options=room_options())
     room_name = ctx.room.name
 
     soft_cap_seconds = metadata.get(
@@ -1924,11 +1949,24 @@ async def _run_call(
     # has run (both run on the same event loop, so the check is atomic).
     text_watch_task: asyncio.Task[None] | None = None
     shutting_down = False
+    recovery = ConversationRecovery(
+        session,
+        on_exhausted=make_agent_hangup(ctx, captured, bridge_state),
+        can_recover=lambda: (
+            not shutting_down
+            and captured["end_reason"] is None
+            and not bridge_state.get("human")
+            and not bridge_state.get("connected")
+        ),
+        timeout=settings.hail_voice_recovery_timeout_seconds,
+        call_id=call_id,
+    )
 
     async def _shutdown_body() -> None:
         nonlocal shutting_down
         shutting_down = True
         try:
+            await recovery.aclose()
             # The bridge swaps in the handover cap once a contact answers.
             cap_task = bridge_state.get("soft_cap_task") or soft_cap_task
             if cap_task is not None and not cap_task.done():
@@ -1994,7 +2032,22 @@ async def _run_call(
         )
         amd_result = None
     else:
-        amd_result = await run_amd(session, call_id)
+
+        async def signal_ready() -> None:
+            if metadata.get("await_agent_ready"):
+                await ctx.room.local_participant.set_attributes(
+                    {VOICE_READY_ATTRIBUTE: "true"}
+                )
+
+        models = build_amd_models(
+            session,
+            org_cfgs=org_cfgs,
+            llm_override=llm_cfg is not None,
+            language=language,
+        )
+        amd_result = await run_amd(
+            session, call_id, models=models, on_ready=signal_ready
+        )
     if not inbound:
         await write_call_event(
             call_id,
@@ -2007,6 +2060,8 @@ async def _run_call(
                 "transcript": (
                     (amd_result.transcript or "")[:500] if amd_result else None
                 ),
+                "reason": amd_result.reason if amd_result else "detection_failed",
+                "delay": amd_result.delay if amd_result else None,
             },
         )
     if amd_result is not None and amd_result.category in MACHINE_HANGUP_CATEGORIES:
@@ -2039,7 +2094,9 @@ async def _run_call(
         # The disclosure is deferred, not dropped: `_speak_deferred_greeting`
         # fires it the moment a person is on the line.
         logger.info("call_id=%s phone tree detected — navigating", call_id)
-        arm_deferred_greeting(session, metadata, call_id, event_tasks)
+        arm_deferred_greeting(
+            session, metadata, call_id, event_tasks, on_greeted=recovery.start
+        )
         session.generate_reply(
             instructions=ivr_navigation_instructions(amd_result.transcript)
         )
@@ -2055,6 +2112,7 @@ async def _run_call(
                 metadata,
                 pickup_transcript=amd_result.transcript if amd_result else None,
             )
+            recovery.start()
         except Exception:
             logger.exception(
                 "call_id=%s greeting failed; session closed during detection", call_id

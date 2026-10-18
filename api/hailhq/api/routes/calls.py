@@ -556,6 +556,7 @@ async def create_call(
             metadata={
                 "call_id": str(call.id),
                 "direction": "outbound",
+                "await_agent_ready": True,
                 "agent_id": str(agent.id) if agent else None,
                 "max_duration_seconds": call.max_duration_seconds,
                 "organization_id": str(call.organization_id),
@@ -576,6 +577,8 @@ async def create_call(
                 "org_name": await org_name_task,
             },
         )
+        setup_stage = "agent_ready"
+        await lk.wait_for_agent_ready(room_name)
         setup_stage = "sip_participant"
         participant = await lk.create_sip_participant(
             room_name=room_name,
@@ -596,7 +599,11 @@ async def create_call(
         now = datetime.now(timezone.utc)
         # Coerce via CallEndReason so an unrecognized stage name fails here
         # rather than at the DB ENUM boundary.
-        failure_code = CallEndReason(f"{setup_stage}_failed").value
+        failure_code = (
+            CallEndReason.AGENT_DISPATCH_FAILED.value
+            if setup_stage == "agent_ready"
+            else CallEndReason(f"{setup_stage}_failed").value
+        )
         # Guard on a non-terminal status: the voicebot's own dispatch can race
         # this LiveKit-failure path and already finalize the row (e.g.
         # provider_key_error on a BYO session-build failure). This write must

@@ -17,6 +17,7 @@ v1.1 (December 2025).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID
 
@@ -26,6 +27,8 @@ from hailhq.core.telemetry_identity import get_identity
 from livekit import api
 from livekit.protocol.models import ListUpdate
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+VOICE_READY_ATTRIBUTE = "hail.voice.ready"
 
 
 class LiveKitClient:
@@ -139,6 +142,27 @@ class LiveKitClient:
                 headers=headers or {},
             )
         )
+
+    async def wait_for_agent_ready(
+        self, room_name: str, *, timeout: float = 20.0, poll_interval: float = 0.25
+    ) -> None:
+        """Do not dial until the worker's session and AMD audio input are armed.
+
+        A dispatch response only means that the job was queued. The participant
+        attribute is published by the worker after AMD enters its listening setup.
+        https://docs.livekit.io/reference/python/livekit/api/room_service.html
+        """
+        async with asyncio.timeout(timeout):
+            while True:
+                result = await self._lkapi.room.list_participants(
+                    api.ListParticipantsRequest(room=room_name)
+                )
+                if any(
+                    p.attributes.get(VOICE_READY_ATTRIBUTE) == "true"
+                    for p in result.participants
+                ):
+                    return
+                await asyncio.sleep(poll_interval)
 
     async def add_inbound_number(self, trunk_id: str, e164: str) -> None:
         """Register ``e164`` on an inbound trunk so LiveKit accepts calls to it.

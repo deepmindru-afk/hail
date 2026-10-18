@@ -90,9 +90,11 @@ async def test_run_amd_passes_session_layers_and_identity(
     assert kwargs["stt"] is session.stt
     assert kwargs["participant_identity"] == f"caller-{call_id}"
     assert kwargs["detection_options"] == {
-        "no_speech_threshold": NO_SPEECH_THRESHOLD_SECONDS
+        "no_speech_threshold": NO_SPEECH_THRESHOLD_SECONDS,
+        "human_speech_threshold": 0.0,
+        "prompt": amd_mod.GREETING_CLASSIFICATION_PROMPT,
     }
-    assert kwargs["suppress_compatibility_warning"] is True
+    assert not kwargs.get("suppress_compatibility_warning", False)
     # ivr_detection is left at LiveKit's default (True) on purpose.
     assert "ivr_detection" not in kwargs
 
@@ -109,6 +111,26 @@ async def test_run_amd_returns_none_when_detection_raises(
     monkeypatch.setattr(amd_mod, "AMD", _Boom)
 
     assert await run_amd(_session_with_layers(), UUID(int=1)) is None  # type: ignore[arg-type]
+
+
+async def test_audio_ready_is_published_after_amd_is_armed(monkeypatch):
+    order = []
+
+    class Detector(_RecordingAMD):
+        async def __aenter__(self):
+            order.append("armed")
+            return self
+
+        async def execute(self):
+            order.append("classify")
+            return _prediction("human")
+
+    async def ready():
+        order.append("ready")
+
+    monkeypatch.setattr(amd_mod, "AMD", Detector)
+    await run_amd(_session_with_layers(), UUID(int=1), on_ready=ready)
+    assert order == ["armed", "ready", "classify"]
 
 
 async def test_run_amd_gives_up_when_detection_never_settles(
@@ -295,11 +317,12 @@ async def _drive_entrypoint(
     async def _no_org_cfgs(_org_id: UUID | None, *, skip_llm: bool = False) -> dict:
         return {}
 
-    async def _fake_run_amd(_session: object, _call_id: UUID):
+    async def _fake_run_amd(_session: object, _call_id: UUID, **kwargs):
         return amd_result
 
     monkeypatch.setattr(agent_mod, "resolve_org_configs", _no_org_cfgs)
     monkeypatch.setattr(agent_mod, "build_session", lambda *a, **k: session)
+    monkeypatch.setattr(agent_mod, "build_amd_models", lambda *a, **k: None)
     monkeypatch.setattr(agent_mod, "run_amd", run_amd_override or _fake_run_amd)
     monkeypatch.setattr(
         agent_mod.settings, "hail_voice_max_duration_seconds", 0, raising=False
@@ -407,7 +430,7 @@ async def test_amd_is_skipped_when_the_sip_leg_already_disconnected(
     to its 30s backstop and the job had to be force-cancelled."""
     ran = {"amd": False}
 
-    async def _tracking_run_amd(_session: object, _call_id: UUID):
+    async def _tracking_run_amd(_session: object, _call_id: UUID, **kwargs):
         ran["amd"] = True
 
     call_id, _ctx, _session = await _drive_entrypoint(
@@ -421,7 +444,12 @@ async def test_amd_is_skipped_when_the_sip_leg_already_disconnected(
     assert ran["amd"] is False
     events = await _amd_events(async_session, call_id)
     assert len(events) == 1
-    assert events[0].payload == {"category": None, "transcript": None}
+    assert events[0].payload == {
+        "category": None,
+        "transcript": None,
+        "reason": "detection_failed",
+        "delay": None,
+    }
 
 
 async def test_ivr_does_not_speak_the_greeting_into_the_menu(
@@ -560,6 +588,8 @@ async def test_amd_result_event_written_on_every_path(
     assert events[0].payload == {
         "category": category,
         "transcript": "hello you have reached",
+        "reason": "test",
+        "delay": 0.1,
     }
 
 
@@ -572,4 +602,9 @@ async def test_amd_result_event_written_when_detection_failed(
 
     events = await _amd_events(async_session, call_id)
     assert len(events) == 1
-    assert events[0].payload == {"category": None, "transcript": None}
+    assert events[0].payload == {
+        "category": None,
+        "transcript": None,
+        "reason": "detection_failed",
+        "delay": None,
+    }

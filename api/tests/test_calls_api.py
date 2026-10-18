@@ -286,6 +286,12 @@ async def test_post_calls_happy_path_201(
     # Disclosure defaults on and always reaches the voicebot explicitly.
     assert dispatch_kwargs["metadata"]["ai_disclosure"] is True
 
+    # Dispatch alone is not audio readiness. The worker arms AMD before the dial.
+    assert dispatch_kwargs["metadata"]["await_agent_ready"] is True
+    livekit_mock.wait_for_agent_ready.assert_awaited_once_with("hail-test-room")
+    calls = [call[0] for call in livekit_mock.mock_calls]
+    assert calls.index("wait_for_agent_ready") < calls.index("create_sip_participant")
+
     livekit_mock.create_sip_participant.assert_awaited_once()
     sip_kwargs = livekit_mock.create_sip_participant.await_args.kwargs
     assert sip_kwargs["to_e164"] == "+14155559999"
@@ -402,17 +408,27 @@ async def test_post_calls_carrier_route_error_creates_no_room(
     livekit_mock.create_room.assert_not_awaited()
 
 
+@pytest.mark.parametrize("failure_stage", ["sip_participant", "agent_ready"])
 async def test_post_calls_livekit_failure_marks_call_failed(
     client: httpx.AsyncClient,
     async_session: AsyncSession,
     org_and_key: tuple[str, ApiKey, str],
     livekit_mock: AsyncMock,
     add_phone_number,
+    failure_stage,
 ) -> None:
     org_id, _, plain = org_and_key
     await add_phone_number(async_session, org_id)
 
-    livekit_mock.create_sip_participant.side_effect = RuntimeError("trunk down")
+    if failure_stage == "agent_ready":
+        livekit_mock.wait_for_agent_ready.side_effect = TimeoutError("worker not ready")
+    else:
+        livekit_mock.create_sip_participant.side_effect = RuntimeError("trunk down")
+    expected_reason = (
+        "agent_dispatch_failed"
+        if failure_stage == "agent_ready"
+        else "sip_participant_failed"
+    )
 
     resp = await client.post(
         "/calls",
@@ -429,7 +445,7 @@ async def test_post_calls_livekit_failure_marks_call_failed(
 
     call = (await async_session.execute(select(Call))).scalar_one()
     assert call.status == "failed"
-    assert call.end_reason == "sip_participant_failed"
+    assert call.end_reason == expected_reason
     assert call.ended_at is not None
 
     events = (await async_session.execute(select(CallEvent))).scalars().all()
@@ -437,12 +453,14 @@ async def test_post_calls_livekit_failure_marks_call_failed(
     assert events[0].payload == {
         "from": "queued",
         "to": "failed",
-        "reason": "sip_participant_failed",
+        "reason": expected_reason,
     }
     livekit_mock.delete_dispatch.assert_awaited_once_with(
         "AD_test_dispatch", "hail-test-room"
     )
     livekit_mock.delete_room.assert_awaited_once_with("hail-test-room")
+    if failure_stage == "agent_ready":
+        livekit_mock.create_sip_participant.assert_not_awaited()
 
 
 async def test_post_calls_livekit_failure_emits_call_failed_webhook(

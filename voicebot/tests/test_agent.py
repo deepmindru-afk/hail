@@ -191,6 +191,36 @@ class _FakeSession:
         return _register
 
 
+async def test_voice_metrics_record_only_finite_timings(monkeypatch) -> None:
+    recorded = []
+
+    async def write(_call_id, kind, payload):
+        recorded.append((kind, payload))
+
+    monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", write)
+    session = _FakeSession()
+    tasks = attach_event_handlers(session, UUID(int=1))
+    session.handlers["metrics_collected"](
+        SimpleNamespace(
+            metrics=SimpleNamespace(
+                type="llm_metrics",
+                ttft=0.25,
+                ttfb=float("nan"),
+                speech_id="speech-1",
+                transcript="private speech",
+                api_key="private key",
+            )
+        )
+    )
+    await asyncio.gather(*list(tasks))
+    assert recorded == [
+        (
+            "voice_metrics",
+            {"type": "llm_metrics", "ttft": 0.25, "speech_id": "speech-1"},
+        )
+    ]
+
+
 async def _make_call_row(session: AsyncSession) -> UUID:
     """Insert a phone_number + queued call against a synthetic org_id."""
     org_id = UUID("11111111-2222-3333-4444-555555555555")

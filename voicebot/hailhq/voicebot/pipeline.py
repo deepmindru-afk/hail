@@ -615,5 +615,18 @@ def build_session(
         stt=build_stt(org_stt, language, provider, stt_drives_turns=(mode == "stt")),
         tts=build_tts(org_cfgs.get("tts"), voice_id_override, language),
         llm=build_llm(llm_cfg, org_cfgs.get("llm")),
-        turn_handling=TurnHandlingOptions(turn_detection=turn_detection),
+        turn_handling=TurnHandlingOptions(
+            turn_detection=turn_detection,
+            interruption={
+                "min_duration": 0.5,
+                "min_words": 1,
+                "false_interruption_timeout": 2.0,
+                "resume_false_interruption": True,
+                **(
+                    {"mode": settings.hail_voice_interruption_mode}
+                    if settings.hail_voice_interruption_mode != "auto"
+                    else {}
+                ),
+            },
+        ),
     )

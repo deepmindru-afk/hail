@@ -54,6 +54,35 @@ async def test_create_room_uses_hail_call_id_naming(client: LiveKitClient) -> No
     assert req.name == f"hail-{CALL_ID}"
 
 
+async def test_wait_for_agent_readiness_requires_an_explicit_audio_ready_signal(client):
+    from hailhq.core.livekit import VOICE_READY_ATTRIBUTE
+
+    client._lkapi.room.list_participants = AsyncMock(
+        side_effect=[
+            api.ListParticipantsResponse(
+                participants=[api.ParticipantInfo(identity="agent")]
+            ),
+            api.ListParticipantsResponse(
+                participants=[
+                    api.ParticipantInfo(
+                        identity="agent", attributes={VOICE_READY_ATTRIBUTE: "true"}
+                    )
+                ]
+            ),
+        ]
+    )
+    await client.wait_for_agent_ready("room", poll_interval=0)
+    assert client._lkapi.room.list_participants.await_count == 2
+
+
+async def test_agent_readiness_has_a_deadline(client):
+    client._lkapi.room.list_participants = AsyncMock(
+        return_value=api.ListParticipantsResponse()
+    )
+    with pytest.raises(TimeoutError):
+        await client.wait_for_agent_ready("room", timeout=0.01, poll_interval=0.001)
+
+
 async def test_dispatch_agent_serializes_metadata_and_returns_id(
     client: LiveKitClient,
 ) -> None:
