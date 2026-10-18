@@ -229,9 +229,10 @@ class _SmsResource:
     ) -> SmsResponse:
         """Send an outbound SMS.
 
-        With no ``from_``: destinations where Twilio delivers a dynamic
-        alphanumeric sender ID unchanged (about 125 countries, see
-        core/hailhq/core/sender_id.py) use the org's sender ID (or
+        With no ``from_``: destinations where the sender-ID carrier delivers
+        a dynamic alphanumeric sender ID unchanged (about 125 countries,
+        one table per carrier in core/hailhq/core/sender_id_corridors.py)
+        use the org's sender ID (or
         ``HAIL``, the platform default); Australia (+61) always uses
         ``HAIL``; every other destination, including the US and Canada,
         uses the org's oldest active SMS-capable number and the server

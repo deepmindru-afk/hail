@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from hailhq.core.sender_id import _REGION_OUTCOMES, resolve_sender
+from hailhq.core.sender_id import resolve_sender
+from hailhq.core.sender_id_corridors import CORRIDORS
 
 
 def test_us_always_requires_dedicated_number() -> None:
@@ -79,7 +80,7 @@ def test_czech_partial_network_support_requires_dedicated_number() -> None:
 
 def test_region_without_twilio_data_requires_dedicated_number() -> None:
     # +850 North Korea has no Twilio guidelines page — safe fallback.
-    assert "KP" not in _REGION_OUTCOMES
+    assert "KP" not in CORRIDORS["twilio"]
     result = resolve_sender("+8501912345678", custom_sender_id="ACME")
     assert result.kind == "dedicated_number_required"
 
@@ -91,5 +92,29 @@ def test_unparseable_number_requires_dedicated_number() -> None:
 
 def test_every_region_outcome_is_a_known_value() -> None:
     allowed = {"always_number", "custom_ok", "platform_default_only", "excluded"}
-    assert set(_REGION_OUTCOMES.values()) <= allowed
-    assert len(_REGION_OUTCOMES) >= 200
+    for carrier in ("twilio", "telnyx"):
+        assert set(CORRIDORS[carrier].values()) <= allowed
+        assert len(CORRIDORS[carrier]) >= 200
+
+
+def test_telnyx_has_its_own_rules() -> None:
+    # Finland: Twilio replaces a dynamic sender ID, Telnyx keeps it.
+    assert resolve_sender("+358401234567", "ACME").kind == "dedicated_number_required"
+    telnyx = resolve_sender("+358401234567", "ACME", carrier="telnyx")
+    assert telnyx.kind == "alphanumeric"
+    assert telnyx.sender_id == "ACME"
+    # Australia: HAIL is registered on Twilio only.
+    assert resolve_sender("+61412345678", "ACME", carrier="telnyx").kind == (
+        "dedicated_number_required"
+    )
+
+
+def test_telnyx_never_sends_a_sender_id_to_north_america() -> None:
+    for number in ("+14155551234", "+14165551234", "+17875551234"):
+        result = resolve_sender(number, "ACME", carrier="telnyx")
+        assert result.kind == "dedicated_number_required"
+
+
+def test_unknown_carrier_requires_dedicated_number() -> None:
+    result = resolve_sender("+4552123456", "ACME", carrier="didww")
+    assert result.kind == "dedicated_number_required"

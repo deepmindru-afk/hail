@@ -287,6 +287,7 @@ async def create_sms(
         resolution = resolve_sender(
             body.to,
             custom_sender_id=sender_id_row.custom_sender_id if sender_id_row else None,
+            carrier=settings.sender_id_sms_carrier,
         )
         if resolution.kind == "alphanumeric":
             # Alphanumeric corridor with no explicit ``from`` → send from the
