@@ -415,15 +415,16 @@ class SmsCreate(ConsentAttestationMixin):
         default=None,
         alias="from",
         description=(
-            "Sender phone number, E.164 format. Must be an active number "
-            "owned by the organization with the SMS capability. Omitted: "
-            "UK (+44), Germany (+49) and Denmark (+45) destinations use the "
-            "organization's "
-            "sender ID, or the platform default 'HAIL' when none is set; "
-            "Australia (+61) always uses 'HAIL'. Every other destination "
-            "uses the organization's oldest active SMS-capable number; if "
-            "none exists the request fails with 422. SMS never uses the "
-            "shared pool."
+            "Sender phone number, E.164 format. Must be an active number owned by "
+            "the organization with the SMS capability. Omitted: destinations "
+            "where Twilio delivers a dynamic alphanumeric sender ID unchanged "
+            "(about 125 countries: most of Europe, Africa, the Middle East, "
+            "Asia-Pacific and the Caribbean; the list is _REGION_OUTCOMES in "
+            "core/hailhq/core/sender_id.py) use the organization's sender ID, or "
+            "the platform default 'HAIL' when none is set; Australia (+61) always "
+            "uses 'HAIL'. Every other destination, including the US and Canada, "
+            "uses the organization's oldest active SMS-capable number; if none "
+            "exists the request fails with 422. SMS never uses the shared pool."
         ),
     )
     body: str = Field(
