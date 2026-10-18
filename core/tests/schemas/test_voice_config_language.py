@@ -42,9 +42,8 @@ def test_stt_params_accept_speechmatics() -> None:
 
 def test_stt_params_operating_point() -> None:
     assert STTParams(provider="speechmatics").operating_point is None
-    assert (
-        STTParams(provider="speechmatics", operating_point="standard").operating_point
-        == "standard"
-    )
+    legacy = STTParams(provider="speechmatics", operating_point="standard")
+    assert legacy.operating_point is None
+    assert legacy.model == "linden-1"
     with pytest.raises(ValidationError):
         STTParams(provider="speechmatics", operating_point="turbo")

@@ -203,7 +203,7 @@ def test_build_stt_speechmatics_house() -> None:
     stt = build_stt(language="da", provider="speechmatics")
     assert isinstance(stt, speechmatics_plugin.STT)
     assert stt._stt_options.language == "da"
-    assert stt._stt_options.operating_point == "enhanced"
+    assert stt._stt_options.model == "linden-1"
 
 
 def test_build_stt_deepgram_still_default_shape() -> None:
@@ -235,10 +235,10 @@ def _make_session(language, org_cfgs=None):
 
 
 def test_session_semantic_turns_for_covered_language() -> None:
-    from livekit.plugins.turn_detector.multilingual import MultilingualModel
+    from livekit.agents.inference import TurnDetector
 
     session = _make_session("fr")
-    assert isinstance(session.turn_detection, MultilingualModel)
+    assert isinstance(session.turn_detection, TurnDetector)
 
 
 def test_session_stt_turns_for_speechmatics_language() -> None:
@@ -402,11 +402,11 @@ def test_session_unknown_language_degrades_to_defaults(
     warning, per the Task 1 review's known watch item."""
     import logging
 
-    from livekit.plugins.turn_detector.multilingual import MultilingualModel
+    from livekit.agents.inference import TurnDetector
 
     with caplog.at_level(logging.WARNING, logger="hailhq.voicebot"):
         session = _make_session("xx-not-a-real-code")
-    assert isinstance(session.turn_detection, MultilingualModel)
+    assert isinstance(session.turn_detection, TurnDetector)
     assert any("xx-not-a-real-code" in record.message for record in caplog.records)
 
 

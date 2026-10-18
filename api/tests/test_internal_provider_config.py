@@ -371,7 +371,7 @@ async def test_put_speechmatics_operating_point_accepted(
     )
     resp = await client.put(f"{BASE}/stt", content=body, headers=_signed(body))
     assert resp.status_code == 200, resp.text
-    assert resp.json()["params"] == {"operating_point": "standard"}
+    assert resp.json()["params"] == {"model": "linden-1"}
 
     resp = await client.get(BASE, headers=_signed(b""))
     providers = resp.json()["providers"]
@@ -381,7 +381,7 @@ async def test_put_speechmatics_operating_point_accepted(
             "provider": "speechmatics",
             "key_last4": "WXYZ",
             "key_set_at": providers[0]["key_set_at"],
-            "params": {"operating_point": "standard"},
+            "params": {"model": "linden-1"},
             "fallback_enabled": False,
             "is_active": True,
         }
@@ -424,5 +424,5 @@ async def test_validate_inflight_speechmatics_operating_point(
         "layer": "stt",
         "provider": "speechmatics",
         "api_key": "sk-sm-inflight",
-        "params": {"operating_point": "enhanced"},
+        "params": {"model": "linden-1"},
     }
