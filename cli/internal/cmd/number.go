@@ -82,7 +82,10 @@ Examples:
   # A local number in the 480 area code (Phoenix, Arizona):
   hail numbers acquire --country US --area-code 480
 
-  # A local number in Phoenix, Arizona (US and CA need --region with --city):
+  # A local number in London (area code as dialed in the UK):
+  hail numbers acquire --country GB --area-code 020
+
+  # A local number in Phoenix, Arizona (--region is optional):
   hail numbers acquire --country US --city Phoenix --region AZ
 
   # A US toll-free number from Telnyx:
@@ -99,9 +102,9 @@ Examples:
 	cmd.Flags().StringVar(&f.country, "country", "", "ISO 3166-1 alpha-2 country code (e.g. US)")
 	cmd.Flags().StringVar(&f.numberType, "type", "local", "Number type: local, mobile, toll_free, or national")
 	cmd.Flags().StringVar(&f.provider, "provider", "auto", "Carrier: auto, twilio, telnyx, or didww")
-	cmd.Flags().StringVar(&f.areaCode, "area-code", "", "Three-digit US or CA area code (e.g. 480)")
-	cmd.Flags().StringVar(&f.city, "city", "", "City name (e.g. London); US and CA also need --region")
-	cmd.Flags().StringVar(&f.region, "region", "", "Two-letter US state or CA province code, with --city (e.g. AZ)")
+	cmd.Flags().StringVar(&f.areaCode, "area-code", "", "Area code or first digits of the number, as dialed in the country (e.g. 020, 480)")
+	cmd.Flags().StringVar(&f.city, "city", "", "City name (e.g. London)")
+	cmd.Flags().StringVar(&f.region, "region", "", "Optional, with --city: US state or CA province code (e.g. AZ)")
 	cmd.Flags().StringVar(&f.quoteID, "quote-id", "", "Buy this quote (from POST /numbers/quotes) instead of the cheapest offer")
 	cmd.Flags().BoolVar(&f.voice, "voice-only", false, "Require voice only (default: voice and SMS)")
 	cmd.Flags().BoolVar(&f.sms, "sms-only", false, "Require SMS only (default: voice and SMS)")

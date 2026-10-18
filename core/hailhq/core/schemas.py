@@ -1,10 +1,13 @@
 import base64
 import re
 from datetime import datetime
+from functools import cache
 from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
+import phonenumbers
+import regex
 from hailhq.core.contact_ids import normalize_contact_id
 from hailhq.core.languages import Language
 from hailhq.core.regions import REGIONS
@@ -587,6 +590,24 @@ class NumberAcquireRequest(BaseModel):
         return v.upper()
 
 
+@cache
+def _landline_pattern(country: str) -> "regex.Pattern[str] | None":
+    """The national landline number pattern of ``country``, or None when
+    libphonenumber has no landline data for it."""
+    metadata = phonenumbers.PhoneMetadata.metadata_for_region(country)
+    if metadata is None or metadata.fixed_line is None:
+        return None
+    pattern = metadata.fixed_line.national_number_pattern
+    return regex.compile(pattern) if pattern else None
+
+
+def _starts_a_landline(country: str, digits: str) -> bool:
+    """True when some landline number in ``country`` starts with ``digits``
+    (after the country code). ``partial`` accepts a prefix of a full match."""
+    pattern = _landline_pattern(country)
+    return pattern is not None and pattern.fullmatch(digits, partial=True) is not None
+
+
 class NumberQuoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     country_code: str = Field(
@@ -609,19 +630,19 @@ class NumberQuoteRequest(BaseModel):
     )
     area_code: str | None = Field(
         default=None,
-        pattern=r"^[2-9][0-9]{2}$",
-        description="Three-digit area code, such as 480. US and CA only; every returned offer is in this area code.",
+        pattern=r"^[0-9]{1,6}$",
+        description="Area code or first digits of the number, as dialed inside the country: 020 or 20 (London), 480 (Arizona). Any country; every returned offer starts with these digits.",
     )
     city: str | None = Field(
         default=None,
         min_length=1,
         max_length=64,
-        description="City name as the carriers list it, such as Phoenix or London. In US and CA, also send region.",
+        description="City name as the carriers list it, such as London or Phoenix. Each offer's locality and region tell same-named cities apart.",
     )
     region: str | None = Field(
         default=None,
         pattern=r"^[A-Za-z]{2}$",
-        description="Two-letter state or province code, such as AZ. US and CA only, and only with city. GET /numbers/regions lists the codes.",
+        description="Optional, with city: a US state or Canadian province code, such as AZ. GET /numbers/regions lists the codes.",
     )
 
     @field_validator("country_code")
@@ -634,13 +655,28 @@ class NumberQuoteRequest(BaseModel):
 
     @field_validator("area_code")
     @classmethod
-    def _area_code_needs_nanp(cls, v: str | None, info: ValidationInfo) -> str | None:
-        # Carriers search area codes in the US and Canada only. A field
-        # validator (not a model validator) so the 422 names ``area_code``.
-        # ``country_code`` is declared first, so its validated value is in
-        # ``info.data`` unless it failed on its own.
-        if v is not None and info.data.get("country_code") not in ("US", "CA"):
-            raise ValueError("area_code works for US and CA numbers only")
+    def _national_digits(cls, v: str | None, info: ValidationInfo) -> str | None:
+        # People type the digits as dialed at home: 020 in the UK. Carriers
+        # match the digits after the country code (20), so drop the country's
+        # trunk prefix. Some area codes start with the trunk digit (Russia
+        # dials 8, and 812 is St Petersburg): keep the digits as typed when
+        # they start a landline number and the stripped form does not. When
+        # both forms do (8342 Saransk, 342 Perm), the trunk digit wins,
+        # because people dial it first. Landline data only: no RU/KZ mobile
+        # range starts with 8. ``country_code`` is declared first, so its
+        # validated value is in ``info.data`` unless it failed on its own.
+        if v is None:
+            return None
+        country = info.data.get("country_code") or ""
+        metadata = phonenumbers.PhoneMetadata.metadata_for_region(country)
+        trunk = metadata.national_prefix if metadata else None
+        if trunk and v.startswith(trunk) and len(v) > len(trunk):
+            stripped = v[len(trunk) :]
+            if _starts_a_landline(country, v) and not _starts_a_landline(
+                country, stripped
+            ):
+                return v
+            return stripped
         return v
 
     @field_validator("city")
@@ -667,14 +703,10 @@ class NumberQuoteRequest(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _city_and_region_together(self) -> "NumberQuoteRequest":
-        # A US or CA city name alone matches towns in other states (Phoenix,
-        # Oregon for Phoenix), so it needs the state; a state alone is not a
-        # search this endpoint offers.
-        if self.country_code in ("US", "CA") and (self.city is None) != (
-            self.region is None
-        ):
-            raise ValueError("send city and region together for US and CA numbers")
+    def _region_needs_city(self) -> "NumberQuoteRequest":
+        # region narrows a city to one state; a state alone is not a search.
+        if self.region is not None and self.city is None:
+            raise ValueError("send region with a city")
         return self
 
 

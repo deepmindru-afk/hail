@@ -14,7 +14,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from hailhq.core.carrier_offer import CarrierOffer, cents
+from hailhq.core.carrier_offer import CarrierOffer, cents, number_prefix
 from hailhq.core.config import settings
 from hailhq.core.providers.voice.base import (
     CarrierNotConfigured,
@@ -152,6 +152,14 @@ async def find_ordered_number(e164: str, order_ref: UUID) -> str | None:
     return await asyncio.to_thread(lookup)
 
 
+def _place_name(name: str | None) -> str | None:
+    """Twilio names some places in capitals ("PHOENIX"); show them as the
+    other carriers do ("Phoenix"). Mixed case stays as sent ("McAllen")."""
+    if not name:
+        return None
+    return name.title() if name.isupper() else name
+
+
 async def twilio_offers(
     org: UUID,
     country: str,
@@ -165,6 +173,8 @@ async def twilio_offers(
     if not settings.twilio_account_sid or not settings.twilio_auth_token:
         return []
 
+    prefix = number_prefix(country, area_code) if area_code else None
+
     def discover():
         api = _order_client()
         inventory_api = getattr(api.available_phone_numbers(country), kind, None)
@@ -172,10 +182,11 @@ async def twilio_offers(
             return []
         try:
             inventory = inventory_api.list(
-                limit=3,
+                # "contains" may also match mid-number; a bigger page leaves
+                # enough numbers that start with the prefix (DIDWW does the same).
+                limit=30 if prefix else 3,
                 **{f"{c}_enabled": True for c in capabilities},
-                **({"contains": e164} if e164 else {}),
-                **({"area_code": int(area_code)} if area_code else {}),
+                **({"contains": e164 or prefix} if e164 or prefix else {}),
                 **({"in_locality": city} if city else {}),
                 **({"in_region": region} if region else {}),
             )
@@ -195,6 +206,9 @@ async def twilio_offers(
             raise
         if e164:
             inventory = [n for n in inventory if n.phone_number == e164]
+        if prefix:
+            # "contains" may also match mid-number.
+            inventory = [n for n in inventory if n.phone_number.startswith(prefix)]
         if not inventory:
             return []
         pricing = api.pricing.v1.phone_numbers.countries(country).fetch()
@@ -279,6 +293,9 @@ async def twilio_offers(
                     ),
                     requirements=labels,
                     verification_id=bundle.sid if bundle else None,
+                    locality=_place_name(n.locality),
+                    # Twilio sometimes puts the country here ("US"), not a state.
+                    region=n.region if n.region and n.region != country else None,
                 )
             )
         return result

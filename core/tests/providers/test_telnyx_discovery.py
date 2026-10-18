@@ -117,16 +117,33 @@ async def test_exact_number_preflight_uses_national_digits_and_checks_e164():
     assert [q.e164 for q in quotes] == ["+351300000001"]
 
 
-async def test_area_code_filters_national_destination_code():
+async def test_area_code_filters_by_national_number_start():
+    """starts_with works in every country; national_destination_code does not."""
+
     def handler(request):
-        assert request.url.params["filter[national_destination_code]"] == "480"
-        return httpx.Response(200, json={"data": [offer(phone_number="+14805550100")]})
+        assert request.url.params["filter[phone_number][starts_with]"] == "20"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    offer(
+                        phone_number="+442045208418",
+                        region_information=[
+                            {"region_type": "location", "region_name": "LONDON, GB"},
+                            {"region_type": "country_code", "region_name": "GB"},
+                        ],
+                    )
+                ]
+            },
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         quotes = await TelnyxNumberDiscovery("key", client).search(
-            "US", "local", ["voice"], area_code="480"
+            "GB", "local", ["voice"], area_code="20"
         )
-    assert [q.e164 for q in quotes] == ["+14805550100"]
+    assert [(q.e164, q.locality, q.region) for q in quotes] == [
+        ("+442045208418", "London", None)
+    ]
 
 
 async def test_city_and_region_filter_locality_and_state():

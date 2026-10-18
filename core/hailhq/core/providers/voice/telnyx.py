@@ -24,6 +24,8 @@ class NumberQuote(BaseModel):
     upfront_cost: Decimal = Field(ge=0, allow_inf_nan=False)
     monthly_cost: Decimal = Field(ge=0, allow_inf_nan=False)
     currency: str = Field(pattern=r"^[A-Z]{3}$")
+    locality: str | None = None
+    region: str | None = None
 
 
 # Telnyx error code -> detail prefix that means "no stock", not an outage.
@@ -91,7 +93,9 @@ class TelnyxNumberDiscovery:
                 phonenumbers.national_significant_number(phonenumbers.parse(e164, None))
             )
         if area_code:
-            params["filter[national_destination_code]"] = area_code
+            # The digits after the country code: works in every country,
+            # unlike national_destination_code.
+            params["filter[phone_number][starts_with]"] = area_code
         if city:
             params["filter[locality]"] = city
         if region:
@@ -126,6 +130,11 @@ class TelnyxNumberDiscovery:
             cost = item.get("cost_information")
             if not cost:
                 continue  # Unknown costs must never become a zero-cost offer.
+            where = {
+                r.get("region_type"): r.get("region_name")
+                for r in item.get("region_information") or []
+                if isinstance(r, dict)
+            }
             quotes.append(
                 NumberQuote(
                     e164=item["phone_number"],
@@ -135,6 +144,11 @@ class TelnyxNumberDiscovery:
                     upfront_cost=cost["upfront_cost"],
                     monthly_cost=cost["monthly_cost"],
                     currency=cost["currency"],
+                    # Telnyx names places in capitals, some with the
+                    # country: "PHOENIX", "LONDON, GB".
+                    locality=(where.get("location") or "").split(",")[0].title()
+                    or None,
+                    region=where.get("state"),
                 )
             )
         return quotes
@@ -264,6 +278,8 @@ async def telnyx_offers(
                 ),
                 requirements=labels,
                 verification_id=group["id"] if group else None,
+                locality=q.locality,
+                region=q.region,
             )
         )
         break  # One offer per carrier; a skipped result falls to the next.

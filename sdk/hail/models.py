@@ -231,7 +231,7 @@ class SuppressionListResponse(BaseModel):
 class NumberOffer(BaseModel):
     """One live carrier offer. Mirrors ``CarrierOffer`` in openapi/openapi.yaml."""
 
-    provider: Literal["twilio", "telnyx"]
+    provider: Literal["twilio", "telnyx", "didww"]
     e164: str
     country_code: str
     number_type: NumberType
@@ -246,6 +246,8 @@ class NumberOffer(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     verification_id: str | None = None
     address_id: str | None = None
+    locality: str | None = None
+    region: str | None = None
     quote_id: UUID | None = None
 
 

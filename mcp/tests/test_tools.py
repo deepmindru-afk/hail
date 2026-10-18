@@ -1696,9 +1696,8 @@ async def test_quote_numbers_sends_city_and_region(client: HailClient) -> None:
         {"country_code": "US", "capabilities": []},
         {"country_code": "US", "capabilities": ["fax"]},
         {"country_code": "US", "provider": "acme"},
-        {"country_code": "US", "area_code": "48"},
-        {"country_code": "GB", "area_code": "480"},
-        {"country_code": "US", "city": "Phoenix"},
+        {"country_code": "US", "area_code": "4-80"},
+        {"country_code": "US", "region": "AZ"},
     ],
 )
 async def test_quote_numbers_validation_errors_surface(

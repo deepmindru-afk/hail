@@ -637,9 +637,8 @@ class _NumbersResource:
         (default ``"local"``) and ``capabilities`` (default voice and SMS),
         then buys the cheapest ready offer (monthly plus setup). It raises
         ``HailError`` if no offer is ready to buy. ``provider`` restricts the
-        carrier; ``area_code`` (US and CA only, such as ``"480"``) restricts
-        the quote to that area code; ``city`` (with ``region``, a state or
-        province code, in the US and CA) restricts it to that city. ``expected_total_cents`` is the monthly plus setup price you
+        carrier; ``area_code`` and ``city`` restrict the quote as in
+        :meth:`quotes`. ``expected_total_cents`` is the monthly plus setup price you
         expect to pay now; the order is refused with 409 if the quote differs.
         ``idempotency_key`` defaults to a fresh UUIDv4 and covers the
         purchase only.
@@ -692,9 +691,11 @@ class _NumbersResource:
     ) -> NumberQuotesResponse:
         """Compare live inventory, rental/setup costs and regulatory readiness.
 
-        ``area_code`` (US and CA only, such as ``"480"``) limits offers to
-        that area code. ``city`` (such as ``"London"``) limits them to that
-        city; in the US and CA also pass ``region`` (``"AZ"``).
+        ``area_code`` is an area code or the first digits of the number, as
+        dialed in the country (``"020"`` London, ``"480"`` Arizona).
+        ``city`` (such as ``"London"``) limits offers to that city; each
+        offer's ``locality`` and ``region`` tell same-named cities apart.
+        ``region`` (US/CA state code, with ``city``) is optional.
 
         Pass the selected quote_id to acquire (or call acquire without one to buy the cheapest ready offer). A quote is organization-scoped
         and expires; acquisition rechecks it before reserving credits.
@@ -733,7 +734,7 @@ class _NumbersResource:
 
     async def regions(self) -> NumberRegionsResponse:
         """US state and Canadian province codes that :meth:`quotes` accepts
-        as ``region``. In the US and CA a ``city`` needs one."""
+        as ``region`` (optional, with ``city``)."""
         data = await self._http.request("GET", "/numbers/regions")
         return NumberRegionsResponse.model_validate(data)
 

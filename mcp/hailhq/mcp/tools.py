@@ -2145,11 +2145,13 @@ def register_tools(
         ``number_type`` is ``local``, ``mobile``, ``national`` or
         ``toll_free``; omit it to compare all types. ``provider`` is
         ``auto`` (compare all carriers), ``twilio``, ``telnyx`` or ``didww``.
-        ``area_code`` is a three-digit US or CA area code such as ``"480"``;
-        omit it to search the whole country. ``city`` is a city name such
-        as ``"London"``; in the US and CA also pass ``region``, the two-letter
-        state or province code (``"AZ"``): city names repeat across states.
-        list_number_regions lists the codes.
+        ``area_code`` is an area code or the first digits of the number, as
+        dialed in the country: ``"020"`` (London), ``"480"`` (Arizona).
+        ``city`` is a city name such as ``"London"``. Each offer has
+        ``locality`` and ``region`` (such as ``"Phoenix"``, ``"AZ"``): check
+        them, since city names repeat across states. ``region`` (optional,
+        with ``city``) is a US/CA state code; list_number_regions lists them.
+        Omit all three to search the whole country.
 
         Returns ``{"offers": [...], "recommended_quote_id", "unavailable_providers",
         "expires_at"}``. Each offer has ``e164``, ``provider``, ``number_type``,
@@ -2276,7 +2278,7 @@ def register_tools(
     )
     async def list_number_regions_tool(ctx: Context) -> dict[str, Any]:
         """List the US state and Canadian province codes that quote_numbers
-        accepts as ``region``. In the US and CA a ``city`` needs one.
+        accepts as ``region`` (optional, with ``city``).
 
         Returns ``{"regions": [{"country_code", "code", "name"}]}``, such as
         ``{"country_code": "US", "code": "AZ", "name": "Arizona"}``, or
