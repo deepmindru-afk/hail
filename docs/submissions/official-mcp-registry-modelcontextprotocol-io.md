@@ -179,19 +179,19 @@ Asset source paths (already mirrored, confirmed resolving live at the URLs above
 
 **Tool inventory** (for reference / any listing field that asks what the server does. Not a `server.json` field, the schema has no tags/tools array. This is the literal, code-verified list from `mcp/hailhq/mcp/tools.py`, 11 tools):
 
-| Tool                   | Does                                                               |
-| ---------------------- | ------------------------------------------------------------------ |
-| `place_call`           | Originate an outbound phone call.                                  |
-| `send_email`           | Send an outbound email.                                            |
-| `get_call`             | Fetch the current state of one call.                               |
-| `list_calls`           | List recent calls, cursor-paginated.                               |
-| `get_email`            | Fetch one email's full record (body + inbound headers/verdicts).   |
-| `list_emails`          | List emails; `direction="inbound"` for replies.                    |
-| `get_email_raw`        | Presigned URL for an inbound email's raw MIME source.              |
-| `get_email_attachment` | Presigned URL for one inbound attachment.                          |
+| Tool                   | Does                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `place_call`           | Originate an outbound phone call.                                              |
+| `send_email`           | Send an outbound email.                                                        |
+| `get_call`             | Fetch the current state of one call.                                           |
+| `list_calls`           | List recent calls, cursor-paginated.                                           |
+| `get_email`            | Fetch one email's full record (body + inbound headers/verdicts).               |
+| `list_emails`          | List emails; `direction="inbound"` for replies.                                |
+| `get_email_raw`        | Presigned URL for an inbound email's raw MIME source.                          |
+| `get_email_attachment` | Presigned URL for one inbound attachment.                                      |
 | `get_email_events`     | Per-message delivery/engagement timeline (sent, delivered, opened, and so on). |
-| `get_email_stats`      | Account-level deliverability stats (rates, time series).           |
-| `get_events`           | Page through the org- or call-level event stream.                  |
+| `get_email_stats`      | Account-level deliverability stats (rates, time series).                       |
+| `get_events`           | Page through the org- or call-level event stream.                              |
 
 **Install/usage snippet** (what a reader clicks through after finding the listing):
 
