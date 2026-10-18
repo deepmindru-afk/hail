@@ -13,16 +13,12 @@
   "icons": [
     {
       "src": "https://hail.so/assets/monogram-512.png",
-      "sizes": [
-        "512x512"
-      ],
+      "sizes": ["512x512"],
       "mimeType": "image/png"
     },
     {
       "src": "https://hail.so/assets/monogram-1024.png",
-      "sizes": [
-        "1024x1024"
-      ],
+      "sizes": ["1024x1024"],
       "mimeType": "image/png"
     }
   ],
