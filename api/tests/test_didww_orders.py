@@ -795,8 +795,18 @@ async def test_quotes_pass_the_area_code_to_every_carrier(
         ("DE", "030", "30"),
         ("US", "1480", "480"),
         ("US", "480", "480"),
+        ("GB", "0131", "131"),
         # Italy keeps its 0 after +39.
         ("IT", "06", "06"),
+        # Russia and Kazakhstan dial 8 first, and some area codes start with
+        # 8 too: 812 is St Petersburg, not trunk + 12.
+        ("RU", "812", "812"),
+        ("RU", "8812", "812"),
+        ("KZ", "7172", "7172"),
+        ("KZ", "87172", "7172"),
+        # Both forms are real area codes (8342 Saransk, 342 Perm): the trunk
+        # digit wins, because people dial it first.
+        ("RU", "8342", "342"),
     ],
 )
 async def test_quotes_drop_the_trunk_prefix_from_the_area_code(
