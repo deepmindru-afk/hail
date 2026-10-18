@@ -431,7 +431,7 @@ terragrunt apply
 # block at the top of infra/terragrunt.hcl for the AWS CLI one-liners.
 
 # ── 4. Activate the SES Receipt Rule Set (manual; one-time per region) ─────
-aws sesv2 set-active-receipt-rule-set --rule-set-name hail-inbound-prod-rules
+aws ses set-active-receipt-rule-set --rule-set-name hail-inbound-prod-rules
 #  ↑ ONLY safe on accounts with no other active rule set; see Stage 4 below.
 
 # ── 5. Publish the MX record (manual at your DNS provider) ─────────────────
@@ -583,7 +583,7 @@ Outputs to capture:
 
 - `inbound_mx_record` — publish at DNS for `HAIL_MAIL_BASE_DOMAIN`.
 - `inbound_bucket` — confirms `${HAIL_MAIL_NAME_PREFIX}-mail`; set `HAIL_MAIL_NAME_PREFIX` (not `inbound_bucket` itself) on the API.
-- `activate_command` — the `aws sesv2 set-active-receipt-rule-set ...`
+- `activate_command` — the `aws ses set-active-receipt-rule-set ...`
   to run after apply.
 
 **Plain Terraform alternative.** The bare module under `infra/terraform/`
@@ -598,7 +598,7 @@ existing one):
 
 ```bash
 # Greenfield AWS account:
-aws sesv2 set-active-receipt-rule-set --rule-set-name hail-inbound-prod-rules
+aws ses set-active-receipt-rule-set --rule-set-name hail-inbound-prod-rules
 
 # Account with existing receipt rules: import the existing rule set
 # into Terraform state, merge Hail's rule into it via the AWS console,
