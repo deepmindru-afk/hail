@@ -15,7 +15,7 @@ status: submitted
 - [x] Install `mcp-publisher` CLI locally (`brew install mcp-publisher`, v1.7.9)
 - [x] `server.json` content reviewed against feature-claim policy — see Notes
 - [x] Confirm `https://mcp.hail.so` still returns `401` + `WWW-Authenticate: Bearer ... resource_metadata=...` (re-verified 2026-07-07)
-- [x] `mcp-publisher validate` passes locally — **corrected 2026-07-07: original draft description (222 chars) exceeded the schema's 100-char hard limit** (`expected length <= 100`, caught by real validation, not previously known). Shortened to 86 chars, re-validated clean. `server.json` ready at `/Users/r/playground/hail-mcp-publish/server.json`.
+- [x] `mcp-publisher validate` passes locally — **corrected 2026-07-07: original draft description (222 chars) exceeded the schema's 100-char hard limit** (`expected length <= 100`, caught by real validation, not previously known). Shortened to 86 chars, re-validated clean. `server.json` lives at `mcp/server.json` in this repo.
 - [x] Domain or GitHub org verification completed, `mcp-publisher login github` succeeded
 - [x] `mcp-publisher publish` run — `✓ Successfully published, Server io.github.hail-hq/hail-mcp version 0.1.0`
 - [x] Confirmed live 2026-07-07: `GET https://registry.modelcontextprotocol.io/v0.1/servers?search=hail-mcp` returns the listing, `status: active`, `publishedAt: 2026-07-07T13:41:48Z`
