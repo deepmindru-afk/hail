@@ -29,7 +29,7 @@ from hailhq.api.auth import (
     hash_key,
     verify_jwt,
 )
-from hailhq.core.config import settings
+from hailhq.core.config import SELF_HOSTED_ORG_ID, settings
 from hailhq.core.db import get_session, session_scope
 from hailhq.core.models import ApiKey, Organization, OrganizationMember
 from hailhq.core.s3_mail import S3MailClient
@@ -46,9 +46,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # no-op UPDATE per request.
 _LAST_USED_THROTTLE = timedelta(seconds=60)
 
-# Nil UUID — sentinel organization for every shared-key (HAIL_API_KEY) request.
-# No row in ``organizations``; the balance gate is short-circuited for it.
-SELF_HOSTED_ORG_ID = uuid.UUID(int=0)
+# Sentinel organization for every shared-key (HAIL_API_KEY) request; the
+# balance gate is short-circuited for it. Defined in core so inbound calls
+# can apply the same self-hosted rule.
+__all__ = ["SELF_HOSTED_ORG_ID"]
 
 
 @dataclass
