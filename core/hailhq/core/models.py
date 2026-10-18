@@ -696,27 +696,6 @@ class PhoneNumber(Base):
         return self.inbound_registered_at is not None
 
 
-class Conversation(Base):
-    __tablename__ = "conversations"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
-    )
-    external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, server_default=text("'{}'::jsonb"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TS, server_default=text("now()"), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TS, server_default=text("now()"), nullable=False
-    )
-
-
 class Call(Base):
     __tablename__ = "calls"
 
@@ -725,11 +704,6 @@ class Call(Base):
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("conversations.id", ondelete="SET NULL"),
-        nullable=True,
     )
     # Outbound: the org (or pool) number Hail dialed from. NULL on inbound
     # rows, where the caller has no PhoneNumber row.
@@ -1248,11 +1222,6 @@ class Email(Base):
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
-    )
-    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("conversations.id", ondelete="SET NULL"),
-        nullable=True,
     )
     email_domain_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

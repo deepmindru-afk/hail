@@ -5351,15 +5351,6 @@ components:
           description:
             TTS voice, VAD, turn-detection, and spoken-language settings
             for this call.
-        conversation_id:
-          anyOf:
-            - type: string
-              format: uuid
-            - type: "null"
-          title: Conversation Id
-          description:
-            "Groups this call with other calls/emails/SMS into one conversation
-            thread. Omitted: the call is not linked to a conversation."
         metadata:
           additionalProperties: true
           type: object
@@ -5428,15 +5419,6 @@ components:
           format: uuid
           title: Organization Id
           description: Organization that placed or received this call.
-        conversation_id:
-          anyOf:
-            - type: string
-              format: uuid
-            - type: "null"
-          title: Conversation Id
-          description:
-            Conversation thread this call is grouped into, if any. Null
-            when the call was not linked to a conversation.
         from_e164:
           type: string
           title: From E164
@@ -5552,7 +5534,6 @@ components:
       required:
         - id
         - organization_id
-        - conversation_id
         - from_e164
         - to_e164
         - direction
@@ -6242,15 +6223,6 @@ components:
             Prefer including body_html: open and click tracking only works for emails
             with an HTML body. Plain-text-only emails still get sent, delivered, and
             bounce events, but opens and clicks are never tracked."
-        conversation_id:
-          anyOf:
-            - type: string
-              format: uuid
-            - type: "null"
-          title: Conversation Id
-          description:
-            "Groups this email with other calls/emails/SMS into one conversation
-            thread. Omitted: the email is not linked to a conversation."
         metadata:
           additionalProperties: true
           type: object
@@ -6733,15 +6705,6 @@ components:
           format: uuid
           title: Organization Id
           description: Organization that sent or received this email.
-        conversation_id:
-          anyOf:
-            - type: string
-              format: uuid
-            - type: "null"
-          title: Conversation Id
-          description:
-            Conversation thread this email is grouped into, if any. Null
-            when it was not linked to a conversation.
         email_domain_id:
           anyOf:
             - type: string
@@ -6975,7 +6938,6 @@ components:
       required:
         - id
         - organization_id
-        - conversation_id
         - email_domain_id
         - from_address
         - to_addresses
@@ -7233,15 +7195,6 @@ components:
           format: uuid
           title: Organization Id
           description: Organization that sent or received this email.
-        conversation_id:
-          anyOf:
-            - type: string
-              format: uuid
-            - type: "null"
-          title: Conversation Id
-          description:
-            Conversation thread this email is grouped into, if any. Null
-            when it was not linked to a conversation.
         email_domain_id:
           anyOf:
             - type: string
@@ -7364,7 +7317,6 @@ components:
       required:
         - id
         - organization_id
-        - conversation_id
         - email_domain_id
         - from_address
         - to_addresses
