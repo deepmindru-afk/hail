@@ -99,7 +99,6 @@ class CallCreate(BaseModel):
     # on 47 CFR 64.1200(b)(1) and state AI bot-disclosure laws.
     ai_disclosure: bool = True
     voice_config: VoiceConfig = Field(default_factory=VoiceConfig)
-    conversation_id: UUID | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     # Agent tools opt-out. Omitted (None): every tool the org's configured
     # channels support; []: no tools. Names are validated server-side
@@ -135,7 +134,6 @@ class CallResponse(BaseModel):
 
     id: UUID
     organization_id: UUID
-    conversation_id: UUID | None = None
     from_e164: str
     to_e164: str
     direction: Literal["outbound", "inbound"]
@@ -423,7 +421,6 @@ class EmailCreate(BaseModel):
     reply_to: str | None = None
     body_text: str | None = None
     body_html: str | None = None
-    conversation_id: UUID | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     attachment_ids: list[UUID] | None = None
     recipient_consent: bool
@@ -472,7 +469,6 @@ class EmailSummary(BaseModel):
 
     id: UUID
     organization_id: UUID
-    conversation_id: UUID | None = None
     email_domain_id: UUID | None = None
     direction: Literal["outbound", "inbound"] = "outbound"
     from_address: str
