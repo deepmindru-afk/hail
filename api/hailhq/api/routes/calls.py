@@ -62,6 +62,7 @@ from hailhq.core.pool import (
     release_pool_reservation,
 )
 from hailhq.core.provider_config import load_org_provider_configs, provider_cipher
+from hailhq.core.recordings import recording_call_metadata
 from hailhq.core.schemas import (
     TERMINAL_CALL_STATUSES,
     CallCreate,
@@ -87,6 +88,7 @@ _AGENT_FIELDS = (
     "system_prompt",
     "first_message",
     "ai_disclosure",
+    "recording_enabled",
     "voice_config",
     "tools",
 )
@@ -455,6 +457,13 @@ async def create_call(
 
     org_call_settings = await db.get(
         OrganizationCallSettings, principal.organization_id
+    )
+    call_metadata.update(
+        recording_call_metadata(
+            org_call_settings,
+            override=body.recording_enabled,
+            self_hosted=principal.auth_kind == "shared",
+        )
     )
     max_duration_seconds = (
         (agent.max_duration_seconds if agent else None)

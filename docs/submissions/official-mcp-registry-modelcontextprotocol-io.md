@@ -19,7 +19,6 @@ status: submitted
 - [x] Domain or GitHub org verification completed, `mcp-publisher login github` succeeded
 - [x] `mcp-publisher publish` run: `✓ Successfully published, Server io.github.hail-hq/hail-mcp version 0.1.0`
 - [x] Confirmed live 2026-07-07: `GET https://registry.modelcontextprotocol.io/v0.1/servers?search=hail-mcp` returns the listing, `status: active`, `publishedAt: 2026-07-07T13:41:48Z`
-- [x] 2026-10-18: version 0.1.1 published (description without a dash). The laptop login flow now gets 403 for the org namespace, see step 5. Publishing moved to `.github/workflows/mcp-publish.yml`.
 
 ## Steps to submit
 
@@ -61,24 +60,17 @@ curl -i https://mcp.hail.so/
 # resource_metadata="https://mcp.hail.so/.well-known/oauth-protected-resource"
 ```
 
-### 5. Authenticate and publish: GitHub Actions (current path)
+### 5. Authenticate: pick ONE path
 
-**Decided 2026-10-18.** `.github/workflows/mcp-publish.yml` publishes `mcp/server.json` on every merge to `main` that changes that file, and can be run by hand from the Actions tab. It logs in with `mcp-publisher login github-oidc`, which grants `io.github.hail-hq/*` from the repository owner. No token, no browser click.
-
-To publish a change: edit `mcp/server.json`, bump `version` (the registry refuses a version it already has), merge. Check the run under Actions, then confirm with step 7.
-
-Why not the laptop login any more: since 2026-10 the registry grants an org namespace only to org Owners, read through `GET /user/memberships/orgs` with the `read:org` scope. The token from `mcp-publisher login github` does not see the `hail-hq` org (verified 2026-10-18: publish returns 403 "You have permission to publish: io.github.r13i/*"), even after granting the OAuth app org access. A `gh auth token` does see it. Manual fallback, from `mcp/`, if the workflow is ever unavailable:
+**Decided 2026-07-07: Path B (GitHub org).** `r13i` is a confirmed `hail-hq` member, so no DNS zone access is needed, and it is the faster path. `server.json` above already uses the resulting `io.github.hail-hq/hail-mcp` name. Only remaining action, from the `mcp/` folder of this repo:
 
 ```bash
-T=$(gh auth token)
-J=$(curl -s -X POST https://registry.modelcontextprotocol.io/v0/auth/github-at \
-  -H 'Content-Type: application/json' -d "{\"github_token\":\"$T\"}" \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['registry_token'])")
-python3 -c "import json,os,sys;p=os.path.expanduser('~/.config/mcp-publisher/token.json');json.dump({'method':'github','registry':'https://registry.modelcontextprotocol.io','token':sys.argv[1]},open(p,'w'))" "$J"
+mcp-publisher login github
+# follow the printed device-flow prompt: open the URL, enter the code, click Authorize
 mcp-publisher publish
 ```
 
-The registry token lasts 5 minutes. Paths A and B below are the original 2026-07 setup, kept for reference only.
+This needs a human to click "Authorize" in a browser. It cannot be automated. Path A (DNS) below is kept for reference only; not the path being used.
 
 **Path A: DNS verification on `hail.so` (reference only, not being used, see decision above).**
 
@@ -119,15 +111,17 @@ Follow the printed device-flow prompt: open `https://github.com/login/device`, e
 
 ### 6. Publish
 
-Merge the `server.json` change (step 5) and watch the `mcp-publish` run. Expect `✓ Successfully published` and the server name/version echoed back in the job log.
+```bash
+mcp-publisher publish
+```
+
+Expect `✓ Successfully published` and the server name/version echoed back.
 
 ### 7. Confirm it's live
 
 ```bash
-curl "https://registry.modelcontextprotocol.io/v0/servers/io.github.hail-hq%2Fhail-mcp/versions/latest"
+curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=hail-mcp"
 ```
-
-The `?search=` endpoint sometimes hangs; the versions endpoint answers at once.
 
 Confirm the listing appears, then check it renders on the registry's own site.
 

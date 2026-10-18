@@ -1,4 +1,4 @@
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -178,10 +178,14 @@ class Settings(BaseSettings):
     livekit_telnyx_sip_inbound_trunk_id: str = ""
     livekit_didww_sip_inbound_trunk_id: str = ""
 
+    # Optional recording: deploy capability, separately from workspace consent.
+    hail_recording_enabled: bool = False
+    hail_recording_retention_days: int = 365
+
     # Storage
     database_url: str = "postgresql://hail:hail@postgres:5432/hail"
     s3_endpoint: str = ""
-    s3_bucket: str = "hail-recordings"
+    s3_bucket: str = "hail-assets"
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_region: str = "us-east-1"
@@ -334,6 +338,13 @@ class Settings(BaseSettings):
         "You are resubscribed to Hail messages. Reply STOP to unsubscribe, "
         "HELP for help."
     )
+
+    @field_validator("hail_recording_retention_days")
+    @classmethod
+    def _recording_retention_preset(cls, value: int) -> int:
+        if value not in (7, 30, 365):
+            raise ValueError("Recording retention must be 7, 30, or 365 days")
+        return value
 
     @model_validator(mode="after")
     def _trunk_fallbacks(self) -> "Settings":
