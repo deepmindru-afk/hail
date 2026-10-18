@@ -1,6 +1,7 @@
+from uuid import UUID
+
 from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from uuid import UUID
 
 # Nil UUID: sentinel organization for every shared-key (HAIL_API_KEY) request.
 # No row in ``organizations``; self-hosted deployments consent to recording
