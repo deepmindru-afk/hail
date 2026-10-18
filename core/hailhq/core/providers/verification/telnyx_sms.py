@@ -53,6 +53,17 @@ _REJECTED = {
 }
 
 
+def _policy_links(text: dict) -> dict:
+    """Privacy and terms links for the campaign. Drafts filed before these
+    fields existed carry no links; they are filed without them."""
+    links = {}
+    if text.get("privacy_policy_url"):
+        links["privacyPolicyLink"] = text["privacy_policy_url"]
+    if text.get("terms_url"):
+        links["termsAndConditionsLink"] = text["terms_url"]
+    return links
+
+
 class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
     name = "telnyx"
 
@@ -265,6 +276,7 @@ class TelnyxSmsRegistrationProvider(SmsRegistrationProvider):
                         "helpKeywords": _HELP,
                         "helpMessage": "Reply STOP to opt out. For help contact hi@hail.so.",
                         "optinMessage": "You are opted in. Reply STOP to opt out, HELP for help.",
+                        **_policy_links(text),
                     },
                 )
                 refs["campaign_id"] = campaign["campaignId"]

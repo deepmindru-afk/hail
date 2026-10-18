@@ -98,7 +98,27 @@ _CAMPAIGN_FIELDS = (
     FieldSpec(
         name="opt_in_description",
         label="How people agree to receive texts",
-        help="Example: they enter their number on our website and tick a box.",
+        help=(
+            "Describe the step where people agree, for example a separate SMS box "
+            "on your website, unchecked by default and not required. "
+            "Reviewers open your site and check that the box is separate from the "
+            "terms box and that frequency, rates, STOP and HELP appear next to it."
+        ),
+    ),
+    FieldSpec(
+        name="privacy_policy_url",
+        label="Privacy policy link",
+        kind="url",
+        help=(
+            "Public page that says mobile numbers and texting consent are not "
+            "shared with third parties for marketing."
+        ),
+    ),
+    FieldSpec(
+        name="terms_url",
+        label="Terms of service link",
+        kind="url",
+        help="Public page with your terms of service.",
     ),
     FieldSpec(name="has_links", label="Do your texts contain links?", options=_YES_NO),
 )
@@ -126,9 +146,16 @@ class CampaignText:
     message_flow: str
     samples: list[str]
     has_links: bool
+    privacy_policy_url: str
+    terms_url: str
 
 
 _OPT_OUT = " Reply STOP to opt out, HELP for help."
+_FLOW_MAX = 2048  # carrier maximum for the opt-in description
+_DISCLOSURES = (
+    "Consent is not a condition of purchase. Message frequency varies. "
+    "Message and data rates may apply. Reply STOP to opt out, HELP for help."
+)
 
 
 def _at_least(text: str, n: int, pad: str) -> str:
@@ -143,11 +170,13 @@ def campaign_text(fields: dict[str, str], subject_type: SubjectType) -> Campaign
         40,
         "Messages are sent only to people who agreed to receive them.",
     )
-    flow = _at_least(
-        "Recipients opt in as follows: " + fields["opt_in_description"],
-        40,
-        "They can reply STOP at any time to opt out.",
-    )
+    privacy_policy_url = fields["privacy_policy_url"].strip()
+    terms_url = fields["terms_url"].strip()
+    # Reviewers reject a filing that lacks the consent disclosures and the
+    # policy links, so they go on every filing after the customer's own text.
+    fixed = f" {_DISCLOSURES} Privacy policy: {privacy_policy_url}. Terms: {terms_url}."
+    own = fields["opt_in_description"].strip()[: _FLOW_MAX - len(fixed)]
+    flow = (own + fixed).strip()
     samples = [
         _at_least(fields["sample_1"], 20, _OPT_OUT),
         _at_least(fields["sample_2"], 20, _OPT_OUT),
@@ -158,4 +187,6 @@ def campaign_text(fields: dict[str, str], subject_type: SubjectType) -> Campaign
         message_flow=flow,
         samples=samples,
         has_links=fields["has_links"].upper() == "YES",
+        privacy_policy_url=privacy_policy_url,
+        terms_url=terms_url,
     )

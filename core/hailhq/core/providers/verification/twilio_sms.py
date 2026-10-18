@@ -37,6 +37,17 @@ _EIN = re.compile(r"^\d{2}-?\d{7}$")
 _OTP_RESEND_AFTER = timedelta(hours=24)
 
 
+def _policy_links(text: dict) -> dict:
+    """Privacy and terms links for the campaign. Drafts filed before these
+    fields existed carry no links; they are filed without them."""
+    links = {}
+    if text.get("privacy_policy_url"):
+        links["privacy_policy_url"] = text["privacy_policy_url"]
+    if text.get("terms_url"):
+        links["terms_and_conditions_url"] = text["terms_url"]
+    return links
+
+
 class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
     name = "twilio"
 
@@ -353,6 +364,7 @@ class TwilioSmsRegistrationProvider(SmsRegistrationProvider):
                 us_app_to_person_usecase=text["use_case"],
                 has_embedded_links=text["has_links"],
                 has_embedded_phone=False,
+                **_policy_links(text),
             )
             refs["campaign_sid"] = campaign.sid
             return ProviderStatus(state="pending")

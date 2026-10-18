@@ -27,6 +27,8 @@ FIELDS = {
     "sample_2": "Acme: your order 123 was delivered. Reply STOP to opt out.",
     "opt_in_description": "Customers tick a box at checkout on acme.example.",
     "has_links": "NO",
+    "privacy_policy_url": "https://acme.example/privacy",
+    "terms_url": "https://acme.example/terms",
 }
 ADDRESS = Address(
     customer_name="Acme Inc",
@@ -123,6 +125,8 @@ async def test_status_creates_campaign_once_identity_verified() -> None:
             "message_flow": "f" * 40,
             "samples": ["s" * 20, "t" * 20],
             "has_links": False,
+            "privacy_policy_url": "https://acme.example/privacy",
+            "terms_url": "https://acme.example/terms",
         },
     }
     st = await p.status(refs)
@@ -130,6 +134,38 @@ async def test_status_creates_campaign_once_identity_verified() -> None:
     assert posted[0]["usecase"] == "MIXED" and posted[0]["brandId"] == "B1"
     assert posted[0]["sample1"] == "s" * 20 and posted[0]["embeddedLink"] is False
     assert posted[0]["optoutKeywords"] == "STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT"
+    assert posted[0]["privacyPolicyLink"] == "https://acme.example/privacy"
+    assert posted[0]["termsAndConditionsLink"] == "https://acme.example/terms"
+
+
+async def test_status_files_an_old_snapshot_without_links() -> None:
+    """A draft filed before the links existed still reaches the carrier."""
+    posted = []
+
+    def handler(req):
+        if req.url.path.endswith("/10dlc/brand/B1"):
+            return httpx.Response(
+                200, json={"identityStatus": "VETTED_VERIFIED", "failureReasons": None}
+            )
+        if req.url.path.endswith("/10dlc/campaignBuilder"):
+            posted.append(json.loads(req.content))
+            return httpx.Response(200, json={"campaignId": "C1"})
+        return httpx.Response(404)
+
+    refs = {
+        "brand_id": "B1",
+        "messaging_profile_id": "MP1",
+        "subject_type": "business",
+        "campaign": {
+            "use_case": "MIXED",
+            "description": "d" * 40,
+            "message_flow": "f" * 40,
+            "samples": ["s" * 20, "t" * 20],
+            "has_links": False,
+        },
+    }
+    assert (await _provider(handler).status(refs)).state == "pending"
+    assert "privacyPolicyLink" not in posted[0]
 
 
 async def test_status_waits_while_identity_not_verified() -> None:
@@ -362,6 +398,8 @@ PERSON_FIELDS = {
     "sample_2": "Ada: thanks for booking. Reply STOP to opt out.",
     "opt_in_description": "Clients give their number on my booking form.",
     "has_links": "NO",
+    "privacy_policy_url": "https://ada.example/privacy",
+    "terms_url": "https://ada.example/terms",
 }
 
 
@@ -487,6 +525,8 @@ def _person_refs(**extra) -> dict:
             "message_flow": "f" * 40,
             "samples": ["s" * 20, "t" * 20],
             "has_links": False,
+            "privacy_policy_url": "https://acme.example/privacy",
+            "terms_url": "https://acme.example/terms",
         },
         **extra,
     }

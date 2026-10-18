@@ -82,6 +82,8 @@ FIELDS = {
     "sample_2": "Acme: your order 123 was delivered. Reply STOP to opt out.",
     "opt_in_description": "Customers tick a box at checkout on acme.example.",
     "has_links": "NO",
+    "privacy_policy_url": "https://acme.example/privacy",
+    "terms_url": "https://acme.example/terms",
 }
 ADDRESS = Address(
     customer_name="Acme Inc",
@@ -222,6 +224,8 @@ def _campaign(use_case="MIXED"):
         "message_flow": "f" * 40,
         "samples": ["s" * 20, "t" * 20],
         "has_links": False,
+        "privacy_policy_url": "https://acme.example/privacy",
+        "terms_url": "https://acme.example/terms",
     }
 
 
@@ -264,6 +268,32 @@ async def test_status_creates_campaign_once_brand_approved() -> None:
         kw for n, kw in p._client.calls if n.endswith("us_app_to_person.create")
     )
     assert create["us_app_to_person_usecase"] == "MIXED"
+    assert create["privacy_policy_url"] == "https://acme.example/privacy"
+    assert create["terms_and_conditions_url"] == "https://acme.example/terms"
+
+
+async def test_status_files_an_old_snapshot_without_links() -> None:
+    """A draft filed before the links existed still reaches the carrier."""
+    r = _ok_responses()
+    r["brand_registrations.fetch"] = SimpleNamespace(status="APPROVED")
+    r["us_app_to_person.create"] = SimpleNamespace(
+        sid="QE1", campaign_status="PENDING", errors=[]
+    )
+    p = _provider(r)
+    old = _campaign()
+    old.pop("privacy_policy_url")
+    old.pop("terms_url")
+    refs = {
+        "subject_type": "business",
+        "brand_sid": "BN1",
+        "messaging_service_sid": "MG1",
+        "campaign": old,
+    }
+    assert (await p.status(refs)).state == "pending"
+    create = next(
+        kw for n, kw in p._client.calls if n.endswith("us_app_to_person.create")
+    )
+    assert "privacy_policy_url" not in create
     assert create["brand_registration_sid"] == "BN1"
 
 
