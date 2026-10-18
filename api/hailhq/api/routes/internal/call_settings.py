@@ -29,6 +29,7 @@ async def get_call_settings(
     return {
         "recording_enabled": override.recording_enabled if override else None,
         "recording_available": settings.hail_recording_enabled,
+        "recording_confirmed": bool(override and override.recording_confirmed_at),
         "recording_retention_days": (
             override.recording_retention_days if override else None
         )
