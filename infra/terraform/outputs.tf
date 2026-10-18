@@ -24,7 +24,7 @@ output "receipt_rule_set_name" {
 
 output "activate_command" {
   description = "Run once per AWS account, after confirming no other rule set is active."
-  value       = "aws sesv2 set-active-receipt-rule-set --rule-set-name ${aws_ses_receipt_rule_set.main.rule_set_name}"
+  value       = "aws ses set-active-receipt-rule-set --rule-set-name ${aws_ses_receipt_rule_set.main.rule_set_name}"
 }
 
 output "iam_policy_arn" {

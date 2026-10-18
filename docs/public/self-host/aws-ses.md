@@ -257,7 +257,7 @@ Outputs:
 
 - `inbound_mx_record` — publish at DNS for `HAIL_MAIL_BASE_DOMAIN`.
 - `inbound_bucket` — this is `${HAIL_MAIL_NAME_PREFIX}-mail`. Set `HAIL_MAIL_NAME_PREFIX` in the API `.env` to match the Terraform `name_prefix` var. The bucket name is not settable directly — there is no `HAIL_MAIL_BUCKET` var.
-- `activate_command` — the `aws sesv2 set-active-receipt-rule-set ...` to run once.
+- `activate_command` — the `aws ses set-active-receipt-rule-set ...` to run once.
 
 The bare Terraform module at `infra/terraform/` is provider-vanilla. If
 you prefer to skip Terragrunt, it still works with
