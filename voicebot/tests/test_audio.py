@@ -9,7 +9,6 @@ from livekit import rtc
 
 def test_cloud_sip_uses_telephony_voice_isolation(monkeypatch):
     monkeypatch.setattr(settings, "livekit_url", "wss://test.livekit.cloud")
-    monkeypatch.setattr(settings, "hail_voice_noise_cancellation", True)
     selector = room_options().audio_input.noise_cancellation
     option = selector(
         SimpleNamespace(
@@ -25,7 +24,15 @@ def test_self_hosted_transport_does_not_request_cloud_filter(monkeypatch):
     assert room_options().audio_input.noise_cancellation is None
 
 
-def test_operator_can_disable_cloud_filter(monkeypatch):
+def test_cloud_web_audio_uses_voice_isolation(monkeypatch):
     monkeypatch.setattr(settings, "livekit_url", "wss://test.livekit.cloud")
-    monkeypatch.setattr(settings, "hail_voice_noise_cancellation", False)
-    assert room_options().audio_input.noise_cancellation is None
+    selector = room_options().audio_input.noise_cancellation
+    option = selector(
+        SimpleNamespace(
+            participant=SimpleNamespace(
+                kind=rtc.ParticipantKind.PARTICIPANT_KIND_STANDARD
+            )
+        )
+    )
+    assert option is not None
+    assert "inb.bvc" not in option.options["modelPath"]

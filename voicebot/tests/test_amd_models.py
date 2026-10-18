@@ -11,7 +11,6 @@ from hailhq.voicebot.pipeline import ResolvedLayer
 
 @pytest.fixture
 def layers(monkeypatch):
-    monkeypatch.setattr(settings, "hail_amd_multilingual", True)
     monkeypatch.setattr(settings, "openai_api_key", "house-openai")
     monkeypatch.setattr(settings, "google_api_key", "house-google")
     session = SimpleNamespace(llm=object(), stt=object(), vad=object())
@@ -67,9 +66,10 @@ def test_byo_deepgram_multilingual_coverage_is_respected(
     build.assert_called_once_with(org, language=expected, provider="deepgram")
 
 
-def test_operator_can_keep_the_existing_pipeline(layers, monkeypatch):
+def test_missing_house_credentials_keep_the_existing_pipeline(layers, monkeypatch):
     session, transcribe, google = layers
-    monkeypatch.setattr(settings, "hail_amd_multilingual", False)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "google_api_key", "")
     result = amd.build_amd_models(session)
     assert result.stt is session.stt and result.llm is session.llm
     transcribe.assert_not_called()
@@ -111,7 +111,6 @@ async def test_real_provider_constructors_support_independent_autodetection(
     from ._fakes import FakeLLM
 
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "false")
-    monkeypatch.setattr(settings, "hail_amd_multilingual", True)
     monkeypatch.setattr(settings, "openai_api_key", "sk-test-placeholder")
     monkeypatch.setattr(settings, "google_api_key", "google-test-placeholder")
     session = AgentSession(

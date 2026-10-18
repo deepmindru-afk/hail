@@ -25,7 +25,7 @@ class ConversationRecovery:
         *,
         on_exhausted: Callable[[], Awaitable[None]],
         can_recover: Callable[[], bool],
-        timeout: float,
+        timeout: float = 20.0,
         call_id: UUID | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:

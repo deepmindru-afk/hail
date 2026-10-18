@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,12 +39,6 @@ class Settings(BaseSettings):
     cartesia_api_key: str = ""
     eleven_api_key: str = ""
     speechmatics_api_key: str = ""
-
-    hail_voice_noise_cancellation: bool = True
-    # Auto preserves SDK availability checks on VM deployments.
-    hail_voice_interruption_mode: Literal["auto", "adaptive", "vad"] = "auto"
-    hail_voice_recovery_timeout_seconds: float = Field(default=20.0, ge=0, le=120)
-    hail_amd_multilingual: bool = True
 
     # STT/TTS — model names set via .env / .env.local.
     deepgram_model: str = ""

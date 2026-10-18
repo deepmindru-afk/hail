@@ -1958,7 +1958,6 @@ async def _run_call(
             and not bridge_state.get("human")
             and not bridge_state.get("connected")
         ),
-        timeout=settings.hail_voice_recovery_timeout_seconds,
         call_id=call_id,
     )
 

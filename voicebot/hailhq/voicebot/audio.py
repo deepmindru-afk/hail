@@ -16,7 +16,7 @@ from livekit.agents import room_io
 def room_options() -> room_io.RoomOptions:
     host = urlsplit(settings.livekit_url).hostname or ""
     selector = None
-    if settings.hail_voice_noise_cancellation and host.endswith(".livekit.cloud"):
+    if host.endswith(".livekit.cloud"):
         # Proprietary Cloud filter, loaded only for the supported transport.
         # It processes subscribed input frames without republishing cleaned audio;
         # composite Egress continues to capture the original room tracks.

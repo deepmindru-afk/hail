@@ -46,30 +46,8 @@ Hail API dispatches it into a room for each call.
 
 For the full flow, refer to [Architecture](../architecture.md).
 
-The worker uses Agents 1.8.8 and the built-in audio turn detector (local mini
-model on a VM). Speechmatics uses Linden-1; legacy `operating_point` inputs
-normalize to `model=linden-1`. The API waits up to 20 seconds for audio readiness
-before dialing. API and worker must therefore run the same release.
-
-Voice controls in `.env` (restart the worker after changing them):
-
-- `HAIL_VOICE_NOISE_CANCELLATION=true`: Krisp BVC Telephony on Cloud SIP input.
-  This filters the agent's input only; room tracks and Egress recording stay intact.
-- `HAIL_VOICE_INTERRUPTION_MODE=auto`: SDK availability checks. Use `adaptive`
-  only with supported Cloud access; `vad` forces the local fallback.
-- `HAIL_VOICE_RECOVERY_TIMEOUT_SECONDS=20`: after no transcript progress, ask
-  the caller to repeat once, then end if the next interval also has no progress.
-  Paused during agent speech, tool work, IVR, and human handover. `0` disables it.
-- `HAIL_AMD_MULTILINGUAL=true`: house AMD uses `gpt-live-transcribe` with
-  explicit language detection and `gemini-3.1-flash-lite`, through house provider
-  keys. BYO layers retain their providers; Speechmatics BYO retains its configured
-  language, and Deepgram multi covers ten languages. `false` reuses session layers.
-
-`call_events` includes numeric `voice_metrics` (LLM/TTS/endpoint timing) and AMD
-reason/delay. Before rollout, compare median/p95 timing and replay noisy and
-multilingual greetings, including false voicemail detections on real people.
-Rebase voice changes after the recording PR merges and rerun its lifecycle tests.
-
+Noise filtering, interruption handling, and call recovery are enabled automatically.
+Run the API and voicebot worker from the same release.
 
 ## 4. Inbound calls
 

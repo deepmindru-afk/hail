@@ -36,7 +36,6 @@ def recovery():
         session,
         on_exhausted=hangup,
         can_recover=lambda: permitted[0],
-        timeout=20,
         clock=lambda: now[0],
     )
     return watcher, session, now, hangup, permitted
@@ -46,7 +45,10 @@ async def test_continuous_vad_without_transcription_gets_one_recovery_then_ends(
     recovery,
 ):
     watcher, session, now, hangup, _ = recovery
-    now[0] = 21
+    now[0] = 19
+    await watcher.check()
+    session.generate_reply.assert_not_called()
+    now[0] = 20
     session.emit("user_state_changed", new_state="speaking")
     await watcher.check()
     session.clear_user_turn.assert_called_once()

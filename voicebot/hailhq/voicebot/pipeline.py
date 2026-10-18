@@ -622,11 +622,6 @@ def build_session(
                 "min_words": 1,
                 "false_interruption_timeout": 2.0,
                 "resume_false_interruption": True,
-                **(
-                    {"mode": settings.hail_voice_interruption_mode}
-                    if settings.hail_voice_interruption_mode != "auto"
-                    else {}
-                ),
             },
         ),
     )

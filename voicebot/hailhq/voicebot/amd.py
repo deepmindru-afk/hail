@@ -77,8 +77,6 @@ def build_amd_models(
     Speechmatics BYO retains its selected language (no automatic language mode).
     """
     models = AMDModels(session.llm, session.stt)
-    if not settings.hail_amd_multilingual:
-        return models
     org_cfgs = org_cfgs or {}
     try:
         if "stt" not in org_cfgs and settings.openai_api_key:
