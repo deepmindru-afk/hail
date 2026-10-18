@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from hailhq.core.config import settings
@@ -29,6 +30,10 @@ from livekit.protocol.models import ListUpdate
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 VOICE_READY_ATTRIBUTE = "hail.voice.ready"
+
+
+class WorkerGaveUp(Exception):
+    """The worker finalized the call and left before signalling readiness."""
 
 
 class LiveKitClient:
@@ -144,12 +149,21 @@ class LiveKitClient:
         )
 
     async def wait_for_agent_ready(
-        self, room_name: str, *, timeout: float = 20.0, poll_interval: float = 0.25
+        self,
+        room_name: str,
+        *,
+        timeout: float = 20.0,
+        poll_interval: float = 0.25,
+        gave_up: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         """Do not dial until the worker's session and AMD audio input are armed.
 
         A dispatch response only means that the job was queued. The participant
         attribute is published by the worker after AMD enters its listening setup.
+        ``gave_up`` is polled between attribute checks. When it returns True the
+        worker has already finalized the call (for example a BYO key that does
+        not work) and left, so waiting out ``timeout`` would only delay the
+        answer: :class:`WorkerGaveUp` is raised instead.
         https://docs.livekit.io/reference/python/livekit/api/room_service.html
         """
         async with asyncio.timeout(timeout):
@@ -162,6 +176,8 @@ class LiveKitClient:
                     for p in result.participants
                 ):
                     return
+                if gave_up is not None and await gave_up():
+                    raise WorkerGaveUp(room_name)
                 await asyncio.sleep(poll_interval)
 
     async def add_inbound_number(self, trunk_id: str, e164: str) -> None:

@@ -5,7 +5,7 @@ Mix of pure unit (parse_metadata, on_call_end) and behavioral
 behavior is code, so behavioral coverage is mandatory.
 
 The behavioral test runs in **text mode** (no audio in/out), which lets us
-skip VAD/STT/TTS entirely — verified 2026-04-28 against
+skip VAD/STT/TTS entirely, verified 2026-04-28 against
 ``docs.livekit.io/agents/build/testing/``.
 """
 
@@ -88,7 +88,7 @@ def test_metadata_parser_rejects_empty_string() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Voice-call instruction assembly (Bug 2 — agent must not claim to be text-based)
+# Voice-call instruction assembly (Bug 2, agent must not claim to be text-based)
 # --------------------------------------------------------------------------- #
 
 
@@ -99,7 +99,7 @@ def test_build_instructions_prepends_preamble_to_caller_prompt() -> None:
 
     assert out.startswith(VOICE_PREAMBLE)
     assert caller in out
-    # Preamble precedes the caller prompt — it frames, never gets replaced.
+    # Preamble precedes the caller prompt, it frames, never gets replaced.
     assert out.index(VOICE_PREAMBLE) < out.index(caller)
 
 
@@ -128,7 +128,7 @@ def test_build_instructions_composes_for_a_mode_b_call_with_a_prompt() -> None:
     """A mode B dispatch (BYO ``llm``) that also carries a ``system_prompt``
     gets the same composition as mode A: preamble first, caller prompt after.
 
-    This is the combination `POST /calls` now accepts — nothing here is
+    This is the combination `POST /calls` now accepts, nothing here is
     mode-aware, which is why no voicebot change was needed for it.
     """
     caller = "You are calling Dr. Lee's office to book a teeth cleaning."
@@ -163,7 +163,7 @@ def test_voice_preamble_frames_the_channel() -> None:
     assert "speech-to-text" in low and "text-to-speech" in low
     # Never claim to be human.
     assert "human" in low
-    # No emoji — the real TTS fix (stripping the stored transcript would not
+    # No emoji, the real TTS fix (stripping the stored transcript would not
     # change what the LLM hands the TTS engine).
     assert "emoji" in low
 
@@ -191,7 +191,10 @@ class _FakeSession:
         return _register
 
 
-async def test_voice_metrics_record_only_finite_timings(monkeypatch) -> None:
+async def test_voice_metrics_merge_into_one_row_per_speech(monkeypatch) -> None:
+    """eou, llm and tts timings of one agent speech share one row. The row is
+    written when the next speech starts, or by ``flush`` at shutdown. Only
+    finite, non-negative numbers are kept; no transcript or key leaks."""
     recorded = []
 
     async def write(_call_id, kind, payload):
@@ -199,26 +202,56 @@ async def test_voice_metrics_record_only_finite_timings(monkeypatch) -> None:
 
     monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", write)
     session = _FakeSession()
-    tasks = attach_event_handlers(session, UUID(int=1))
-    session.handlers["metrics_collected"](
-        SimpleNamespace(
-            metrics=SimpleNamespace(
-                type="llm_metrics",
-                ttft=0.25,
-                ttfb=float("nan"),
-                speech_id="speech-1",
-                transcript="private speech",
-                api_key="private key",
-            )
-        )
+    tasks, flush = attach_event_handlers(session, UUID(int=1))
+    on_metrics = session.handlers["metrics_collected"]
+
+    def emit(**fields):
+        on_metrics(SimpleNamespace(metrics=SimpleNamespace(**fields)))
+
+    emit(
+        type="eou_metrics",
+        end_of_utterance_delay=0.4,
+        transcription_delay=0.1,
+        speech_id="speech-1",
+    )
+    emit(
+        type="llm_metrics",
+        ttft=0.25,
+        ttfb=float("nan"),
+        speech_id="speech-1",
+        transcript="private speech",
+        api_key="private key",
+    )
+    emit(type="tts_metrics", ttfb=0.3, speech_id="speech-1")
+    emit(type="tts_metrics", ttfb=0.9, speech_id="speech-1")  # later segment
+    assert not tasks, "a speech that may still report is not written yet"
+
+    emit(
+        type="eou_metrics",
+        end_of_utterance_delay=0.5,
+        transcription_delay=-1.0,
+        speech_id="speech-2",
     )
     await asyncio.gather(*list(tasks))
     assert recorded == [
         (
             "voice_metrics",
-            {"type": "llm_metrics", "ttft": 0.25, "speech_id": "speech-1"},
+            {
+                "speech_id": "speech-1",
+                "end_of_utterance_delay": 0.4,
+                "transcription_delay": 0.1,
+                "ttft": 0.25,
+                "ttfb": 0.3,
+            },
         )
     ]
+
+    flush()
+    await asyncio.gather(*list(tasks))
+    assert recorded[1] == (
+        "voice_metrics",
+        {"speech_id": "speech-2", "end_of_utterance_delay": 0.5},
+    )
 
 
 async def _make_call_row(session: AsyncSession) -> UUID:
@@ -293,8 +326,8 @@ async def test_entrypoint_org_config_load_failure_finalizes_cleanly(
 ) -> None:
     """A decrypt failure loading the org's BYO config (the real trigger being
     a HAIL_PROVIDER_SECRET_KEY rotation invalidating stored ciphertext) must
-    fail fast as provider_key_error — finalizing the Call row via on_call_end
-    — and must NOT propagate raw out of entrypoint() and leak the number."""
+    fail fast as provider_key_error (finalizing the Call row via on_call_end)
+    and must NOT propagate raw out of entrypoint() and leak the number."""
     from hailhq.voicebot import agent as agent_mod
 
     org_id = UUID("11111111-2222-3333-4444-555555555555")
@@ -327,11 +360,11 @@ async def test_entrypoint_build_session_type_error_finalizes_cleanly(
     async_session: AsyncSession,
 ) -> None:
     """A malformed ``voice_config.language`` (a dict instead of a string
-    code — e.g. a direct LiveKit dispatch with hand-crafted metadata) makes
+    code, e.g. a direct LiveKit dispatch with hand-crafted metadata) makes
     ``build_session``'s ``SUPPORTED_LANGUAGES`` membership check raise
     ``TypeError`` (unhashable type). That must fail fast as
     provider_key_error too, not escape ``entrypoint()`` raw and leak the pool
-    number — same leak class as the InvalidToken case above, just raised
+    number, same leak class as the InvalidToken case above, just raised
     from inside build_session (called within the same guarded block) instead
     of from resolve_org_configs."""
     call_id = await _make_call_row(async_session)
@@ -382,7 +415,7 @@ async def test_attach_event_handlers_ignores_non_message_items() -> None:
     session = _FakeSession()
     call_id = UUID("11111111-1111-1111-1111-111111111111")
 
-    event_tasks = attach_event_handlers(session, call_id)
+    event_tasks, _ = attach_event_handlers(session, call_id)
     on_item = session.handlers["conversation_item_added"]
 
     on_item(SimpleNamespace(item=SimpleNamespace()))
@@ -402,7 +435,7 @@ async def test_call_event_written_for_user_turn(async_session: AsyncSession) -> 
     fake_llm = FakeLLM(reply="ack")
 
     async with AgentSession(llm=fake_llm) as session:
-        event_tasks = attach_event_handlers(session, call_id)
+        event_tasks, _ = attach_event_handlers(session, call_id)
         agent = Agent(instructions="test")
         await session.start(agent=agent)
         await session.run(user_input="hello")
@@ -471,7 +504,7 @@ async def test_on_call_end_inserts_usage_event(async_session: AsyncSession) -> N
         await async_session.execute(select(Call).where(Call.id == call_id))
     ).scalar_one()
     await async_session.refresh(refreshed)
-    # cost_cents stays NULL — the API service no longer prices.
+    # cost_cents stays NULL, the API service no longer prices.
     assert refreshed.cost_cents is None
 
     rows = (
@@ -572,7 +605,7 @@ async def test_on_call_end_releases_pool_reservation(
 # --------------------------------------------------------------------------- #
 
 
-# Pure unit tests for the mapping helper — no DB, no session. Parametrized
+# Pure unit tests for the mapping helper, no DB, no session. Parametrized
 # against the real `rtc.DisconnectReason` enum from the installed SDK so a
 # protobuf rename upstream surfaces immediately in CI.
 
@@ -585,7 +618,7 @@ async def test_on_call_end_releases_pool_reservation(
         (rtc.DisconnectReason.SIP_TRUNK_FAILURE, ("failed", "sip_trunk_failure")),
         (rtc.DisconnectReason.CONNECTION_TIMEOUT, ("failed", "connection_timeout")),
         (rtc.DisconnectReason.MEDIA_FAILURE, ("failed", "media_failure")),
-        # CLIENT_INITIATED is the normal-hangup happy path — leave status as-is.
+        # CLIENT_INITIATED is the normal-hangup happy path, leave status as-is.
         (rtc.DisconnectReason.CLIENT_INITIATED, (None, None)),
         # A missing disconnect_reason must not override the default status.
         (None, (None, None)),
@@ -612,7 +645,7 @@ def _fake_participant(kind: int, call_status: str | None) -> SimpleNamespace:
     [
         # SIP participant whose call went active = the callee answered.
         (rtc.ParticipantKind.PARTICIPANT_KIND_SIP, SIP_CALL_STATUS_ACTIVE, True),
-        # Still dialing — not answered yet.
+        # Still dialing, not answered yet.
         (rtc.ParticipantKind.PARTICIPANT_KIND_SIP, "dialing", False),
         # No status attribute yet.
         (rtc.ParticipantKind.PARTICIPANT_KIND_SIP, None, False),
@@ -713,7 +746,7 @@ async def test_on_call_end_noops_when_reconciler_already_closed(
     Regression for the unguarded terminal write: an un-hung worker running
     on_call_end after sweep_stale_calls failed the row must NOT overwrite the
     outcome back to 'completed', must NOT emit a second contradictory
-    state_change, and must NOT write a (duplicate) usage_events row —
+    state_change, and must NOT write a (duplicate) usage_events row,
     usage_events.ref carries no unique constraint, so nothing else stops it.
     """
     call_id = await _make_call_row(async_session)
@@ -745,7 +778,7 @@ async def test_on_call_end_noops_when_reconciler_already_closed(
         await async_session.execute(select(Call).where(Call.id == call_id))
     ).scalar_one()
     await async_session.refresh(refreshed)
-    # Outcome preserved — not reverted to completed/normal_hangup.
+    # Outcome preserved, not reverted to completed/normal_hangup.
     assert refreshed.status == "failed"
     assert refreshed.end_reason == "sweeper_timeout"
 
@@ -820,7 +853,7 @@ async def test_call_lifecycle_dialing_to_completed_integration(
     The spec's headline test: a completed call must pass through ``in_progress``
     and carry a non-null ``answered_at``. Drives the real functions in sequence
     (no live room needed) and asserts ``answered_at`` is stamped on pickup AND
-    survives ``on_call_end`` — plus the full state_change trail, the regression
+    survives ``on_call_end``, plus the full state_change trail, the regression
     that previously left finished calls looking stuck at 'dialing'.
     """
     call_id = await _make_call_row(async_session)  # status='dialing'
@@ -934,7 +967,7 @@ async def test_on_call_end_emits_terminal_state_change_event(
     """on_call_end logs a state_change so observers see the terminal transition.
 
     Without this, the only state_change ever emitted is queued→dialing (from
-    the API) — the symptom that made completed calls look stuck at 'dialing'.
+    the API), the symptom that made completed calls look stuck at 'dialing'.
     """
     call_id = await _make_call_row(async_session)  # status='dialing'
     # Simulate a real conversation: the call had reached in_progress.
@@ -1060,7 +1093,7 @@ async def test_on_call_end_no_override_defaults_to_normal_hangup(
 
 
 # --------------------------------------------------------------------------- #
-# AI disclosure — proactive, real (not just prompt-hoped-for)
+# AI disclosure, proactive, real (not just prompt-hoped-for)
 # --------------------------------------------------------------------------- #
 
 
@@ -1078,7 +1111,7 @@ async def test_speak_greeting_speaks_disclosure_before_first_message() -> None:
 
 async def test_speak_greeting_skips_disclosure_when_opted_out() -> None:
     """``ai_disclosure: False`` skips the disclosure; ``first_message`` still
-    plays. With neither, the LLM opening still fires — never dead air."""
+    plays. With neither, the LLM opening still fires, never dead air."""
     session = FakeAnnouncingSession()
     await speak_greeting(
         session, {"ai_disclosure": False, "first_message": "Hi, about your order."}
@@ -1104,7 +1137,7 @@ async def test_speak_greeting_speaks_disclosure_when_no_first_message() -> None:
 
 
 async def test_speak_greeting_first_message_suppresses_generated_opening() -> None:
-    """A caller ``first_message`` is the opening — no LLM turn on top of it."""
+    """A caller ``first_message`` is the opening, no LLM turn on top of it."""
     session = FakeAnnouncingSession()
 
     await speak_greeting(session, {"first_message": "Hi, about your order."})
@@ -1133,14 +1166,14 @@ def test_speech_text_strips_tool_syntax() -> None:
     assert speech_text("") == ""
     assert speech_text("No action needed.\n```json\n{}") == "No action needed."
     # The session's markdown filter strips fences before TTS, leaving bare
-    # JSON on its own line — truncate from a newline-opening object/array.
+    # JSON on its own line, truncate from a newline-opening object/array.
     assert speech_text('Pressing two.\n{"digits":"2"}') == "Pressing two."
     assert speech_text("One moment, please.") == "One moment, please."
 
 
 async def test_sanitize_tts_stream_filters_like_speech_text() -> None:
     """The streaming TTS filter matches speech_text: normal speech passes
-    byte-identical, JSON-opening turns drop, fences truncate — even when
+    byte-identical, JSON-opening turns drop, fences truncate, even when
     the fence splits across chunk boundaries."""
 
     async def gen(*chunks: str):
@@ -1174,7 +1207,9 @@ async def test_agent_turn_tool_syntax_not_recorded(
 
     monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", _fake_write)
     session = _FakeSession()
-    tasks = attach_event_handlers(session, UUID("11111111-1111-1111-1111-111111111111"))
+    tasks, _ = attach_event_handlers(
+        session, UUID("11111111-1111-1111-1111-111111111111")
+    )
     on_item = session.handlers["conversation_item_added"]
 
     on_item(
@@ -1209,7 +1244,9 @@ async def test_tool_call_event_records_arguments(
 
     monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", _fake_write)
     session = _FakeSession()
-    tasks = attach_event_handlers(session, UUID("11111111-1111-1111-1111-111111111111"))
+    tasks, _ = attach_event_handlers(
+        session, UUID("11111111-1111-1111-1111-111111111111")
+    )
     on_tools = session.handlers["function_tools_executed"]
 
     on_tools(
@@ -1244,7 +1281,7 @@ async def test_speak_greeting_deferred_path_skips_generated_opening() -> None:
 
 
 async def test_speak_greeting_first_message_cannot_precede_disclosure() -> None:
-    """Even a caller-supplied ``first_message`` can't be spoken first —
+    """Even a caller-supplied ``first_message`` can't be spoken first,
     the disclosure is not sourced from (and cannot be overridden by)
     caller-controlled metadata like ``system_prompt`` or ``first_message``.
     """
@@ -1262,7 +1299,7 @@ async def test_speak_greeting_first_message_cannot_precede_disclosure() -> None:
 
 async def test_speak_greeting_names_the_org_when_dispatch_metadata_has_it() -> None:
     """org_name (server-resolved, not caller-supplied) is spoken in the
-    disclosure — 47 CFR 64.1200(b)(1) wants the initiating business named."""
+    disclosure, 47 CFR 64.1200(b)(1) wants the initiating business named."""
     session = FakeAnnouncingSession()
 
     await speak_greeting(session, {"org_name": "Acme Corp"})
@@ -1280,7 +1317,7 @@ async def test_speak_greeting_blank_or_missing_org_name_falls_back_to_generic() 
 
 
 # --------------------------------------------------------------------------- #
-# Soft-cap behavior — voice call duration limit
+# Soft-cap behavior, voice call duration limit
 # --------------------------------------------------------------------------- #
 
 
@@ -1296,7 +1333,7 @@ async def test_soft_cap_speaks_announcement_then_shuts_down() -> None:
     assert len(session.say_calls) == 1
     text, allow_interruptions = session.say_calls[0]
     assert text == SOFT_CAP_ANNOUNCEMENT
-    # Uninterruptible — the caller must actually hear the goodbye before
+    # Uninterruptible, the caller must actually hear the goodbye before
     # the line drops.
     assert allow_interruptions is False
     assert session.last_handle is not None
@@ -1323,7 +1360,7 @@ async def test_soft_cap_cancelled_before_firing_does_not_speak() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Agent-initiated hangup (end_call tool) — must finalize as a normal hangup,
+# Agent-initiated hangup (end_call tool), must finalize as a normal hangup,
 # not a worker_shutdown/failed (Task 9)
 # --------------------------------------------------------------------------- #
 
@@ -1345,7 +1382,7 @@ async def test_agent_hangup_marks_normal_hangup() -> None:
     assert captured["end_reason"] == CallEndReason.NORMAL_HANGUP.value
     assert captured["status"] is None
     assert ctx.shutdown_calls == ["agent_end_call"]
-    # ctx.shutdown() only ends the agent job — per LiveKit docs the SIP
+    # ctx.shutdown() only ends the agent job, per LiveKit docs the SIP
     # participant keeps hearing silence until the ROOM is deleted. The
     # hangup handle must delete the room to actually end the phone call.
     assert ctx.delete_room_calls == 1
@@ -1381,7 +1418,7 @@ async def test_agent_send_dtmf_publishes_rfc4733_code() -> None:
 async def test_on_call_end_bills_a_machine_answered_call(
     async_session: AsyncSession,
 ) -> None:
-    """A voicemail box that picked up burned real minutes — bill them.
+    """A voicemail box that picked up burned real minutes, bill them.
 
     Billing keys off `answered_at` (the SIP leg went active), not the final
     status, so an AMD hangup recorded as `no_answer` is still billed.
@@ -1458,7 +1495,7 @@ async def test_on_call_end_bills_a_completed_call_with_no_answered_at(
 async def test_on_call_end_does_not_bill_a_call_that_never_answered(
     async_session: AsyncSession,
 ) -> None:
-    """A genuine no-answer rang but never picked up — nothing to bill."""
+    """A genuine no-answer rang but never picked up, nothing to bill."""
     call_id = await _make_call_row(async_session)
     # started_at (dial time) is set, answered_at is not: pure ring time.
     await async_session.execute(
@@ -1526,7 +1563,7 @@ async def test_build_tools_safely_degrades_on_failure(
 
     `build_tools_safely` is the entrypoint's guard around `build_agent_tools`:
     any exception (e.g. a DB rollback on a dead connection) degrades to
-    `([], None)` — no tools beats a dead call.
+    `([], None)`, no tools beats a dead call.
     """
     from hailhq.voicebot import agent as agent_mod
 

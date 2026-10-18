@@ -1,6 +1,6 @@
 """Answering machine detection for outbound calls.
 
-Classifies who picked up — person, phone tree, voicemail, dead mailbox — so
+Classifies who picked up, person, phone tree, voicemail, dead mailbox, so
 the agent never talks to a machine. Lives outside :mod:`hailhq.voicebot.agent`
 purely to keep that module's size in check; the only caller is ``entrypoint``.
 
@@ -79,12 +79,16 @@ def build_amd_models(
     models = AMDModels(session.llm, session.stt)
     org_cfgs = org_cfgs or {}
     try:
-        if "stt" not in org_cfgs and settings.openai_api_key:
+        if (
+            "stt" not in org_cfgs
+            and settings.openai_api_key
+            and settings.openai_transcribe_model
+        ):
             # The plugin's local VAD commits audio; this model has no server VAD.
             # https://docs.livekit.io/agents/models/stt/openai/
             # https://developers.openai.com/api/docs/guides/realtime-transcription
             models.stt = openai.STT(
-                model="gpt-live-transcribe",
+                model=settings.openai_transcribe_model,
                 detect_language=True,
                 api_key=settings.openai_api_key,
                 **({"vad": session.vad} if session.vad is not None else {}),
@@ -109,9 +113,14 @@ def build_amd_models(
     except Exception:
         logger.exception("AMD transcription setup failed; reusing session STT")
     try:
-        if not llm_override and "llm" not in org_cfgs and settings.google_api_key:
+        if (
+            not llm_override
+            and "llm" not in org_cfgs
+            and settings.google_api_key
+            and settings.google_amd_model
+        ):
             models.llm = google.LLM(
-                model="gemini-3.1-flash-lite", api_key=settings.google_api_key
+                model=settings.google_amd_model, api_key=settings.google_api_key
             )
             models.owned.append(models.llm)
     except Exception:
@@ -120,7 +129,7 @@ def build_amd_models(
 
 
 # Categories we hang up on rather than speak to. `machine-ivr` is deliberately
-# absent — AMD starts LiveKit's IVR navigation for it and the tree may still
+# absent, AMD starts LiveKit's IVR navigation for it and the tree may still
 # route to a person. `uncertain` is absent too: when in doubt, talk.
 MACHINE_HANGUP_CATEGORIES: frozenset[str] = frozenset(
     {"machine-vm", "machine-unavailable"}
@@ -151,8 +160,8 @@ DETECTION_TIMEOUT_SECONDS = 90.0
 MACHINE_IVR_CATEGORY = "machine-ivr"
 
 # Handed to ``session.generate_reply`` the moment AMD reports a phone tree.
-# This exists because the alternative — our hardcoded ``session.say``
-# disclosure — is TTS-only and never invokes the LLM, so the model got no
+# This exists because the alternative, our hardcoded ``session.say``
+# disclosure, is TTS-only and never invokes the LLM, so the model got no
 # turn in which it could press a key and the menu simply timed out. A
 # generated reply is a real LLM turn with the full tool set attached.
 #
@@ -166,9 +175,9 @@ You have reached an automated phone menu, not a person. This was the menu:
 {transcript}
 
 Use the send_dtmf tool to press the option that best advances the reason for \
-your call. Press keys — do not speak your choice, the menu cannot hear you. \
+your call. Press keys, do not speak your choice, the menu cannot hear you. \
 If no option fits, press the one for a human operator or reception. Key \
-presses happen only through the send_dtmf tool — never write JSON, code, or \
+presses happen only through the send_dtmf tool, never write JSON, code, or \
 tool-call syntax in your reply. When you have nothing to say, reply with \
 exactly "..." and no other text. Do not speak sentences until a person is on \
 the line."""

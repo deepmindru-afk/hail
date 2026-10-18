@@ -1,6 +1,6 @@
 """Unit tests for ``hailhq.voicebot.pipeline``.
 
-These tests exercise the LLM-construction logic in isolation — no
+These tests exercise the LLM-construction logic in isolation, no
 ``AgentSession``, no DB, no real provider calls.
 
 Note on API keys: the openai/google/anthropic plugin LLMs validate the
@@ -33,7 +33,7 @@ def _stub_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ELEVEN_API_KEY", "el-test-placeholder")
     monkeypatch.setenv("ELEVENLABS_VOICE_ID", "test-voice-id")
     # build_tts() gates on settings (loaded from env at import), so set the
-    # singleton's fields directly — monkeypatch.setenv won't re-trigger load.
+    # singleton's fields directly, monkeypatch.setenv won't re-trigger load.
     monkeypatch.setattr(settings, "cartesia_api_key", "ct-test-placeholder")
     monkeypatch.setattr(settings, "cartesia_voice_id", "ct-voice-id")
     monkeypatch.setattr(settings, "cartesia_model", "sonic-3")
@@ -42,13 +42,14 @@ def _stub_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "elevenlabs_model", "eleven_turbo_v2_5")
     monkeypatch.setenv("SPEECHMATICS_API_KEY", "sm-test-placeholder")
     monkeypatch.setattr(settings, "speechmatics_api_key", "sm-test-placeholder")
+    monkeypatch.setattr(settings, "speechmatics_model", "linden-1")
 
 
 @pytest.fixture(autouse=True)
 def _fake_job_context():
     """``build_session``'s semantic turn-detection path constructs a
     ``MultilingualModel``, which reads ``get_job_context().inference_executor``
-    at ``__init__`` time — it needs a job context even outside an active
+    at ``__init__`` time, it needs a job context even outside an active
     call. ``livekit.agents.testing.fake_job_context`` is the SDK's own
     in-process stand-in (installs a real ``JobContext`` with a no-op
     inference executor) for exactly this situation."""
@@ -80,7 +81,7 @@ def test_build_llm_mode_b_returns_openai_with_overridden_endpoint() -> None:
     }
     inst = build_llm(cfg)
     assert isinstance(inst, openai_plugin.LLM)
-    # Read back via the public ``model`` property — internal attr name varies.
+    # Read back via the public ``model`` property, internal attr name varies.
     assert inst.model == "custom/llama-3.1-70b"
 
 
@@ -88,7 +89,7 @@ def test_build_session_smoke_constructs_full_pipeline() -> None:
     """Smoke-test ``build_session`` so the deepgram/cartesia/elevenlabs/silero
     constructor signatures are empirically exercised (not just the LLM half).
 
-    Uses a stub VAD — Silero loading is heavy and unrelated to what this
+    Uses a stub VAD, Silero loading is heavy and unrelated to what this
     asserts. Mode A so the LLM path also runs.
     """
 
@@ -294,7 +295,7 @@ def test_session_org_speechmatics_row_no_key_without_fallback_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An org speechmatics row with no stored key and no house key is a
-    key-absence failure, not a capability mismatch — but it must still
+    key-absence failure, not a capability mismatch, but it must still
     respect the consent flag: fallback_enabled=False means the org has NOT
     consented to a silent deepgram reroute, so this must raise
     ProviderKeyError (from build_stt's own fail-fast) rather than degrade."""
@@ -352,7 +353,7 @@ def test_session_org_stt_incapable_with_fallback_degrades(
     An org's console BYO STT row can still name speechmatics generally
     (it's not language-scoped); with ``fallback_enabled=True`` (consent to
     house-provider rerouting) ``build_session`` degrades to deepgram rather
-    than construct an incompatible provider — and warns."""
+    than construct an incompatible provider, and warns."""
     import logging
 
     from hailhq.voicebot.pipeline import ResolvedLayer
@@ -398,7 +399,7 @@ def test_session_unknown_language_degrades_to_defaults(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A raw dispatch-metadata language outside SUPPORTED_LANGUAGES must not
-    crash the call — degrade to provider defaults (English-ish) with a
+    crash the call, degrade to provider defaults (English-ish) with a
     warning, per the Task 1 review's known watch item."""
     import logging
 
@@ -415,7 +416,7 @@ def test_build_session_raises_typeerror_for_unhashable_language() -> None:
     dispatch metadata, rather than a string code) makes the
     ``SUPPORTED_LANGUAGES`` membership check raise ``TypeError`` (unhashable
     type), not silently misbehave. ``entrypoint``'s guard in agent.py
-    converts this to ``ProviderKeyError`` so it never escapes raw — see
+    converts this to ``ProviderKeyError`` so it never escapes raw, see
     ``test_entrypoint_build_session_type_error_finalizes_cleanly`` in
     test_agent.py for the end-to-end conversion."""
     with pytest.raises(TypeError):
