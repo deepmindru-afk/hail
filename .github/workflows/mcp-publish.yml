@@ -22,6 +22,9 @@ on:
 
 jobs:
   publish:
+    # Only main may publish under the org namespace: a manual run from a
+    # feature branch would otherwise ship that branch's server.json.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       id-token: write # OIDC token for the registry login
@@ -31,13 +34,17 @@ jobs:
         working-directory: mcp
     env:
       MCP_PUBLISHER_VERSION: v1.8.1
+      # sha256 of mcp-publisher_linux_amd64.tar.gz for that release.
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
     steps:
       - uses: actions/checkout@v4
 
       - name: Install mcp-publisher
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
-            | tar xz mcp-publisher
+          curl -fsSL -o mcp-publisher.tgz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tgz" | sha256sum -c -
+          tar xzf mcp-publisher.tgz mcp-publisher
           ./mcp-publisher --version
 
       - name: Validate server.json
