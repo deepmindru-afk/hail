@@ -1613,7 +1613,8 @@ def register_tools(
         125 countries, see core/hailhq/core/sender_id_corridors.py) use
         your organization's sender ID
         (or ``HAIL``, the platform default); Australia (+61) always uses
-        ``HAIL``; every other destination, including the US and Canada,
+        ``HAIL`` when that carrier is Twilio; every other destination,
+        including the US and Canada,
         uses your organization's oldest active SMS-capable number and the
         API returns 422 when there is none.
         SMS never uses the shared voice-call pool.

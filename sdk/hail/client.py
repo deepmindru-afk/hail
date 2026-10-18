@@ -234,7 +234,8 @@ class _SmsResource:
         one table per carrier in core/hailhq/core/sender_id_corridors.py)
         use the org's sender ID (or
         ``HAIL``, the platform default); Australia (+61) always uses
-        ``HAIL``; every other destination, including the US and Canada,
+        ``HAIL`` when that carrier is Twilio; every other destination,
+        including the US and Canada,
         uses the org's oldest active SMS-capable number and the server
         422s when there is none.
         SMS never uses the shared pool.

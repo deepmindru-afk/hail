@@ -246,7 +246,6 @@ CORRIDORS: dict[str, dict[str, CorridorOutcome]] = {
         "AI": "custom_ok",  # Anguila
         "AL": "custom_ok",  # Albania
         "AM": "always_number",  # Armenia — Telnyx: Yes, with registration
-        "AN": "custom_ok",  # Netherlands Antilles
         "AO": "custom_ok",  # Angola
         "AR": "excluded",  # Argentina — Telnyx changes the sender ID to ensure delivery
         "AS": "custom_ok",  # American Samoa

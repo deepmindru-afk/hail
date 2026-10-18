@@ -38,7 +38,8 @@ Without --from: destinations where the sender-ID carrier delivers a dynamic
 alphanumeric sender ID unchanged (about 125 countries, one table per carrier
 in core/hailhq/core/sender_id_corridors.py)
 use your organization's sender ID (or HAIL, the platform default); Australia
-(+61) always uses HAIL; every other destination, including the US and
+(+61) always uses HAIL when that carrier is Twilio; every other destination,
+including the US and
 Canada, uses your organization's oldest active SMS-capable number (422 when
 there is none). SMS never uses the shared voice pool.
 

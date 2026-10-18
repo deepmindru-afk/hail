@@ -90,9 +90,11 @@ def _twilio_alphanumeric_table(page: str) -> tuple[str, dict[str, str]] | None:
         if not _text(table.group(1)).lower().startswith("alphanumeric"):
             continue
         rows = re.findall(r"<tr>(.*?)</tr>", table.group(2), re.DOTALL)
+        if not rows:
+            continue
         head = [_text(c) for c in re.findall(r"<th>(.*?)</th>", rows[0], re.DOTALL)]
         if "Dynamic" not in head:
-            return None
+            continue
         dynamic = head.index("Dynamic") - 1
         values: dict[str, str] = {}
         for row in rows[1:]:
@@ -172,6 +174,8 @@ def telnyx() -> tuple[dict[str, tuple[str, str, str]], list[str]]:
         if len(cells) != 5 or not re.fullmatch(r"[A-Z]{2}", cells[0]):
             continue
         cc, name, _dial, _mcc, maintained = cells
+        if cc not in phonenumbers.SUPPORTED_REGIONS:
+            continue  # e.g. "AN" Netherlands Antilles: no number resolves to it
         outcome, note = _telnyx_classify(maintained)
         table[cc] = (name, outcome, note)
     skipped = sorted(set(phonenumbers.SUPPORTED_REGIONS) - set(table))
@@ -183,10 +187,12 @@ def telnyx() -> tuple[dict[str, tuple[str, str, str]], list[str]]:
 
 def render(carrier: str, table: dict[str, tuple[str, str, str]]) -> str:
     lines = [f'    "{carrier}": {{']
-    for cc in sorted(table):
-        name, outcome, note = table[cc]
-        if cc in HAND_SET.get(carrier, {}):
-            outcome, note = HAND_SET[carrier][cc]
+    hand_set = HAND_SET.get(carrier, {})
+    # A hand-set region is written even when its page was not fetched.
+    for cc in sorted(set(table) | set(hand_set)):
+        name, outcome, note = table.get(cc, (cc, "", ""))
+        if cc in hand_set:
+            outcome, note = hand_set[cc]
         comment = f"  # {name}" + (f" — {note}" if note else "")
         lines.append(f'        "{cc}": "{outcome}",{comment}')
     lines.append("    },")

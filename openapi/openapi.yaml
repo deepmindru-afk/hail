@@ -8426,7 +8426,8 @@ components:
             Asia-Pacific and the Caribbean; one table per carrier in
             core/hailhq/core/sender_id_corridors.py) use the organization's sender
             ID, or the platform default 'HAIL' when none
-            is set; Australia (+61) always uses 'HAIL'. Every other destination,
+            is set; Australia (+61) always uses 'HAIL' when that carrier is Twilio.
+            Every other destination,
             including the US and Canada, uses the organization's oldest active
             SMS-capable number; if none exists the request fails with 422. SMS never
             uses the shared pool."
