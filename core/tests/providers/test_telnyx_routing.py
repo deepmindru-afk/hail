@@ -204,8 +204,9 @@ async def test_twilio_live_rules_classify_verification_effort(
             phone_number="+12125550100",
             capabilities={"voice": True, "SMS": True},
             address_requirements="none",
-            locality="New York",
-            region="NY",
+            # Twilio sends some places in capitals, with the country as region.
+            locality="NEW YORK",
+            region="US",
         )
     ]
     api.pricing.v1.phone_numbers.countries.return_value.fetch.return_value = (
@@ -228,7 +229,7 @@ async def test_twilio_live_rules_classify_verification_effort(
         "ready" if friction == "none" else "verification_required"
     )
     assert offers[0].monthly_cents == 115
-    assert (offers[0].locality, offers[0].region) == ("New York", "NY")
+    assert (offers[0].locality, offers[0].region) == ("New York", None)
     if friction == "none":
         api.numbers.v2.regulatory_compliance.bundles.list.assert_not_called()
     assert (

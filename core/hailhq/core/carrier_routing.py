@@ -111,7 +111,7 @@ class Carrier:
     # True when a purchase is accepted first and completes later.
     async_orders: bool
     # Live inventory: (org, country, number type, capabilities, exact e164,
-    # US/CA area code, city, US/CA state or province code).
+    # national digits the number starts with, city, US/CA state code).
     offers: Callable[
         [
             UUID,

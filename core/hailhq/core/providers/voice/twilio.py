@@ -152,6 +152,14 @@ async def find_ordered_number(e164: str, order_ref: UUID) -> str | None:
     return await asyncio.to_thread(lookup)
 
 
+def _place_name(name: str | None) -> str | None:
+    """Twilio names some places in capitals ("PHOENIX"); show them as the
+    other carriers do ("Phoenix"). Mixed case stays as sent ("McAllen")."""
+    if not name:
+        return None
+    return name.title() if name.isupper() else name
+
+
 async def twilio_offers(
     org: UUID,
     country: str,
@@ -174,7 +182,9 @@ async def twilio_offers(
             return []
         try:
             inventory = inventory_api.list(
-                limit=3,
+                # "contains" may also match mid-number; a bigger page leaves
+                # enough numbers that start with the prefix (DIDWW does the same).
+                limit=30 if prefix else 3,
                 **{f"{c}_enabled": True for c in capabilities},
                 **({"contains": e164 or prefix} if e164 or prefix else {}),
                 **({"in_locality": city} if city else {}),
@@ -283,8 +293,9 @@ async def twilio_offers(
                     ),
                     requirements=labels,
                     verification_id=bundle.sid if bundle else None,
-                    locality=n.locality or None,
-                    region=n.region or None,
+                    locality=_place_name(n.locality),
+                    # Twilio sometimes puts the country here ("US"), not a state.
+                    region=n.region if n.region and n.region != country else None,
                 )
             )
         return result

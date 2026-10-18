@@ -32,10 +32,6 @@ from hailhq.core.schemas import NumberType
 logger = logging.getLogger(__name__)
 
 PROVIDER = "didww"
-# DIDWW names US states in full; offers carry the code, like the other carriers.
-_REGION_CODES = {
-    c: {name: code for code, name in r.items()} for c, r in REGIONS.items()
-}
 
 _ENVIRONMENTS = {
     "production": Environment.PRODUCTION,
@@ -252,7 +248,14 @@ def _offers_sync(
         region_ref = group["relationships"].get("region", {}).get("data")
         city_row = index.get(("cities", city_ref["id"])) if city_ref else None
         region_row = index.get(("regions", region_ref["id"])) if region_ref else None
-        region_name = region_row["attributes"].get("name") if region_row else None
+        region_attrs = region_row["attributes"] if region_row else {}
+        # DIDWW names US states in full ("Arizona", iso "US-AZ"). Offers carry
+        # the code there, like the other carriers; elsewhere the name.
+        region_name = (
+            region_attrs.get("iso", "").partition("-")[2] or None
+            if country in REGIONS
+            else region_attrs.get("name")
+        )
         results.append(
             CarrierOffer(
                 provider=PROVIDER,
@@ -270,8 +273,7 @@ def _offers_sync(
                 verification_id=approved["id"] if approved else None,
                 address_id=approved["id"] if approved else None,
                 locality=city_row["attributes"].get("name") if city_row else None,
-                # Same form as the other carriers: AZ, not Arizona.
-                region=_REGION_CODES.get(country, {}).get(region_name, region_name),
+                region=region_name,
             )
         )
         break  # One offer per carrier, like Telnyx.

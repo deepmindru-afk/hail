@@ -202,6 +202,8 @@ async def test_area_code_reaches_inventory_search(
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     # A prefix search, not AreaCode: AreaCode works in the US and Canada only.
     assert query["Contains"] == ["+1480"]
+    # "contains" may match mid-number, so the page is bigger than the usual 3.
+    assert query["PageSize"] == ["30"]
     assert query["VoiceEnabled"] == ["true"]
 
 
