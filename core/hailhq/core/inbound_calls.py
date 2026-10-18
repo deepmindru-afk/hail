@@ -31,7 +31,7 @@ from hailhq.core.billing import CALL_META_BILLED, has_funds
 from hailhq.core.call_end_reasons import CallEndReason
 from hailhq.core.carrier_routing import inbound_trunk
 from hailhq.core.compliance_gate import check_channel_suspended
-from hailhq.core.config import settings
+from hailhq.core.config import SELF_HOSTED_ORG_ID, settings
 from hailhq.core.handover import HANDOVER_DEFAULT_MAX_SECONDS, handover_targets
 from hailhq.core.internal_webhook import fetch_organization_name
 from hailhq.core.models import (
@@ -223,7 +223,9 @@ async def _answer_or_refuse(
             **recording_call_metadata(
                 workspace,
                 override=agent.recording_enabled,
-                self_hosted=bool(settings.hail_api_key),
+                # Same rule as outbound: only the shared-key sentinel org is
+                # self-hosted, never every org on a deploy that sets the key.
+                self_hosted=org_id == SELF_HOSTED_ORG_ID,
             ),
         },
     )

@@ -47,7 +47,7 @@ from uuid import UUID
 
 from hailhq.core.models import Call, Contact, Email, OrgClosure, Sms
 from hailhq.core.recordings import delete_recording
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -121,7 +121,12 @@ async def purge_expired_data(session: AsyncSession, now: datetime) -> PurgeSumma
             await session.execute(
                 select(Call).where(
                     Call.organization_id.in_(org_ids),
-                    Call.recording_s3_key.isnot(None),
+                    or_(
+                        Call.recording_s3_key.isnot(None),
+                        # In-flight recordings only carry the object key in
+                        # metadata until Egress completes.
+                        Call.metadata_.has_key("recording_object_key"),
+                    ),
                 )
             )
         )
