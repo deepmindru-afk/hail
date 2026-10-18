@@ -34,6 +34,18 @@ def test_uk_uses_custom_sender_id() -> None:
     assert result.sender_id == "ACME"
 
 
+def test_denmark_uses_custom_sender_id() -> None:
+    result = resolve_sender("+4552123456", custom_sender_id="ACME")
+    assert result.kind == "alphanumeric"
+    assert result.sender_id == "ACME"
+
+
+def test_denmark_falls_back_to_platform_default_when_unset() -> None:
+    result = resolve_sender("+4552123456", custom_sender_id=None)
+    assert result.kind == "alphanumeric"
+    assert result.sender_id == "HAIL"
+
+
 def test_australia_ignores_custom_id_uses_platform_default() -> None:
     # Registration-required corridor: custom per-org IDs not supported yet.
     result = resolve_sender("+61412345678", custom_sender_id="ACME")

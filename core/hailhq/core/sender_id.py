@@ -1,7 +1,7 @@
 """Sender ID corridor classification and resolution for outbound SMS.
 
 Only the corridors researched for the SMS design spec are classified —
-US, Canada, UK, Germany, Australia, India. Any other destination
+US, Canada, UK, Germany, Denmark, Australia, India. Any other destination
 conservatively requires the org's dedicated number rather than guessing
 at unresearched local Sender ID rules. Extend ``_PREFIX_OUTCOMES`` as more
 countries get researched.
@@ -27,6 +27,7 @@ CorridorOutcome = Literal[
 _PREFIX_OUTCOMES: dict[str, CorridorOutcome] = {
     "49": "custom_ok",  # Germany — no pre-registration required
     "44": "custom_ok",  # UK — no pre-registration for non-"protected" names
+    "45": "custom_ok",  # Denmark — no pre-registration required (Twilio DK guidelines)
     "61": "platform_default_only",  # Australia — ACMA register requires pre-registration
     "91": "excluded",  # India — Twilio silently overwrites alphanumeric with a short code
 }

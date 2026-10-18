@@ -1608,8 +1608,8 @@ def register_tools(
         """Send an outbound SMS.
 
         ``to`` must be E.164 (e.g. ``+14155551234``). ``body`` is the
-        message text. With no ``from_``: UK (+44) and Germany (+49)
-        destinations use your organization's sender ID (or ``HAIL``, the
+        message text. With no ``from_``: UK (+44), Germany (+49) and Denmark
+        (+45) destinations use your organization's sender ID (or ``HAIL``, the
         platform default); Australia (+61) always uses ``HAIL``; every
         other destination uses your organization's oldest active
         SMS-capable number and the API returns 422 when there is none.

@@ -417,7 +417,8 @@ class SmsCreate(ConsentAttestationMixin):
         description=(
             "Sender phone number, E.164 format. Must be an active number "
             "owned by the organization with the SMS capability. Omitted: "
-            "UK (+44) and Germany (+49) destinations use the organization's "
+            "UK (+44), Germany (+49) and Denmark (+45) destinations use the "
+            "organization's "
             "sender ID, or the platform default 'HAIL' when none is set; "
             "Australia (+61) always uses 'HAIL'. Every other destination "
             "uses the organization's oldest active SMS-capable number; if "

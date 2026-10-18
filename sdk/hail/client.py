@@ -229,8 +229,8 @@ class _SmsResource:
     ) -> SmsResponse:
         """Send an outbound SMS.
 
-        With no ``from_``: UK (+44) and Germany (+49) destinations use the
-        org's sender ID (or ``HAIL``, the platform default); Australia (+61)
+        With no ``from_``: UK (+44), Germany (+49) and Denmark (+45)
+        destinations use the org's sender ID (or ``HAIL``, the platform default); Australia (+61)
         always uses ``HAIL``; every other destination uses the org's oldest
         active SMS-capable number and the server 422s when there is none.
         SMS never uses the shared pool.
