@@ -24,6 +24,11 @@ def _rejection_code(exc: httpx.HTTPStatusError) -> str | None:
 
 
 class TelnyxSmsProvider(SmsProvider):
+    # Telnyx: "messaging_profile_id is required when sending with an
+    # alphanumeric sender ID" (POST /v2/messages). A number carries its own
+    # profile; a sender ID has no number, so the profile must be named.
+    sender_id_needs_messaging_service = True
+
     def __init__(self, client: TelnyxClient | None = None):
         self.client = client or TelnyxClient()
 
@@ -33,10 +38,13 @@ class TelnyxSmsProvider(SmsProvider):
         to_e164: str,
         body: str,
         status_callback_url: str | None = None,
+        messaging_service_sid: str | None = None,
     ) -> ProviderSmsResult:
         payload = {"from": from_e164, "to": to_e164, "text": body, "type": "SMS"}
         if status_callback_url:
             payload["webhook_url"] = status_callback_url
+        if messaging_service_sid:
+            payload["messaging_profile_id"] = messaging_service_sid
         try:
             data = (await self.client.request("POST", "/messages", json=payload))[
                 "data"

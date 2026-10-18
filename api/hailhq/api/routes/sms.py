@@ -68,6 +68,7 @@ from hailhq.core.sms_registration_gate import (
     registered_sms_number,
     us_registration_block,
 )
+from hailhq.core.sms_setup import org_messaging_service_sid
 from hailhq.core.urls import join_url
 from hailhq.core.webhook_fanout import fanout_sms_event
 from sqlalchemy import delete, func, select
@@ -96,11 +97,22 @@ async def deliver_sms(db: AsyncSession, sms: Sms) -> str | None:
     try:
         provider = sms_route(sms.provider)
         callback_url = join_url(settings.hail_api_url, sms_status_path(sms.provider))
+        messaging_service_sid = None
+        if sms.from_number_id is None and provider.sender_id_needs_messaging_service:
+            # A sender-ID send has no number to carry the org's messaging
+            # service, so name it: the one the org's numbers on this carrier
+            # already share, else a fresh one (created once, then found by
+            # name).
+            messaging_service_sid = await provider.ensure_messaging_service(
+                sms.organization_id,
+                await org_messaging_service_sid(db, sms.organization_id, sms.provider),
+            )
         result = await provider.send_sms(
             from_e164=sms.from_e164,
             to_e164=sms.to_e164,
             body=sms.body,
             status_callback_url=callback_url,
+            messaging_service_sid=messaging_service_sid,
         )
     except Exception:
         logger.warning("sms send failed for sms_id=%s", sms.id, exc_info=True)

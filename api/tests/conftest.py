@@ -268,6 +268,8 @@ def sms_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     """Default mock SMS provider — happy-path send for every call. It stands
     in for the Twilio SMS client."""
     mock = AsyncMock(spec=SmsProvider)
+    # Twilio sends from an alphanumeric sender ID without a messaging service.
+    mock.sender_id_needs_messaging_service = False
     monkeypatch.setattr(
         "hailhq.core.providers.sms.twilio.twilio_sms_provider", lambda: mock
     )

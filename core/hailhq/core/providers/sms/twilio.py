@@ -57,7 +57,9 @@ class TwilioSmsProvider(SmsProvider):
         to_e164: str,
         body: str,
         status_callback_url: str | None = None,
+        messaging_service_sid: str | None = None,
     ) -> ProviderSmsResult:
+        # An alphanumeric ``From`` sends on its own; no messaging service needed.
         create_kwargs: dict[str, str] = {
             "to": to_e164,
             "from_": from_e164,
@@ -243,9 +245,10 @@ class LazyTwilioSmsProvider(SmsProvider):
         to_e164: str,
         body: str,
         status_callback_url: str | None = None,
+        messaging_service_sid: str | None = None,
     ) -> ProviderSmsResult:
         return await self._provider().send_sms(
-            from_e164, to_e164, body, status_callback_url
+            from_e164, to_e164, body, status_callback_url, messaging_service_sid
         )
 
     async def ensure_messaging_service(

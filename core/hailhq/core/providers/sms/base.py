@@ -45,6 +45,11 @@ class ProviderSmsResult(BaseModel):
 class SmsProvider(ABC):
     """Abstract carrier-side SMS provider."""
 
+    # True when a send from an alphanumeric sender ID (no number of its own)
+    # must name the org's messaging service: the caller passes it as
+    # ``send_sms(messaging_service_sid=...)``.
+    sender_id_needs_messaging_service: bool = False
+
     @abstractmethod
     async def send_sms(
         self,
@@ -52,6 +57,7 @@ class SmsProvider(ABC):
         to_e164: str,
         body: str,
         status_callback_url: str | None = None,
+        messaging_service_sid: str | None = None,
     ) -> ProviderSmsResult:
         """Send a single SMS.
 
@@ -63,6 +69,10 @@ class SmsProvider(ABC):
         ``status_callback_url``, when set, asks the carrier to POST
         delivery-status updates (e.g. delivered/undelivered) to that URL
         as the message transitions after the initial accept.
+
+        ``messaging_service_sid`` is the org's messaging service (Twilio) or
+        profile (Telnyx) for a send from an alphanumeric sender ID; a carrier
+        that does not need one ignores it.
         """
 
     @abstractmethod
