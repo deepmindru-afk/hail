@@ -76,6 +76,20 @@ def test_operator_can_keep_the_existing_pipeline(layers, monkeypatch):
     google.assert_not_called()
 
 
+def test_optional_stt_setup_failure_keeps_the_working_session_stt(layers):
+    session, transcribe, _ = layers
+    transcribe.side_effect = ValueError("speech account not configured")
+    result = amd.build_amd_models(session)
+    assert result.stt is session.stt
+
+
+def test_optional_classifier_setup_failure_keeps_the_working_session_llm(layers):
+    session, _, google = layers
+    google.side_effect = ValueError("classifier account not configured")
+    result = amd.build_amd_models(session)
+    assert result.llm is session.llm
+
+
 async def test_only_amd_owned_models_are_closed(layers):
     from unittest.mock import AsyncMock
 

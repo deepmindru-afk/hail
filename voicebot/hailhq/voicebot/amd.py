@@ -80,30 +80,38 @@ def build_amd_models(
     if not settings.hail_amd_multilingual:
         return models
     org_cfgs = org_cfgs or {}
-    if "stt" not in org_cfgs and settings.openai_api_key:
-        # The plugin's local VAD commits audio; this model has no server VAD.
-        # https://docs.livekit.io/agents/models/stt/openai/
-        # https://developers.openai.com/api/docs/guides/realtime-transcription
-        models.stt = openai.STT(
-            model="gpt-live-transcribe",
-            detect_language=True,
-            api_key=settings.openai_api_key,
-            **({"vad": session.vad} if session.vad is not None else {}),
-        )
-        models.owned.append(models.stt)
-    elif (org_stt := org_cfgs.get("stt")) and org_stt.provider == "deepgram":
-        # Nova-3's streaming multi model covers ten languages, not its whole
-        # monolingual catalog. Never remove Arabic (or another pinned language)
-        # from a BYO call by changing it to an unsupported multi model.
-        multi = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
-        amd_language = "multi" if language is None or language in multi else language
-        models.stt = build_stt(org_stt, language=amd_language, provider="deepgram")
-        models.owned.append(models.stt)
-    if not llm_override and "llm" not in org_cfgs and settings.google_api_key:
-        models.llm = google.LLM(
-            model="gemini-3.1-flash-lite", api_key=settings.google_api_key
-        )
-        models.owned.append(models.llm)
+    try:
+        if "stt" not in org_cfgs and settings.openai_api_key:
+            # The plugin's local VAD commits audio; this model has no server VAD.
+            # https://docs.livekit.io/agents/models/stt/openai/
+            # https://developers.openai.com/api/docs/guides/realtime-transcription
+            models.stt = openai.STT(
+                model="gpt-live-transcribe",
+                detect_language=True,
+                api_key=settings.openai_api_key,
+                **({"vad": session.vad} if session.vad is not None else {}),
+            )
+            models.owned.append(models.stt)
+        elif (org_stt := org_cfgs.get("stt")) and org_stt.provider == "deepgram":
+            # Nova-3's streaming multi model covers ten languages, not its whole
+            # monolingual catalog. Never remove Arabic (or another pinned language)
+            # from a BYO call by changing it to an unsupported multi model.
+            multi = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
+            amd_language = (
+                "multi" if language is None or language in multi else language
+            )
+            models.stt = build_stt(org_stt, language=amd_language, provider="deepgram")
+            models.owned.append(models.stt)
+    except Exception:
+        logger.exception("AMD transcription setup failed; reusing session STT")
+    try:
+        if not llm_override and "llm" not in org_cfgs and settings.google_api_key:
+            models.llm = google.LLM(
+                model="gemini-3.1-flash-lite", api_key=settings.google_api_key
+            )
+            models.owned.append(models.llm)
+    except Exception:
+        logger.exception("AMD classifier setup failed; reusing session LLM")
     return models
 
 
