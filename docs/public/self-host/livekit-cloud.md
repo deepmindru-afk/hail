@@ -46,6 +46,9 @@ Hail API dispatches it into a room for each call.
 
 For the full flow, refer to [Architecture](../architecture.md).
 
+Noise filtering, interruption handling, and call recovery are enabled automatically.
+Run the API and voicebot worker from the same release.
+
 ## 4. Inbound calls
 
 Hail answers calls on a number once the number routes calls to an agent

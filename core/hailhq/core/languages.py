@@ -13,7 +13,7 @@ STT/TTS provider serves each one. Derived from official provider docs on
   https://docs.cartesia.ai/build-with-cartesia/tts-models/latest
 * ElevenLabs eleven_turbo_v2_5 languages —
   https://elevenlabs.io/docs/models
-* LiveKit audio TurnDetector languages —
+* LiveKit audio TurnDetector languages:
   https://docs.livekit.io/agents/build/turns/turn-detector/
 
 Supported = (nova-3 ∪ Speechmatics STT) ∩ sonic-3.5. Excluded for
@@ -202,7 +202,7 @@ def tts_providers_for(language: str | None) -> frozenset[str]:
 def turn_mode_for(language: str | None, stt_provider: str) -> str:
     """Pick the turn-detection strategy for one call.
 
-    "semantic" — LiveKit audio TurnDetector (14 languages, any STT).
+    "semantic": LiveKit audio TurnDetector (14 languages, any STT).
     "stt" — Speechmatics drives end-of-turn from the transcript stream.
     "vad" — silence-gap only; the floor when nothing better exists.
     """

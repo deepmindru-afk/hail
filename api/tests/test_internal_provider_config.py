@@ -20,6 +20,7 @@ BASE = f"/internal/orgs/{ORG}/providers"
 @pytest.fixture()
 def provider_key_set(monkeypatch):
     monkeypatch.setattr(settings, "hail_provider_secret_key", generate_key())
+    monkeypatch.setattr(settings, "speechmatics_model", "linden-1")
 
 
 async def test_requires_signature(client, internal_secret_set) -> None:  # noqa: F811
@@ -209,12 +210,12 @@ async def test_deactivation_preserves_inactive_siblings_updated_at(
 
     Regression: the deactivate leg of _set_active once matched every
     sibling (provider != target), so on each activation it rewrote
-    updated_at on rows that were already inactive too — collapsing every
+    updated_at on rows that were already inactive too, collapsing every
     row to one timestamp and destroying the recency ordering that
     DELETE-promotion relies on. Only the row leaving active (and the target
     gaining it) should move.
 
-    Uses the llm layer — the only one with three valid providers. Each PUT
+    Uses the llm layer, the only one with three valid providers. Each PUT
     is its own request/transaction, so now() advances between them: after
     the three PUTs, anthropic was last written when google was activated,
     google was last written when openai-compatible was activated, so with
@@ -298,7 +299,7 @@ async def test_validate_honors_explicit_provider_over_active(
 ) -> None:
     # cartesia saved+active, then elevenlabs saved (now active, cartesia
     # inactive). Validating cartesia by name with no api_key must test
-    # cartesia's stored key — not the active elevenlabs row.
+    # cartesia's stored key, not the active elevenlabs row.
     seen = {}
 
     async def fake_validate(layer, provider, api_key, params, client=None):

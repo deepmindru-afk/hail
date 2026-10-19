@@ -20,7 +20,8 @@ from pydantic import ValidationError
 
 
 @pytest.mark.parametrize("legacy", ["standard", "enhanced"])
-def test_speechmatics_legacy_tiers_resolve_to_the_actual_model(legacy):
+def test_speechmatics_legacy_tiers_resolve_to_the_actual_model(legacy, monkeypatch):
+    monkeypatch.setattr(settings, "speechmatics_model", "linden-1")
     params = STTParams(provider="speechmatics", operating_point=legacy)
     assert params.model == "linden-1"
     assert params.operating_point is None

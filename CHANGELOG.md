@@ -22,6 +22,10 @@ Database migrations run on deploy.
 - `GET /numbers/regions` lists US states and Canadian provinces. An unknown `region` gets 422.
 - Database support for low-balance reminders (3 days and 1 day before release) and idle-number warnings.
 
+### Changed
+
+- Voice: the voicemail-detection and Speechmatics model ids are read from env. New env: `OPENAI_TRANSCRIBE_MODEL`, `GOOGLE_AMD_MODEL`, `SPEECHMATICS_MODEL` (values in `.env.example`).
+
 ### Removed
 
 - **Breaking.** `conversation_id` is gone from `POST /v1/calls` and `POST /v1/emails` requests and from call and email responses. Nothing ever created a conversation, so the field was always null. A request that still sends it now gets 422 (the request bodies reject unknown fields). `hail-sdk`: `client.emails.create()` no longer takes `conversation_id`, and the `Call` / `Email` models no longer have it. The empty `conversations` table and the `calls.conversation_id` / `emails.conversation_id` columns are dropped.

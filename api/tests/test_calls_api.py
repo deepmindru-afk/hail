@@ -9,6 +9,7 @@ database without any FastAPI dep override.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -83,7 +84,7 @@ async def test_post_calls_accepts_prompt_and_llm_together(
         json={
             "to": "+14155559999",
             "system_prompt": "hi",
-            # A resolvable public https host — the route's SSRF guard does
+            # A resolvable public https host, the route's SSRF guard does
             # real DNS, so a .example.com placeholder would 422 here.
             "llm": {
                 "base_url": "https://api.openai.com/v1",
@@ -106,7 +107,7 @@ async def test_post_calls_rejects_neither_prompt_nor_llm(
     client: httpx.AsyncClient,
     org_and_key: tuple[str, ApiKey, str],
 ) -> None:
-    """Neither field is still a 422 — the one surviving half of the rule."""
+    """Neither field is still a 422, the one surviving half of the rule."""
     _, _, plain = org_and_key
     resp = await client.post(
         "/calls",
@@ -126,7 +127,7 @@ async def test_post_calls_rejects_missing_recipient_consent(
     client: httpx.AsyncClient,
     org_and_key: tuple[str, ApiKey, str],
 ) -> None:
-    """``recipient_consent`` is required — omitting it is a 422, not a default."""
+    """``recipient_consent`` is required, omitting it is a 422, not a default."""
     _, _, plain = org_and_key
     resp = await client.post(
         "/calls",
@@ -230,7 +231,7 @@ async def test_post_calls_no_number_and_empty_pool_returns_503(
 ) -> None:
     """When the org has no number and the shared pool is empty, expect 503.
 
-    Old behavior was 422 — the resolver now falls back to a shared pool
+    Old behavior was 422, the resolver now falls back to a shared pool
     before giving up, so the failure mode is "pool exhausted" rather than
     "you have no number".
     """
@@ -286,6 +287,13 @@ async def test_post_calls_happy_path_201(
     # Disclosure defaults on and always reaches the voicebot explicitly.
     assert dispatch_kwargs["metadata"]["ai_disclosure"] is True
 
+    # Dispatch alone is not audio readiness. The worker arms AMD before the dial.
+    assert dispatch_kwargs["metadata"]["await_agent_ready"] is True
+    livekit_mock.wait_for_agent_ready.assert_awaited_once()
+    assert livekit_mock.wait_for_agent_ready.await_args.args == ("hail-test-room",)
+    calls = [call[0] for call in livekit_mock.mock_calls]
+    assert calls.index("wait_for_agent_ready") < calls.index("create_sip_participant")
+
     livekit_mock.create_sip_participant.assert_awaited_once()
     sip_kwargs = livekit_mock.create_sip_participant.await_args.kwargs
     assert sip_kwargs["to_e164"] == "+14155559999"
@@ -320,7 +328,7 @@ async def test_post_v1_calls_location_header_is_v1_prefixed(
     add_phone_number,
 ) -> None:
     """A client that POSTs to the canonical /v1/calls mount must get back a
-    /v1/-prefixed Location, not the deprecated legacy path — the legacy
+    /v1/-prefixed Location, not the deprecated legacy path, the legacy
     mount (test_post_calls_happy_path_201 above) still gets an unprefixed
     one."""
     org_id, _, plain = org_and_key
@@ -402,17 +410,75 @@ async def test_post_calls_carrier_route_error_creates_no_room(
     livekit_mock.create_room.assert_not_awaited()
 
 
-async def test_post_calls_livekit_failure_marks_call_failed(
+async def test_post_calls_returns_worker_outcome_when_it_gives_up_before_dial(
     client: httpx.AsyncClient,
     async_session: AsyncSession,
     org_and_key: tuple[str, ApiKey, str],
     livekit_mock: AsyncMock,
     add_phone_number,
 ) -> None:
+    """A worker that cannot build its session (bad BYO key) finalizes the row
+    and leaves without signalling readiness. The API stops waiting as soon as
+    the row is terminal, never dials, and returns the worker's outcome."""
+    from hailhq.core.livekit import WorkerGaveUp
+
     org_id, _, plain = org_and_key
     await add_phone_number(async_session, org_id)
 
-    livekit_mock.create_sip_participant.side_effect = RuntimeError("trunk down")
+    async def worker_fails_first(room_name, *, gave_up):
+        call = (await async_session.execute(select(Call))).scalar_one()
+        call.status = "failed"
+        call.end_reason = "provider_key_error"
+        call.ended_at = datetime.now(timezone.utc)
+        await async_session.commit()
+        assert await gave_up() is True
+        raise WorkerGaveUp(room_name)
+
+    livekit_mock.wait_for_agent_ready.side_effect = worker_fails_first
+
+    resp = await client.post(
+        "/calls",
+        json={
+            "to": "+14155559999",
+            "system_prompt": "hi",
+            "recipient_consent": True,
+        },
+        headers={"Authorization": f"Bearer {plain}"},
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "failed"
+    assert body["end_reason"] == "provider_key_error"
+    livekit_mock.create_sip_participant.assert_not_awaited()
+    livekit_mock.delete_dispatch.assert_awaited_once_with(
+        "AD_test_dispatch", "hail-test-room"
+    )
+    events = (await async_session.execute(select(CallEvent))).scalars().all()
+    assert events == []
+
+
+@pytest.mark.parametrize("failure_stage", ["sip_participant", "agent_ready"])
+async def test_post_calls_livekit_failure_marks_call_failed(
+    client: httpx.AsyncClient,
+    async_session: AsyncSession,
+    org_and_key: tuple[str, ApiKey, str],
+    livekit_mock: AsyncMock,
+    add_phone_number,
+    failure_stage,
+) -> None:
+    org_id, _, plain = org_and_key
+    await add_phone_number(async_session, org_id)
+
+    if failure_stage == "agent_ready":
+        livekit_mock.wait_for_agent_ready.side_effect = TimeoutError("worker not ready")
+    else:
+        livekit_mock.create_sip_participant.side_effect = RuntimeError("trunk down")
+    expected_reason = (
+        "agent_dispatch_failed"
+        if failure_stage == "agent_ready"
+        else "sip_participant_failed"
+    )
 
     resp = await client.post(
         "/calls",
@@ -429,7 +495,7 @@ async def test_post_calls_livekit_failure_marks_call_failed(
 
     call = (await async_session.execute(select(Call))).scalar_one()
     assert call.status == "failed"
-    assert call.end_reason == "sip_participant_failed"
+    assert call.end_reason == expected_reason
     assert call.ended_at is not None
 
     events = (await async_session.execute(select(CallEvent))).scalars().all()
@@ -437,12 +503,14 @@ async def test_post_calls_livekit_failure_marks_call_failed(
     assert events[0].payload == {
         "from": "queued",
         "to": "failed",
-        "reason": "sip_participant_failed",
+        "reason": expected_reason,
     }
     livekit_mock.delete_dispatch.assert_awaited_once_with(
         "AD_test_dispatch", "hail-test-room"
     )
     livekit_mock.delete_room.assert_awaited_once_with("hail-test-room")
+    if failure_stage == "agent_ready":
+        livekit_mock.create_sip_participant.assert_not_awaited()
 
 
 async def test_post_calls_livekit_failure_emits_call_failed_webhook(
@@ -612,7 +680,7 @@ async def test_post_calls_pool_exhausted_returns_503(
     await async_session.refresh(pool_pn)
     assert pool_pn.reserved_call_id is not None
 
-    # Second caller — same org, no number, pool empty → 503.
+    # Second caller, same org, no number, pool empty → 503.
     resp = await client.post(
         "/calls",
         json={
@@ -633,7 +701,7 @@ async def test_post_calls_explicit_from_cannot_address_pool(
     livekit_mock: AsyncMock,
     add_phone_number,
 ) -> None:
-    """A caller cannot use `from` to grab a pool number — it's not theirs."""
+    """A caller cannot use `from` to grab a pool number, it's not theirs."""
     _, _, plain = org_and_key
     pool_pn = await add_phone_number(
         async_session,
@@ -687,7 +755,7 @@ async def test_post_calls_pool_release_on_dispatch_failure(
     # Call exists and is failed.
     call = (await async_session.execute(select(Call))).scalar_one()
     assert call.status == "failed"
-    # And the pool row is back to available — release fired in the failure path.
+    # And the pool row is back to available, release fired in the failure path.
     await async_session.refresh(pool_pn)
     assert pool_pn.reserved_call_id is None
 
@@ -1211,7 +1279,7 @@ async def test_post_calls_dispatch_metadata_org_name_none_on_lookup_failure(
     add_phone_number,
     monkeypatch,
 ) -> None:
-    """Lookup failure degrades to org_name=None — the call still goes out."""
+    """Lookup failure degrades to org_name=None, the call still goes out."""
     org_id, _, plain = org_and_key
     await add_phone_number(async_session, org_id)
 
@@ -1285,7 +1353,7 @@ async def test_voice_config_stt_rejected_422(
 ) -> None:
     """Per-call STT selection is gone: sending ``voice_config.stt`` at all
     is rejected with a clean 422 (``VoiceConfig`` has ``extra="forbid"``
-    and no longer declares the field) — STT provider selection is
+    and no longer declares the field), STT provider selection is
     console-BYO-only now."""
     org_id, _, plain = org_and_key
     await add_phone_number(async_session, org_id)
@@ -1313,7 +1381,7 @@ async def test_language_with_no_speechmatics_key_still_201s(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No per-call STT knob means the API never gates on Speechmatics key
-    availability — routing degrades safely inside the voicebot (deepgram +
+    availability, routing degrades safely inside the voicebot (deepgram +
     VAD turn detection) instead of 422ing here."""
     from hailhq.core.config import settings
 
