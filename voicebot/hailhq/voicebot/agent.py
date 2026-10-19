@@ -85,7 +85,7 @@ from hailhq.voicebot.pipeline import (
     decrypt_llm_metadata,
     resolve_org_configs,
 )
-from hailhq.voicebot.recording import upload_recording
+from hailhq.voicebot.recording import start_recording, stop_recording
 from hailhq.voicebot.recovery import ConversationRecovery
 from hailhq.voicebot.telemetry import connect_livekit_tracing
 from hailhq.voicebot.tools import build_agent_tools
@@ -1324,8 +1324,8 @@ async def on_call_end(
 ) -> None:
     """Finalize the ``Call`` row when the session ends.
 
-    Called from a shutdown callback registered against ``ctx``. Uploads the
-    recording (no-op in v1, see :mod:`hailhq.voicebot.recording`), marks
+    Called from a shutdown callback registered against ``ctx``. Egress handles
+    the recording on its own (see :mod:`hailhq.voicebot.recording`). This marks
     the call with the final status (``"completed"`` by default), sets
     ``ended_at = now()``, and records one raw ``usage_events`` row with the
     call duration in milliseconds.
@@ -1351,7 +1351,6 @@ async def on_call_end(
     see ``usage_events`` accumulate as a generic analytics primitive they
     can query directly.
     """
-    recording_key = await upload_recording(call_id, room_name)
     now = datetime.now(timezone.utc)
 
     async with session_scope() as session:
@@ -1364,6 +1363,7 @@ async def on_call_end(
             Call.answered_at,
             Call.organization_id,
             Call.recording_duration_ms,
+            Call.metadata_,
             Call.direction,
             Call.from_e164,
             Call.to_e164,
@@ -1379,6 +1379,7 @@ async def on_call_end(
             answered_at,
             organization_id,
             recording_duration_ms,
+            call_metadata,
             direction,
             from_e164,
             to_e164,
@@ -1420,7 +1421,7 @@ async def on_call_end(
                 status=final_status,
                 end_reason=final_end_reason,
                 ended_at=now,
-                recording_s3_key=recording_key,
+                # Egress writes recording metadata independently.
             )
         )
         transitioned = (result.rowcount or 0) > 0
@@ -1484,7 +1485,11 @@ async def on_call_end(
                 organization_id=organization_id,
                 channel="voice",
                 units=duration_ms,
-                ref=str(call_id),
+                ref=(
+                    f"{call_id}:recording-v1"
+                    if (call_metadata or {}).get("recording_enabled")
+                    else str(call_id)
+                ),
             )
             session.add(usage)
             await session.flush()
@@ -1574,7 +1579,14 @@ def attach_event_handlers(
             text = speech_text(text)
             if not text:
                 return
-        _spawn(kind, {"role": role, "text": text})
+        payload = {"role": role, "text": text}
+        metrics = getattr(item, "metrics", {}) or {}
+        # These are speech wall times, not the time a delayed STT event reached DB.
+        for key in ("started_speaking_at", "stopped_speaking_at"):
+            value = metrics.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                payload[key] = value
+        _spawn(kind, payload)
 
     @session.on("function_tools_executed")
     def _on_tools(ev: Any) -> None:
@@ -1739,6 +1751,7 @@ async def _run_call(
     # is idempotent regardless, so a missed dedupe is still safe.
     answer_tasks: set[asyncio.Task[None]] = set()
     answered = {"done": False}
+    answer_event = asyncio.Event()
 
     def _maybe_mark_answered(participant: rtc.Participant) -> None:
         if answered["done"] or not is_sip_answer_signal(participant):
@@ -1753,6 +1766,7 @@ async def _run_call(
             # duplicate event schedules a second task is harmless.
             if await mark_call_answered(call_id):
                 answered["done"] = True
+                answer_event.set()
 
         task = asyncio.ensure_future(_run())
         answer_tasks.add(task)
@@ -1920,7 +1934,31 @@ async def _run_call(
         ),
         tools=agent_tools,
     )
-    await session.start(agent=agent, room=ctx.room, room_options=room_options())
+    # Explicitly prevent LiveKit project observability from silently retaining
+    # audio outside Hail's workspace choice and storage lifecycle.
+    await session.start(
+        agent=agent, room=ctx.room, record=False, room_options=room_options()
+    )
+
+    async def record_answered_call() -> None:
+        # Do not consume recording allowance during ringing or on unanswered calls.
+        await answer_event.wait()
+        await start_recording(call_id, ctx.room.name, ctx.api)
+
+    recording_task = asyncio.create_task(record_answered_call())
+
+    async def finish_recording() -> None:
+        # Runs after _shutdown (chained below): billing never waits on upload.
+        if not answered["done"]:
+            recording_task.cancel()
+            await asyncio.gather(recording_task, return_exceptions=True)
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(recording_task), timeout=6)
+        except (TimeoutError, asyncio.CancelledError):
+            recording_task.cancel()
+        await stop_recording(call_id, ctx.api, ctx.room.name)
+
     room_name = ctx.room.name
 
     soft_cap_seconds = metadata.get(
@@ -2030,7 +2068,15 @@ async def _run_call(
         with identity_scope(shutdown_identity):
             await _shutdown_body()
 
-    ctx.add_shutdown_callback(_shutdown)
+    async def _shutdown_then_finish_recording() -> None:
+        # Shutdown callbacks run concurrently in the agents SDK, so chain
+        # explicitly: finalizer and usage write first, recording stop after.
+        try:
+            await _shutdown()
+        finally:
+            await finish_recording()
+
+    ctx.add_shutdown_callback(_shutdown_then_finish_recording)
     if settlement_registered is not None:
         settlement_registered[0] = True
 

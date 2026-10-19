@@ -11,6 +11,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any, ClassVar
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 import pytest
@@ -259,6 +260,7 @@ class _FakeAmdSession:
 
     async def start(self, **_kwargs: object) -> None:
         self.started = True
+        self.start_options = _kwargs
 
     def say(self, text: str, *, allow_interruptions: bool = True) -> Any:
         self.say_calls.append(text)
@@ -314,6 +316,7 @@ class _FakeAmdCtx:
         self.shutdown_calls: list[str] = []
         self.delete_room_calls = 0
         self.shutdown_callbacks: list[Any] = []
+        self.api = SimpleNamespace()
 
     async def connect(self) -> None:
         return None
@@ -335,6 +338,7 @@ async def _drive_entrypoint(
     amd_result: AMDPredictionEvent | None,
     run_amd_override: Any = None,
     disconnect_before_amd: bool = False,
+    answered: bool = False,
 ) -> tuple[UUID, _FakeAmdCtx, _FakeAmdSession]:
     """Run ``entrypoint`` with AMD stubbed, then fire the shutdown callback."""
     from hailhq.voicebot import agent as agent_mod
@@ -369,6 +373,12 @@ async def _drive_entrypoint(
         room_name=f"hail-{call_id}",
         disconnect_on_register=disconnect_before_amd,
     )
+    if answered:
+        ctx.room.remote_participants["caller"] = SimpleNamespace(
+            identity=f"caller-{call_id}",
+            kind=rtc.ParticipantKind.PARTICIPANT_KIND_SIP,
+            attributes={"sip.callStatus": "active"},
+        )
 
     await entrypoint_under_test(ctx)
 
@@ -384,6 +394,37 @@ def entrypoint_under_test(ctx: Any):
     from hailhq.voicebot.agent import entrypoint
 
     return entrypoint(ctx)
+
+
+@pytest.mark.parametrize("answered", [False, True])
+async def test_noise_recovery_preserves_recording_lifecycle(
+    async_session, monkeypatch, answered
+):
+    from hailhq.voicebot import agent as agent_mod
+
+    monkeypatch.setattr(agent_mod.settings, "livekit_url", "wss://test.livekit.cloud")
+    monkeypatch.setattr(agent_mod, "mark_call_answered", AsyncMock(return_value=True))
+    start = AsyncMock()
+    stop = AsyncMock()
+    monkeypatch.setattr(agent_mod, "start_recording", start)
+    monkeypatch.setattr(agent_mod, "stop_recording", stop)
+    recovery = Mock(aclose=AsyncMock())
+    monkeypatch.setattr(agent_mod, "ConversationRecovery", Mock(return_value=recovery))
+
+    call_id, ctx, session = await _drive_entrypoint(
+        async_session, monkeypatch, amd_result=_prediction("human"), answered=answered
+    )
+
+    assert session.start_options["record"] is False
+    assert session.start_options["room_options"].audio_input.noise_cancellation
+    recovery.start.assert_called_once()
+    recovery.aclose.assert_awaited_once()
+    if answered:
+        start.assert_awaited_once_with(call_id, ctx.room.name, ctx.api)
+        stop.assert_awaited_once_with(call_id, ctx.api, ctx.room.name)
+    else:
+        start.assert_not_awaited()
+        stop.assert_not_awaited()
 
 
 async def _amd_events(async_session: AsyncSession, call_id: UUID) -> list[CallEvent]:

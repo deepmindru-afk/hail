@@ -1889,3 +1889,60 @@ async def test_post_calls_rejects_an_agent_with_voice_off(
     assert resp.status_code == 409
     assert resp.json()["detail"] == "agent does not answer calls"
     livekit_mock.create_room.assert_not_awaited()
+
+
+async def test_call_snapshots_workspace_recording_retention(
+    client, async_session, org_and_key, livekit_mock, add_phone_number
+):
+    from hailhq.core.models import OrganizationCallSettings
+
+    org_id, _, plain = org_and_key
+    await add_phone_number(async_session, org_id)
+    preference = OrganizationCallSettings(
+        organization_id=org_id,
+        recording_enabled=True,
+        recording_retention_days=7,
+    )
+    async_session.add(preference)
+    await async_session.commit()
+    response = await client.post(
+        "/calls",
+        json={
+            "to": "+14155559999",
+            "system_prompt": "hi",
+            "recipient_consent": True,
+        },
+        headers={"Authorization": f"Bearer {plain}"},
+    )
+    assert response.status_code == 201, response.text
+    call = await async_session.get(Call, uuid.UUID(response.json()["id"]))
+    assert call.metadata_["recording_retention_days"] == 7
+    preference.recording_retention_days = 30
+    await async_session.commit()
+    await async_session.refresh(call)
+    assert call.metadata_["recording_retention_days"] == 7
+
+
+@pytest.mark.parametrize(
+    "key", ["recording_object_key", "recording_egress_id", "recording_status"]
+)
+async def test_post_calls_rejects_reserved_recording_metadata(
+    client, async_session, org_and_key, livekit_mock, add_phone_number, key
+):
+    """Recording state is Hail-owned: a caller must not plant an object key
+    or Egress id that erasure and stop would then act on."""
+    org_id, _, plain = org_and_key
+    await add_phone_number(async_session, org_id)
+    response = await client.post(
+        "/calls",
+        json={
+            "to": "+14155559999",
+            "system_prompt": "hi",
+            "recipient_consent": True,
+            "metadata": {key: "recordings/365d/other-org/other-call/audio.ogg"},
+        },
+        headers={"Authorization": f"Bearer {plain}"},
+    )
+    assert response.status_code == 422, response.text
+    assert "reserved" in response.text
+    livekit_mock.create_room.assert_not_awaited()

@@ -27,6 +27,7 @@ from hailhq.core.telemetry import telemetry_enabled
 from hailhq.core.telemetry_identity import get_identity
 from livekit import api
 from livekit.protocol.models import ListUpdate
+from livekit.protocol.webhook import WebhookEvent
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 VOICE_READY_ATTRIBUTE = "hail.voice.ready"
@@ -34,6 +35,17 @@ VOICE_READY_ATTRIBUTE = "hail.voice.ready"
 
 class WorkerGaveUp(Exception):
     """The worker finalized the call and left before signalling readiness."""
+
+
+def verify_webhook_event(body: str, auth_token: str) -> WebhookEvent:
+    """Parse a LiveKit webhook body after checking its signature.
+
+    Raises on a missing, forged or stale ``Authorization`` token.
+    """
+    receiver = api.WebhookReceiver(
+        api.TokenVerifier(settings.livekit_api_key, settings.livekit_api_secret)
+    )
+    return receiver.receive(body, auth_token)
 
 
 class LiveKitClient:
@@ -61,6 +73,13 @@ class LiveKitClient:
         Safe to call multiple times; ``LiveKitAPI.aclose`` is idempotent.
         """
         await self._lkapi.aclose()
+
+    async def list_egress(self, egress_id: str) -> list[api.EgressInfo]:
+        """Current state of one Egress, or ``[]`` when LiveKit no longer has it."""
+        result = await self._lkapi.egress.list_egress(
+            api.ListEgressRequest(egress_id=egress_id)
+        )
+        return list(result.items)
 
     async def create_room(self, call_id: UUID) -> str:
         """Provision a LiveKit room named ``hail-<call_id>``.

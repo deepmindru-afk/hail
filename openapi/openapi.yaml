@@ -615,6 +615,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+  /v1/calls/{call_id}/recording:
+    get:
+      tags:
+        - calls
+      summary: Get Recording
+      description:
+        Redirect to a short-lived recording URL. Returns 404 if unavailable
+        or expired.
+      operationId: get_recording_v1_calls__call_id__recording_get
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            title: Call Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "302":
+          description: Successful Response
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
   /v1/email-attachments:
     post:
       tags:
@@ -4884,6 +4918,15 @@ components:
           description:
             "Opening line spoken after the AI line. Omitted: the agent
             waits for the other side to speak first."
+        recording_enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Recording Enabled
+          description:
+            Null inherits the workspace recording choice; false disables
+            recording for this agent. A workspace that disables recording cannot be
+            overridden.
         ai_disclosure:
           type: boolean
           title: Ai Disclosure
@@ -5048,6 +5091,15 @@ components:
             - type: "null"
           title: First Message
           description: Opening line, or null to wait.
+        recording_enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Recording Enabled
+          description:
+            Null inherits the workspace recording choice; false disables
+            recording for this agent. A workspace that disables recording cannot be
+            overridden.
         ai_disclosure:
           type: boolean
           title: Ai Disclosure
@@ -5159,6 +5211,14 @@ components:
             - type: "null"
           title: First Message
           description: New opening line; null makes the agent wait for the other side.
+        recording_enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Recording Enabled
+          description:
+            Null inherits workspace recording; false disables it for this
+            agent.
         ai_disclosure:
           anyOf:
             - type: boolean
@@ -5334,6 +5394,16 @@ components:
           description:
             "Opening line the agent speaks first. Omitted: the agent waits
             for the callee to speak first."
+        recording_enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Recording Enabled
+          description:
+            Request best-effort audio recording. Requires workspace recording
+            enabled. Null inherits the agent/workspace. Recording failure never prevents
+            the call. The recording-enabled call rate applies regardless of capture
+            outcome.
         ai_disclosure:
           type: boolean
           title: Ai Disclosure
@@ -5357,7 +5427,8 @@ components:
           title: Metadata
           description:
             Free-form JSON object attached to the call and echoed back
-            on reads. Not interpreted by Hail.
+            on reads. Not interpreted by Hail. Keys starting with 'recording_' are
+            reserved and rejected.
         tools:
           anyOf:
             - items:
@@ -5377,10 +5448,10 @@ components:
           title: Agent Id
           description:
             Place the call with a saved agent (POST /agents). The agent
-            supplies system_prompt, first_message, ai_disclosure, voice_config, tools
-            and max duration; any of those given explicitly on this request wins.
-            Satisfies the system_prompt or llm requirement on its own. A paused agent
-            is refused with 409.
+            supplies system_prompt, first_message, ai_disclosure, recording_enabled,
+            voice_config, tools and max duration; any of those given explicitly on
+            this request wins. Satisfies the system_prompt or llm requirement on its
+            own. A paused agent is refused with 409.
       additionalProperties: false
       type: object
       required:
@@ -5490,6 +5561,26 @@ components:
             - type: "null"
           title: Initial Prompt
           description: The system_prompt this call was created with, if any.
+        recording_enabled:
+          type: boolean
+          title: Recording Enabled
+          description:
+            Whether the recording-enabled call rate applies, regardless
+            of capture outcome.
+          default: false
+        recording_status:
+          type: string
+          title: Recording Status
+          description:
+            disabled, requested, starting, recording, processing, ready,
+            unavailable, failed, or erased.
+          default: disabled
+        recording_duration_ms:
+          anyOf:
+            - type: integer
+            - type: "null"
+          title: Recording Duration Ms
+          description: Duration of captured audio, independent of billed call duration.
         recording_s3_key:
           anyOf:
             - type: string
