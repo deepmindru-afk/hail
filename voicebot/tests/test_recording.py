@@ -19,7 +19,9 @@ from .test_agent import _make_call_row
 @pytest.mark.parametrize(
     "workspace,override,expected",
     [
-        (None, True, False),
+        (None, None, True),
+        (None, True, True),
+        (None, False, False),
         (False, True, False),
         (True, None, True),
         (True, False, False),

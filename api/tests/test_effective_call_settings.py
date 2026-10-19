@@ -20,6 +20,8 @@ async def test_reads_current_service_default(monkeypatch):
     assert result["uses_default"] is True
     assert result["recording_retention_days"] == settings.hail_recording_retention_days
     assert result["ai_disclosure_line"] is None
+    assert result["recording_confirmed"] is False
+    assert result["recording_enabled"] is True
     assert result["default_ai_disclosure_lines"]["inbound"].startswith(
         "Hi, this is an AI"
     )
@@ -33,6 +35,7 @@ async def test_workspace_override_wins(monkeypatch):
     db.get.return_value = SimpleNamespace(
         recording_enabled=None,
         recording_retention_days=None,
+        recording_confirmed_at=None,
         max_duration_seconds=120,
         ai_disclosure_line="AI for {org}.",
     )
@@ -49,6 +52,7 @@ async def test_line_only_row_keeps_default_duration(monkeypatch):
     db.get.return_value = SimpleNamespace(
         recording_enabled=None,
         recording_retention_days=None,
+        recording_confirmed_at=None,
         max_duration_seconds=None,
         ai_disclosure_line="AI for {org}.",
     )
@@ -99,8 +103,26 @@ async def test_workspace_recording_retention_wins(monkeypatch, days):
     db.get.return_value = SimpleNamespace(
         recording_enabled=True,
         recording_retention_days=days,
+        recording_confirmed_at=None,
         max_duration_seconds=None,
         ai_disclosure_line=None,
     )
     result = await get_call_settings(uuid4(), db)
     assert result["recording_retention_days"] == days
+
+
+@pytest.mark.asyncio
+async def test_confirmed_recording_choice_is_reported():
+    from datetime import datetime, timezone
+
+    db = AsyncMock()
+    db.get.return_value = SimpleNamespace(
+        recording_enabled=True,
+        recording_retention_days=30,
+        recording_confirmed_at=datetime.now(timezone.utc),
+        max_duration_seconds=None,
+        ai_disclosure_line=None,
+    )
+    result = await get_call_settings(uuid4(), db)
+    assert result["recording_confirmed"] is True
+    assert result["recording_retention_days"] == 30
