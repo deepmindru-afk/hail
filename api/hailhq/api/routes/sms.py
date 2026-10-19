@@ -44,7 +44,7 @@ from hailhq.api.usage import write_usage_event
 from hailhq.core.carrier_routing import sms_route, sms_status_path
 from hailhq.core.compliance_gate import check_sms_allowed, remove_suppression
 from hailhq.core.config import settings
-from hailhq.core.db import get_session
+from hailhq.core.db import get_session, org_lock
 from hailhq.core.models import (
     Sms,
     SmsEvent,
@@ -102,7 +102,10 @@ async def deliver_sms(db: AsyncSession, sms: Sms) -> str | None:
             # A sender-ID send has no number to carry the org's messaging
             # service, so name it: the one the org's numbers on this carrier
             # already share, else a fresh one (created once, then found by
-            # name).
+            # name). Under the org lock, like number setup: two first sends
+            # at once must not create two services. Released at the commit
+            # below.
+            await org_lock(db, sms.organization_id)
             messaging_service_sid = await provider.ensure_messaging_service(
                 sms.organization_id,
                 await org_messaging_service_sid(db, sms.organization_id, sms.provider),

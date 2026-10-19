@@ -1610,7 +1610,7 @@ def register_tools(
         ``to`` must be E.164 (e.g. ``+14155551234``). ``body`` is the
         message text. With no ``from_``: destinations where the sender-ID
         carrier delivers a dynamic alphanumeric sender ID unchanged (about
-        125 countries, see core/hailhq/core/sender_id_corridors.py) use
+        110 countries, see core/hailhq/core/sender_id_corridors.py) use
         your organization's sender ID
         (or ``HAIL``, the platform default); Australia (+61) always uses
         ``HAIL`` when that carrier is Twilio; every other destination,

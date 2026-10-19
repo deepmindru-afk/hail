@@ -418,7 +418,7 @@ class SmsCreate(ConsentAttestationMixin):
             "Sender phone number, E.164 format. Must be an active number owned by "
             "the organization with the SMS capability. Omitted: destinations "
             "where the sender-ID carrier delivers a dynamic alphanumeric sender "
-            "ID unchanged (about 125 countries: most of Europe, Africa, the Middle "
+            "ID unchanged (about 110 countries: most of Europe, Africa, the Middle "
             "East, Asia-Pacific and the Caribbean; one table per carrier in "
             "core/hailhq/core/sender_id_corridors.py) use the organization's sender ID, or "
             "the platform default 'HAIL' when none is set; Australia (+61) always "

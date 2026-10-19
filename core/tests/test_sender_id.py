@@ -37,7 +37,9 @@ def test_germany_falls_back_to_platform_default_when_unset() -> None:
 
 
 def test_uk_uses_custom_sender_id() -> None:
-    result = resolve_sender("+447911123456", custom_sender_id="ACME")
+    # 07700 900xxx is a mainland UK range; 07911 belongs to Guernsey, whose
+    # rules differ.
+    result = resolve_sender("+447700900123", custom_sender_id="ACME")
     assert result.kind == "alphanumeric"
     assert result.sender_id == "ACME"
 

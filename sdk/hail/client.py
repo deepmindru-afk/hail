@@ -230,7 +230,7 @@ class _SmsResource:
         """Send an outbound SMS.
 
         With no ``from_``: destinations where the sender-ID carrier delivers
-        a dynamic alphanumeric sender ID unchanged (about 125 countries,
+        a dynamic alphanumeric sender ID unchanged (about 110 countries,
         one table per carrier in core/hailhq/core/sender_id_corridors.py)
         use the org's sender ID (or
         ``HAIL``, the platform default); Australia (+61) always uses

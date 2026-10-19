@@ -35,7 +35,7 @@ func newSmsCmd(opts *Options) *cobra.Command {
 		Long: `hail sms — send an outbound text message.
 
 Without --from: destinations where the sender-ID carrier delivers a dynamic
-alphanumeric sender ID unchanged (about 125 countries, one table per carrier
+alphanumeric sender ID unchanged (about 110 countries, one table per carrier
 in core/hailhq/core/sender_id_corridors.py)
 use your organization's sender ID (or HAIL, the platform default); Australia
 (+61) always uses HAIL when that carrier is Twilio; every other destination,

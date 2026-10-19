@@ -13,10 +13,10 @@ in core/hailhq/core/config.py), keyed by ISO 3166-1 alpha-2 region:
 
 - ``twilio``: https://www.twilio.com/en-us/guidelines/<cc>/sms, the
   "Alphanumeric" table, "Twilio supported" row. "Dynamic" supported and
-  "Sender ID preserved" yes (or not stated) -> ``custom_ok``; dynamic
-  supported but the ID is replaced -> ``excluded``; not supported, or only
-  on some networks -> ``always_number``. A region without a guidelines
-  page is left out.
+  "Sender ID preserved" yes -> ``custom_ok``; dynamic supported but the ID
+  is replaced -> ``excluded``; not supported, only on some networks, or
+  "Sender ID preserved" not stated -> ``always_number``. A region without
+  a guidelines page is left out.
 - ``telnyx``: https://support.telnyx.com/en/articles/6354449, the
   "Alphanumeric Sender ID maintained?" column. "Yes" -> ``custom_ok``;
   "No" (the ID is changed to ensure delivery) -> ``excluded``; anything
@@ -116,7 +116,8 @@ def _twilio_classify(values: dict[str, str]) -> tuple[str, str]:
             return "excluded", "Twilio rewrites dynamic sender IDs"
         if preserved.startswith("yes"):
             return "custom_ok", ""
-        return "custom_ok", "Twilio does not state whether the ID is preserved"
+        # Unknown counts as not kept: a dedicated number is known to work.
+        return "always_number", "Twilio does not state whether the ID is kept"
     if dynamic.startswith("supported"):
         return "always_number", "only some networks accept a dynamic sender ID"
     return "always_number", "no dynamic sender ID on Twilio"
