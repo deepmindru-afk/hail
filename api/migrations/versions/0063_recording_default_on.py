@@ -10,8 +10,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
 ALTER TABLE organization_call_settings
   ADD COLUMN recording_confirmed_at TIMESTAMPTZ;
 
@@ -36,15 +35,12 @@ UPDATE organization_call_settings
 SET recording_enabled = COALESCE(recording_enabled, TRUE),
     recording_retention_days = COALESCE(recording_retention_days, 30),
     recording_confirmed_at = now();
-"""
-    )
+""")
 
 
 def downgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
 DROP TRIGGER IF EXISTS organization_call_settings_default ON organizations;
 DROP FUNCTION IF EXISTS organization_call_settings_default();
 ALTER TABLE organization_call_settings DROP COLUMN recording_confirmed_at;
-"""
-    )
+""")
