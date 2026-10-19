@@ -132,7 +132,7 @@ var amdSentences = map[string]string{
 	"machine-ivr":         "answered by a machine (phone menu)",
 	"machine-vm":          "answered by a machine (voicemail)",
 	"machine-unavailable": "answered by a machine (mailbox unavailable)",
-	"uncertain":           "unclear who answered — treating as human",
+	"uncertain":           "unclear who answered, treating as human",
 }
 
 // perCallPalette is the small set of stable colors assigned to short call
@@ -151,7 +151,7 @@ func newTailCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tail",
 		Short: "Stream events from across the org (or one resource with --id)",
-		Long: `hail tail — follow the event stream
+		Long: `hail tail: follow the event stream
 
 Without --id (or a positional), tail follows every event in the org,
 prefixing each line with a short id ([c2a8f1d3]) so multiple in-flight
@@ -161,7 +161,7 @@ Narrow to one resource either way:
 
   hail tail --id call:<uuid>
   hail tail call:<uuid>
-  hail tail df10f471            # bare id — treated as a call
+  hail tail df10f471            # bare id, treated as a call
   hail tail --id call:df10f471  # 4+ char prefix, resolved like git short hashes
 
 Both forms accept '<type>:<id>' where <type> is one of: ` + strings.Join(supportedResourceTypes, ", ") + `,
