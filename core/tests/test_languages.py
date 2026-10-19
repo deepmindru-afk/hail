@@ -48,6 +48,13 @@ def test_default_stt_routing() -> None:
     assert default_stt_for("gu") == "deepgram"  # speechmatics can't do gu
 
 
+def test_audio_detector_language_coverage_keeps_russian_fallback():
+    assert turn_mode_for("ar", "deepgram") == "semantic"
+    assert default_stt_for("ru") == "speechmatics"
+    assert turn_mode_for("ru", "speechmatics") == "stt"
+    assert turn_mode_for("ru", "deepgram") == "vad"
+
+
 def test_resolve_stt_provider_precedence() -> None:
     # org BYO row wins over auto
     assert resolve_stt_provider("speechmatics", "en") == "speechmatics"

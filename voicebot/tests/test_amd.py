@@ -11,6 +11,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any, ClassVar
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 import pytest
@@ -90,9 +91,11 @@ async def test_run_amd_passes_session_layers_and_identity(
     assert kwargs["stt"] is session.stt
     assert kwargs["participant_identity"] == f"caller-{call_id}"
     assert kwargs["detection_options"] == {
-        "no_speech_threshold": NO_SPEECH_THRESHOLD_SECONDS
+        "no_speech_threshold": NO_SPEECH_THRESHOLD_SECONDS,
+        "human_speech_threshold": 0.0,
+        "prompt": amd_mod.GREETING_CLASSIFICATION_PROMPT,
     }
-    assert kwargs["suppress_compatibility_warning"] is True
+    assert not kwargs.get("suppress_compatibility_warning", False)
     # ivr_detection is left at LiveKit's default (True) on purpose.
     assert "ivr_detection" not in kwargs
 
@@ -109,6 +112,55 @@ async def test_run_amd_returns_none_when_detection_raises(
     monkeypatch.setattr(amd_mod, "AMD", _Boom)
 
     assert await run_amd(_session_with_layers(), UUID(int=1)) is None  # type: ignore[arg-type]
+
+
+async def test_audio_ready_is_published_after_amd_is_armed(monkeypatch):
+    order = []
+
+    class Detector(_RecordingAMD):
+        async def __aenter__(self):
+            order.append("armed")
+            return self
+
+        async def execute(self):
+            order.append("classify")
+            return _prediction("human")
+
+    async def ready():
+        order.append("ready")
+
+    monkeypatch.setattr(amd_mod, "AMD", Detector)
+    await run_amd(_session_with_layers(), UUID(int=1), on_ready=ready)
+    assert order == ["armed", "ready", "classify"]
+
+
+async def test_dial_gate_is_released_when_amd_is_skipped() -> None:
+    """A session without a plain LLM skips AMD but must still let the API dial."""
+    released = []
+
+    async def ready():
+        released.append(True)
+
+    session = SimpleNamespace(llm=object(), stt=object())
+    assert await run_amd(session, UUID(int=1), on_ready=ready) is None  # type: ignore[arg-type]
+    assert released == [True]
+
+
+async def test_dial_gate_is_released_once_when_amd_fails_to_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    released = []
+
+    class Broken(_RecordingAMD):
+        async def __aenter__(self):
+            raise ValueError("classifier could not be resolved")
+
+    async def ready():
+        released.append(True)
+
+    monkeypatch.setattr(amd_mod, "AMD", Broken)
+    assert await run_amd(_session_with_layers(), UUID(int=1), on_ready=ready) is None  # type: ignore[arg-type]
+    assert released == [True]
 
 
 async def test_run_amd_gives_up_when_detection_never_settles(
@@ -208,6 +260,7 @@ class _FakeAmdSession:
 
     async def start(self, **_kwargs: object) -> None:
         self.started = True
+        self.start_options = _kwargs
 
     def say(self, text: str, *, allow_interruptions: bool = True) -> Any:
         self.say_calls.append(text)
@@ -263,6 +316,7 @@ class _FakeAmdCtx:
         self.shutdown_calls: list[str] = []
         self.delete_room_calls = 0
         self.shutdown_callbacks: list[Any] = []
+        self.api = SimpleNamespace()
 
     async def connect(self) -> None:
         return None
@@ -284,6 +338,7 @@ async def _drive_entrypoint(
     amd_result: AMDPredictionEvent | None,
     run_amd_override: Any = None,
     disconnect_before_amd: bool = False,
+    answered: bool = False,
 ) -> tuple[UUID, _FakeAmdCtx, _FakeAmdSession]:
     """Run ``entrypoint`` with AMD stubbed, then fire the shutdown callback."""
     from hailhq.voicebot import agent as agent_mod
@@ -295,11 +350,12 @@ async def _drive_entrypoint(
     async def _no_org_cfgs(_org_id: UUID | None, *, skip_llm: bool = False) -> dict:
         return {}
 
-    async def _fake_run_amd(_session: object, _call_id: UUID):
+    async def _fake_run_amd(_session: object, _call_id: UUID, **kwargs):
         return amd_result
 
     monkeypatch.setattr(agent_mod, "resolve_org_configs", _no_org_cfgs)
     monkeypatch.setattr(agent_mod, "build_session", lambda *a, **k: session)
+    monkeypatch.setattr(agent_mod, "build_amd_models", lambda *a, **k: None)
     monkeypatch.setattr(agent_mod, "run_amd", run_amd_override or _fake_run_amd)
     monkeypatch.setattr(
         agent_mod.settings, "hail_voice_max_duration_seconds", 0, raising=False
@@ -317,6 +373,12 @@ async def _drive_entrypoint(
         room_name=f"hail-{call_id}",
         disconnect_on_register=disconnect_before_amd,
     )
+    if answered:
+        ctx.room.remote_participants["caller"] = SimpleNamespace(
+            identity=f"caller-{call_id}",
+            kind=rtc.ParticipantKind.PARTICIPANT_KIND_SIP,
+            attributes={"sip.callStatus": "active"},
+        )
 
     await entrypoint_under_test(ctx)
 
@@ -332,6 +394,37 @@ def entrypoint_under_test(ctx: Any):
     from hailhq.voicebot.agent import entrypoint
 
     return entrypoint(ctx)
+
+
+@pytest.mark.parametrize("answered", [False, True])
+async def test_noise_recovery_preserves_recording_lifecycle(
+    async_session, monkeypatch, answered
+):
+    from hailhq.voicebot import agent as agent_mod
+
+    monkeypatch.setattr(agent_mod.settings, "livekit_url", "wss://test.livekit.cloud")
+    monkeypatch.setattr(agent_mod, "mark_call_answered", AsyncMock(return_value=True))
+    start = AsyncMock()
+    stop = AsyncMock()
+    monkeypatch.setattr(agent_mod, "start_recording", start)
+    monkeypatch.setattr(agent_mod, "stop_recording", stop)
+    recovery = Mock(aclose=AsyncMock())
+    monkeypatch.setattr(agent_mod, "ConversationRecovery", Mock(return_value=recovery))
+
+    call_id, ctx, session = await _drive_entrypoint(
+        async_session, monkeypatch, amd_result=_prediction("human"), answered=answered
+    )
+
+    assert session.start_options["record"] is False
+    assert session.start_options["room_options"].audio_input.noise_cancellation
+    recovery.start.assert_called_once()
+    recovery.aclose.assert_awaited_once()
+    if answered:
+        start.assert_awaited_once_with(call_id, ctx.room.name, ctx.api)
+        stop.assert_awaited_once_with(call_id, ctx.api, ctx.room.name)
+    else:
+        start.assert_not_awaited()
+        stop.assert_not_awaited()
 
 
 async def _amd_events(async_session: AsyncSession, call_id: UUID) -> list[CallEvent]:
@@ -407,7 +500,7 @@ async def test_amd_is_skipped_when_the_sip_leg_already_disconnected(
     to its 30s backstop and the job had to be force-cancelled."""
     ran = {"amd": False}
 
-    async def _tracking_run_amd(_session: object, _call_id: UUID):
+    async def _tracking_run_amd(_session: object, _call_id: UUID, **kwargs):
         ran["amd"] = True
 
     call_id, _ctx, _session = await _drive_entrypoint(
@@ -421,7 +514,12 @@ async def test_amd_is_skipped_when_the_sip_leg_already_disconnected(
     assert ran["amd"] is False
     events = await _amd_events(async_session, call_id)
     assert len(events) == 1
-    assert events[0].payload == {"category": None, "transcript": None}
+    assert events[0].payload == {
+        "category": None,
+        "transcript": None,
+        "reason": "detection_failed",
+        "delay": None,
+    }
 
 
 async def test_ivr_does_not_speak_the_greeting_into_the_menu(
@@ -560,6 +658,8 @@ async def test_amd_result_event_written_on_every_path(
     assert events[0].payload == {
         "category": category,
         "transcript": "hello you have reached",
+        "reason": "test",
+        "delay": 0.1,
     }
 
 
@@ -572,4 +672,9 @@ async def test_amd_result_event_written_when_detection_failed(
 
     events = await _amd_events(async_session, call_id)
     assert len(events) == 1
-    assert events[0].payload == {"category": None, "transcript": None}
+    assert events[0].payload == {
+        "category": None,
+        "transcript": None,
+        "reason": "detection_failed",
+        "delay": None,
+    }

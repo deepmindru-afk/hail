@@ -3,7 +3,7 @@
 The single source of truth for what each pipeline layer accepts. Routes
 (``api/routes/internal/provider_config``) validate writes through
 ``PARAMS_BY_LAYER``; the voicebot resolves reads through
-``load_org_provider_configs``. Model names are free text everywhere — the
+``load_org_provider_configs``. Model names are free text everywhere, the
 live key validation (``provider_validation``) is what proves a key+model
 pair works, never a hardcoded list.
 """
@@ -45,12 +45,12 @@ class LLMParams(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _base_url_is_public_https(cls, v: str | None) -> str | None:
-        """Cheap syntactic check only — no name resolution.
+        """Cheap syntactic check only, no name resolution.
 
         Mirrors ``LLMConfig``'s check in ``core/hailhq/core/schemas.py``: it
         catches an obviously-unsafe value immediately on save. The full
         resolving SSRF check (``assert_public_https_url``) is deliberately
-        NOT run here — this validator runs synchronously on whichever event
+        NOT run here, this validator runs synchronously on whichever event
         loop calls it, and that check does blocking DNS. The resolving check
         still runs, off the event loop, in ``resolve_org_configs`` before
         this config is ever used to build an LLM.
@@ -86,15 +86,26 @@ class STTParams(BaseModel):
 
     provider: Literal["deepgram", "speechmatics"]
     model: str | None = None
-    # Speechmatics transcription tier. None -> enhanced. Ignored on deepgram
-    # rows (accepted-but-unused would violate "no hidden behavior", so the
-    # validator below rejects it there).
+    # Legacy Speechmatics inputs normalize to Agent STT's actual model so the
+    # API response reflects what will run. Existing stored rows are also handled
+    # by the worker; no migration is needed for old configurations.
     operating_point: Literal["enhanced", "standard"] | None = None
 
     @model_validator(mode="after")
     def _operating_point_is_speechmatics_only(self) -> STTParams:
         if self.provider != "speechmatics" and self.operating_point is not None:
             raise ValueError("operating_point only applies to speechmatics")
+        if self.provider == "speechmatics" and (
+            self.model is not None or self.operating_point is not None
+        ):
+            supported = settings.speechmatics_model
+            if not supported:
+                raise ValueError("SPEECHMATICS_MODEL is not set")
+            if self.model not in (None, supported):
+                raise ValueError(f"Speechmatics Agent STT supports model {supported}")
+            if self.operating_point is not None:
+                self.model = supported
+                self.operating_point = None
         return self
 
 

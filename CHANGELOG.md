@@ -4,14 +4,41 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- Call recording is on by default with 30 days of retention. A workspace that has not saved a choice is asked once during onboarding.
+
+## [0.29.0] (2026-10-19)
+
+Optional call recording, US SMS registration, and number search by area code
+and city in every country.
+
+Component versions cut alongside this release:
+**`cli-v0.28.0`** (Homebrew + GitHub Releases) and **`sdk-v0.20.0`** (PyPI).
+Database migrations run on deploy.
+
 ### Added
 
-- Optional call recording. A workspace turns it on and picks 7, 30 or 365 days of retention. Agents and single calls can opt out. Playback via `GET /calls/{id}/recording`. On by default with 30 days of retention; onboarding asks once.
-- US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. A person registering through Telnyx confirms with the PIN Telnyx texts them (`POST /verifications/{id}/confirm`, `hail numbers confirm-sms`, MCP `confirm_verification`); `confirmation` on a verification says when. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need the sending number on an approved registration (422 otherwise); `POST /sms` without `from` prefers such a number. An approved registration can be cancelled (`DELETE /verifications/{id}`, `hail numbers cancel-sms`, MCP `cancel_verification`); its monthly fee stops after the month of the cancellation (Telnyx: at least 3 monthly fees from approval; `minimum_months` in `GET /verifications/sms-fees`). New env: `TWILIO_PRIMARY_PROFILE_SID`. Migrations 0057, 0058.
+- Optional call recording. A workspace turns it on and picks 7, 30 or 365 days of retention. Agents and single calls can opt out. Playback via `GET /calls/{id}/recording`. Off by default. CLI: `hail call --recording`. SDK and MCP: `recording_enabled`.
+- US SMS registration: organizations register their own A2P 10DLC brand and campaign (business or person) with Twilio or Telnyx via console, API (`purpose=sms` on `/verifications`), CLI (`hail numbers register-sms`) and MCP. A person registering through Telnyx confirms with the PIN Telnyx texts them (`POST /verifications/{id}/confirm`, `hail numbers confirm-sms`, MCP `confirm_verification`); `confirmation` on a verification says when. The carrier fee is debited from prepaid credit at filing. Texts from a US long code to a US number need the sending number on an approved registration (422 otherwise); `POST /sms` without `from` prefers such a number. An approved registration can be cancelled (`DELETE /verifications/{id}`, `hail numbers cancel-sms`, MCP `cancel_verification`); its monthly fee stops after the month of the cancellation (Telnyx: at least 3 monthly fees from approval; `minimum_months` in `GET /verifications/sms-fees`). New env: `TWILIO_PRIMARY_PROFILE_SID`.
+- US SMS campaign filings need a privacy policy link and a terms link. Hail adds the standard consent text to the opt-in description.
+- Number search by area code and by city, in every country: `area_code`, `city` and `region` on `POST /numbers/quotes`. CLI: `hail numbers acquire --area-code --city --region`. SDK and MCP take the same fields. Each offer has `locality` and `region`.
+- `GET /numbers/regions` lists US states and Canadian provinces. An unknown `region` gets 422.
+- Database support for low-balance reminders (3 days and 1 day before release) and idle-number warnings.
+
+### Changed
+
+- Voice: the voicemail-detection and Speechmatics model ids are read from env. New env: `OPENAI_TRANSCRIBE_MODEL`, `GOOGLE_AMD_MODEL`, `SPEECHMATICS_MODEL` (values in `.env.example`).
 
 ### Removed
 
-- **Breaking.** `conversation_id` is gone from `POST /v1/calls` and `POST /v1/emails` requests and from call and email responses. Nothing ever created a conversation, so the field was always null. A request that still sends it now gets 422 (the request bodies reject unknown fields). `hail-sdk`: `client.emails.create()` no longer takes `conversation_id`, and the `Call` / `Email` models no longer have it. Migration 0061 drops the empty `conversations` table and the `calls.conversation_id` / `emails.conversation_id` columns.
+- **Breaking.** `conversation_id` is gone from `POST /v1/calls` and `POST /v1/emails` requests and from call and email responses. Nothing ever created a conversation, so the field was always null. A request that still sends it now gets 422 (the request bodies reject unknown fields). `hail-sdk`: `client.emails.create()` no longer takes `conversation_id`, and the `Call` / `Email` models no longer have it. The empty `conversations` table and the `calls.conversation_id` / `emails.conversation_id` columns are dropped.
+
+### Fixed
+
+- `hail-sdk`: `NumberOffer.provider` accepts `didww`. Before, a DIDWW offer failed SDK validation.
+- The key check for your own Cartesia key uses `sonic-3.6`. `sonic-2` is retired on 2026-10-20.
+- Self-host docs and the Terraform output use `aws ses set-active-receipt-rule-set` to activate the receipt rule set.
 
 ## [0.28.0] — 2026-10-13
 

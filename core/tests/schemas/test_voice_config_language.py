@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from hailhq.core.config import settings
 from hailhq.core.provider_config import STTParams
 from hailhq.core.schemas import VoiceConfig
 from pydantic import ValidationError
@@ -20,7 +21,7 @@ def test_unsupported_language_rejected() -> None:
 
 
 def test_stt_field_removed() -> None:
-    """Per-call STT selection is gone — a client sending it gets a clean
+    """Per-call STT selection is gone, a client sending it gets a clean
     422 via ``extra="forbid"`` (console BYO is the only STT selector)."""
     with pytest.raises(ValidationError):
         VoiceConfig(stt="speechmatics")
@@ -40,11 +41,11 @@ def test_stt_params_accept_speechmatics() -> None:
     assert STTParams(provider="speechmatics").provider == "speechmatics"
 
 
-def test_stt_params_operating_point() -> None:
+def test_stt_params_operating_point(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "speechmatics_model", "linden-1")
     assert STTParams(provider="speechmatics").operating_point is None
-    assert (
-        STTParams(provider="speechmatics", operating_point="standard").operating_point
-        == "standard"
-    )
+    legacy = STTParams(provider="speechmatics", operating_point="standard")
+    assert legacy.operating_point is None
+    assert legacy.model == "linden-1"
     with pytest.raises(ValidationError):
         STTParams(provider="speechmatics", operating_point="turbo")
