@@ -416,6 +416,7 @@ async def test_noise_recovery_preserves_recording_lifecycle(
     )
 
     assert session.start_options["record"] is False
+    assert session.start_options["session_host"] is False
     assert session.start_options["room_options"].audio_input.noise_cancellation
     recovery.start.assert_called_once()
     recovery.aclose.assert_awaited_once()

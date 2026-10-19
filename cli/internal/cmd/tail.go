@@ -45,14 +45,14 @@ type tailFlags struct {
 	noFollow   bool
 }
 
-// supportedResourceTypes mirrors core.schemas.SUPPORTED_RESOURCE_TYPES — kept
+// supportedResourceTypes mirrors core.schemas.SUPPORTED_RESOURCE_TYPES, kept
 // in lockstep so an unsupported `hail tail --id <type>:...` fails fast on
 // the CLI without an HTTP round-trip. When a new channel lands on the API,
 // add it here in the same change.
 var supportedResourceTypes = []string{"call", "email", "sms"}
 
 // terminalCallStatuses are the values from the spec that mean "no more
-// events will arrive" — when `--id call:<uuid>` is set and the server
+// events will arrive". When `--id call:<uuid>` is set and the server
 // reports any of these, the tail loop exits cleanly.
 var terminalCallStatuses = map[client.EventStreamResponseCallStatus]bool{
 	client.EventStreamResponseCallStatusCompleted: true,
@@ -63,7 +63,7 @@ var terminalCallStatuses = map[client.EventStreamResponseCallStatus]bool{
 }
 
 // splitResourceArg splits a CLI-supplied --id value into (type, idPart).
-// A bare value with no "<type>:" prefix is treated as a call — `hail tail
+// A bare value with no "<type>:" prefix is treated as a call: `hail tail
 // --id df10f471` mirrors `hail call tail df10f471`. Validation of the id
 // part (full UUID vs 4+ char hex prefix) happens in resolveTailID.
 func splitResourceArg(value string) (resType, idPart string, err error) {
@@ -132,7 +132,7 @@ var amdSentences = map[string]string{
 	"machine-ivr":         "answered by a machine (phone menu)",
 	"machine-vm":          "answered by a machine (voicemail)",
 	"machine-unavailable": "answered by a machine (mailbox unavailable)",
-	"uncertain":           "unclear who answered — treating as human",
+	"uncertain":           "unclear who answered, treating as human",
 }
 
 // perCallPalette is the small set of stable colors assigned to short call
@@ -151,7 +151,7 @@ func newTailCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tail",
 		Short: "Stream events from across the org (or one resource with --id)",
-		Long: `hail tail — follow the event stream
+		Long: `hail tail: follow the event stream
 
 Without --id (or a positional), tail follows every event in the org,
 prefixing each line with a short id ([c2a8f1d3]) so multiple in-flight
@@ -161,7 +161,7 @@ Narrow to one resource either way:
 
   hail tail --id call:<uuid>
   hail tail call:<uuid>
-  hail tail df10f471            # bare id — treated as a call
+  hail tail df10f471            # bare id, treated as a call
   hail tail --id call:df10f471  # 4+ char prefix, resolved like git short hashes
 
 Both forms accept '<type>:<id>' where <type> is one of: ` + strings.Join(supportedResourceTypes, ", ") + `,
@@ -203,7 +203,7 @@ func runTail(ctx context.Context, opts *Options, f *tailFlags) error {
 		return fmt.Errorf("--interval must be in [100, 10000] ms, got %d", f.intervalMS)
 	}
 
-	// SIGINT cancels the poll loop. Exit 130 happens at Execute() — we just
+	// SIGINT cancels the poll loop. Exit 130 happens at Execute(); we just
 	// return errInterrupted from here.
 	tailCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -235,7 +235,7 @@ func runTail(ctx context.Context, opts *Options, f *tailFlags) error {
 
 	colorize := shouldColorize(opts.Stdout)
 
-	// Default starting point: "now" — synthesize a cursor from the current
+	// Default starting point: "now": synthesize a cursor from the current
 	// time so the server filters historical events server-side. uuid.Nil is
 	// the minimum UUID; the server uses strict `>` on (occurred_at, id), so
 	// any event at or after startTime is admitted. --from-start sends no
@@ -292,7 +292,7 @@ func runTail(ctx context.Context, opts *Options, f *tailFlags) error {
 	}
 
 	renderer := newTailRenderer(opts, resourceType != "", colorize, f.kind != "")
-	// Buffered pickup transcripts must survive every exit path — fetch
+	// Buffered pickup transcripts must survive every exit path: fetch
 	// errors, --no-follow, SIGINT. flushAll is idempotent, so the explicit
 	// call before the terminal-status line below is safe to keep.
 	defer renderer.flushAll()
@@ -304,7 +304,7 @@ func runTail(ctx context.Context, opts *Options, f *tailFlags) error {
 		}
 		firstPage := page
 
-		// Drain inner pages — the server only sets next_cursor when more rows
+		// Drain inner pages. The server only sets next_cursor when more rows
 		// exist beyond `limit`. In steady-state polling we drain everything in
 		// one fetch; we synthesize the next polling cursor from the last seen
 		// event so the next poll picks up after the events we just printed.
@@ -336,7 +336,7 @@ func runTail(ctx context.Context, opts *Options, f *tailFlags) error {
 
 		// Auto-exit only when narrowed to a single call (--id call:<uuid>).
 		// Org-wide tail and non-call resource types run until SIGINT. Read
-		// the status off the first page to match the prior behavior — the
+		// the status off the first page to match the prior behavior. The
 		// inner drain loop may span seconds.
 		// Email auto-exit pending: EventStreamResponse does not yet expose an
 		// EmailStatus field on the generated client. Email tails run until SIGINT.
@@ -394,7 +394,7 @@ type tailRenderer struct {
 	pending     map[openapi_types.UUID][]client.EventResponse
 	amdResolved map[openapi_types.UUID]bool
 	// machineActive marks calls whose AMD verdict was a machine and no
-	// person has been detected yet — user_turn events in that window are
+	// person has been detected yet: user_turn events in that window are
 	// the phone tree talking, not a human.
 	machineActive map[openapi_types.UUID]bool
 }
@@ -413,7 +413,7 @@ func newTailRenderer(opts *Options, singleResource, colorize, kindFiltered bool)
 
 // renderEvent dispatches on event.Kind and writes one line to opts.Stdout.
 // In --json mode each event is emitted as a single JSON object per line,
-// verbatim and unbuffered — the NDJSON stream must not be reordered.
+// verbatim and unbuffered. The NDJSON stream must not be reordered.
 func (r *tailRenderer) renderEvent(ev client.EventResponse) error {
 	if r.opts.JSON {
 		out, err := json.Marshal(ev)
@@ -435,24 +435,24 @@ func (r *tailRenderer) renderEvent(ev client.EventResponse) error {
 		machine := strings.HasPrefix(category, "machine")
 		r.flushPending(res, machine)
 		// The voicebot may keep transcribing the phone tree after the
-		// verdict row (menu speech events land after amd_result) — keep
+		// verdict row (menu speech events land after amd_result). Keep
 		// labeling that speech [machine] until a person is detected.
 		r.machineActive[res] = machine
 	} else if ev.Kind == "person_detected" {
 		// The handoff marker means everything user-side before it was the
-		// phone tree — a mid-join buffer (amd_result outside the window)
+		// phone tree. A mid-join buffer (amd_result outside the window)
 		// flushes as [machine], not [human].
 		r.amdResolved[res] = true
 		r.flushPending(res, true)
-	} else if (ev.Kind != "state_change" && ev.Kind != "voice_metrics") || len(r.pending[res]) > 0 {
+	} else if ev.Kind != "voice_metrics" && (ev.Kind != "state_change" || len(r.pending[res]) > 0) {
 		// The voicebot writes amd_result before any agent_turn, so any
 		// post-pickup event kind means the verdict is not coming (AMD
-		// skipped or failed, or the tail joined mid-call) — whoever speaks
+		// skipped or failed, or the tail joined mid-call). Whoever speaks
 		// from here is presumed a person, with no buffering delay.
 		// state_change alone doesn't resolve: queued/ringing transitions
-		// precede pickup in --from-start replays. voice_metrics doesn't
-		// either: its first row (eou timing) lands at the end of the
-		// greeting, before the voicebot writes amd_result.
+		// precede pickup in --from-start replays. voice_metrics never
+		// resolves: the voicebot writes one right after each user_turn,
+		// so pickup speech still waits for amd_result.
 		r.amdResolved[res] = true
 		r.flushPending(res, false)
 	}
@@ -484,7 +484,7 @@ func (r *tailRenderer) flushPending(res openapi_types.UUID, machine bool) {
 	delete(r.pending, res)
 }
 
-// flushAll drains every buffer as [human] — the stream is ending, so no
+// flushAll drains every buffer as [human]: the stream is ending, so no
 // verdict is coming.
 func (r *tailRenderer) flushAll() {
 	for res := range r.pending {
@@ -529,7 +529,7 @@ func eventResourceID(ev client.EventResponse) openapi_types.UUID {
 }
 
 // shortCallID returns the first 8 hex chars of the UUID (no dashes
-// truncated — UUIDs render with dashes at the 8/4/4/4/12 boundary, so the
+// truncated: UUIDs render with dashes at the 8/4/4/4/12 boundary, so the
 // first 8 chars come from the first dash-delimited group cleanly).
 func shortCallID(id openapi_types.UUID) string {
 	s := uuid.UUID(id).String()
@@ -539,8 +539,8 @@ func shortCallID(id openapi_types.UUID) string {
 	return s
 }
 
-// shortIDColor returns a stable color from perCallPalette by hashing the id
-// — same call always gets the same color across polls.
+// shortIDColor returns a stable color from perCallPalette by hashing the id,
+// so the same call always gets the same color across polls.
 func shortIDColor(short string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(short))
@@ -564,8 +564,8 @@ func renderEventBody(ev client.EventResponse) (label, body string) {
 	case "user_turn":
 		return "[human]", turnText(ev)
 	case "amd_result":
-		// The pickup transcript lines above already show what was heard —
-		// render only the verdict, as a sentence, not the payload JSON.
+		// The pickup transcript lines above already show what was heard.
+		// Render only the verdict, as a sentence, not the payload JSON.
 		if category, ok := ev.Payload["category"].(string); ok && category != "" {
 			if sentence, ok := amdSentences[category]; ok {
 				return "[amd]", sentence
@@ -579,10 +579,10 @@ func renderEventBody(ev client.EventResponse) (label, body string) {
 		return "[system]", "a person is on the line"
 	case "tool_call":
 		// Current shape (voicebot/.../agent.py): {"tools": [names],
-		// "calls": [{"name", "args"}]} — `calls` carries arguments so the
+		// "calls": [{"name", "args"}]}. `calls` carries arguments so the
 		// line shows what the tool did, e.g. send_dtmf(digits=2). Older
-		// rows have only `tools`; spec mentions {"name", "args"} too —
-		// handle all three defensively.
+		// rows have only `tools`; spec mentions {"name", "args"} too.
+		// Handle all three defensively.
 		if calls, ok := ev.Payload["calls"].([]interface{}); ok && len(calls) > 0 {
 			if rendered := renderToolCalls(calls); rendered != "" {
 				return "[tool]", rendered
@@ -664,7 +664,7 @@ func payloadJSON(p map[string]interface{}) string {
 
 // renderSystemLine emits a synthetic [system] line for the final
 // "call <status>" notice on terminal status. JSON output mode skips it
-// entirely — synthetic events would pollute the NDJSON stream.
+// entirely: synthetic events would pollute the NDJSON stream.
 func renderSystemLine(opts *Options, ts time.Time, msg string, colorize bool) {
 	if opts.JSON {
 		return

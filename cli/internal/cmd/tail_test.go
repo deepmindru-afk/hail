@@ -46,7 +46,7 @@ func sampleEventInEmail(idStr string, emailID openapi_types.UUID, kind string, p
 }
 
 // completedStatus / dialingStatus are pointer helpers (the new schema makes
-// EventStreamResponse.CallStatus a *pointer* — only set when the request
+// EventStreamResponse.CallStatus a *pointer*, only set when the request
 // narrows to a single call).
 func completedStatus() *client.EventStreamResponseCallStatus {
 	s := client.EventStreamResponseCallStatusCompleted
@@ -366,7 +366,7 @@ func TestTail_NDJSONOutput(t *testing.T) {
 		// Each emitted record must be an actual event (has an `id`), not a
 		// synthetic system marker.
 		if _, ok := anyObj["id"]; !ok {
-			t.Errorf("line %d missing event id field — looks synthetic:\n%s", i, line)
+			t.Errorf("line %d missing event id field, looks synthetic:\n%s", i, line)
 		}
 	}
 }
@@ -660,6 +660,40 @@ func TestTail_HumanPickupFlushesAsHuman(t *testing.T) {
 	}
 }
 
+// TestTail_TurnMetricsKeepMachineBuffer: the voice_metrics row written right
+// after a pickup user_turn must not flush that turn as [human] before the
+// machine verdict arrives.
+func TestTail_TurnMetricsKeepMachineBuffer(t *testing.T) {
+	tFuture := time.Now().Add(time.Hour)
+	srv := newSequenceServer(t, []sequenceResponse{
+		{http.StatusOK, client.EventStreamResponse{
+			Items: []client.EventResponse{
+				sampleEventInCall("11111111-1111-1111-1111-111111111111", callA, "user_turn",
+					map[string]interface{}{"text": "press one."}, tFuture),
+				sampleEventInCall("22222222-2222-2222-2222-222222222221", callA, "voice_metrics",
+					map[string]interface{}{"role": "user", "end_of_utterance_delay": 0.4}, tFuture.Add(time.Millisecond)),
+				sampleEventInCall("33333333-3333-3333-3333-333333333331", callA, "amd_result",
+					map[string]interface{}{"category": "machine-ivr"}, tFuture.Add(time.Second)),
+			},
+			CallStatus: completedStatus(),
+		}},
+	})
+
+	stdout, _, err := runRoot(t,
+		map[string]string{"HAIL_API_KEY": "sk_test", "HAIL_API_URL": srv.URL, "NO_COLOR": "1"},
+		"tail", "--id", "call:"+uuid.UUID(callA).String(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(stdout, "[human]") {
+		t.Errorf("voice_metrics flushed pickup speech as human:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "[machine]") || !strings.Contains(stdout, "press one.") {
+		t.Errorf("machine transcript not relabeled:\n%s", stdout)
+	}
+}
+
 // TestTail_BareUUIDDefaultsToCall: --id with a bare UUID (no "call:"
 // prefix) narrows to that call.
 func TestTail_BareUUIDDefaultsToCall(t *testing.T) {
@@ -715,7 +749,7 @@ func TestTail_ShortPrefixResolvesViaCallsList(t *testing.T) {
 
 // TestTail_PostVerdictMachineSpeech: the voicebot writes amd_result before
 // the menu transcript, so machine speech arriving AFTER the verdict must
-// still render [machine] — until person_detected hands off to a human.
+// still render [machine] until person_detected hands off to a human.
 func TestTail_PostVerdictMachineSpeech(t *testing.T) {
 	tFuture := time.Now().Add(time.Hour)
 	srv := newSequenceServer(t, []sequenceResponse{

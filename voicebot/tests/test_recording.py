@@ -231,3 +231,109 @@ async def test_cancelled_start_recovers_egress_by_room(async_session):
     assert call.metadata_["recording_egress_id"] == "egress-orphan"
     assert call.recording_status != "unavailable"
     lk.egress.stop_egress.assert_awaited_once()
+
+
+@pytest.mark.parametrize("status", ["ready", "failed"])
+async def test_terminal_recording_needs_no_duplicate_stop(async_session, status):
+    call_id = await _make_call_row(async_session)
+    call = await async_session.get(Call, call_id)
+    call.metadata_ = {"recording_egress_id": "egress-done", "recording_status": status}
+    await async_session.commit()
+    lk = SimpleNamespace(egress=SimpleNamespace(stop_egress=AsyncMock()))
+    await stop_recording(call_id, lk)
+    lk.egress.stop_egress.assert_not_awaited()
+    await async_session.refresh(call)
+    assert call.metadata_["recording_status"] == status
+
+
+@pytest.mark.parametrize("completed", [True, False])
+async def test_stop_racing_room_deletion_reconciles_only_terminal_egress(
+    async_session, caplog, completed
+):
+    call_id = await _make_call_row(async_session)
+    call = await async_session.get(Call, call_id)
+    call.livekit_room = f"hail-{call_id}"
+    call.metadata_ = {
+        "recording_egress_id": "egress-race",
+        "recording_object_key": "recordings/365d/org/call/audio.ogg",
+        "recording_status": "recording",
+    }
+    await async_session.commit()
+    info = api.EgressInfo(
+        egress_id="egress-race",
+        room_name=call.livekit_room,
+        status=api.EGRESS_COMPLETE if completed else api.EGRESS_ACTIVE,
+        file_results=[api.FileInfo(size=1200, duration=2_000_000_000)],
+    )
+    lk = SimpleNamespace(
+        egress=SimpleNamespace(
+            stop_egress=AsyncMock(
+                side_effect=api.ServerError(
+                    api.ServerErrorCode.FAILED_PRECONDITION,
+                    "already finished",
+                    status=412,
+                )
+            ),
+            list_egress=AsyncMock(return_value=SimpleNamespace(items=[info])),
+        )
+    )
+    await stop_recording(call_id, lk, call.livekit_room)
+    await async_session.refresh(call)
+    if completed:
+        assert call.recording_status == "ready"
+        assert call.recording_duration_ms == 2000
+        assert "recording stop deferred" not in caplog.text
+    else:
+        assert call.recording_status == "recording"
+        assert "recording stop deferred" in caplog.text
+
+
+async def test_permission_failure_is_not_treated_as_already_stopped(
+    async_session, caplog
+):
+    call_id = await _make_call_row(async_session)
+    call = await async_session.get(Call, call_id)
+    call.metadata_ = {
+        "recording_egress_id": "egress-forbidden",
+        "recording_status": "recording",
+    }
+    await async_session.commit()
+    lk = SimpleNamespace(
+        egress=SimpleNamespace(
+            stop_egress=AsyncMock(
+                side_effect=api.ServerError(
+                    api.ServerErrorCode.PERMISSION_DENIED, "denied", status=403
+                )
+            ),
+            list_egress=AsyncMock(),
+        )
+    )
+    await stop_recording(call_id, lk)
+    lk.egress.list_egress.assert_not_awaited()
+    assert "recording stop deferred" in caplog.text
+
+
+async def test_erased_recording_still_stops_active_capture(async_session):
+    call_id = await _make_call_row(async_session)
+    call = await async_session.get(Call, call_id)
+    call.livekit_room = f"hail-{call_id}"
+    call.metadata_ = {
+        "recording_egress_id": "egress-erased",
+        "recording_status": "erased",
+    }
+    await async_session.commit()
+    lk = SimpleNamespace(
+        egress=SimpleNamespace(
+            stop_egress=AsyncMock(
+                return_value=api.EgressInfo(
+                    egress_id="egress-erased",
+                    room_name=call.livekit_room,
+                    status=api.EGRESS_ENDING,
+                )
+            )
+        )
+    )
+    await stop_recording(call_id, lk)
+    lk.egress.stop_egress.assert_awaited_once()
+    await async_session.refresh(call)
+    assert call.metadata_["recording_status"] == "erased"

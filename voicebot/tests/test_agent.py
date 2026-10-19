@@ -191,69 +191,6 @@ class _FakeSession:
         return _register
 
 
-async def test_voice_metrics_merge_into_one_row_per_speech(monkeypatch) -> None:
-    """eou, llm and tts timings of one agent speech share one row. The row is
-    written when the next speech starts, or by ``flush`` at shutdown. Only
-    finite, non-negative numbers are kept; no transcript or key leaks."""
-    recorded = []
-
-    async def write(_call_id, kind, payload):
-        recorded.append((kind, payload))
-
-    monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", write)
-    session = _FakeSession()
-    tasks, flush = attach_event_handlers(session, UUID(int=1))
-    on_metrics = session.handlers["metrics_collected"]
-
-    def emit(**fields):
-        on_metrics(SimpleNamespace(metrics=SimpleNamespace(**fields)))
-
-    emit(
-        type="eou_metrics",
-        end_of_utterance_delay=0.4,
-        transcription_delay=0.1,
-        speech_id="speech-1",
-    )
-    emit(
-        type="llm_metrics",
-        ttft=0.25,
-        ttfb=float("nan"),
-        speech_id="speech-1",
-        transcript="private speech",
-        api_key="private key",
-    )
-    emit(type="tts_metrics", ttfb=0.3, speech_id="speech-1")
-    emit(type="tts_metrics", ttfb=0.9, speech_id="speech-1")  # later segment
-    assert not tasks, "a speech that may still report is not written yet"
-
-    emit(
-        type="eou_metrics",
-        end_of_utterance_delay=0.5,
-        transcription_delay=-1.0,
-        speech_id="speech-2",
-    )
-    await asyncio.gather(*list(tasks))
-    assert recorded == [
-        (
-            "voice_metrics",
-            {
-                "speech_id": "speech-1",
-                "end_of_utterance_delay": 0.4,
-                "transcription_delay": 0.1,
-                "ttft": 0.25,
-                "ttfb": 0.3,
-            },
-        )
-    ]
-
-    flush()
-    await asyncio.gather(*list(tasks))
-    assert recorded[1] == (
-        "voice_metrics",
-        {"speech_id": "speech-2", "end_of_utterance_delay": 0.5},
-    )
-
-
 async def _make_call_row(session: AsyncSession) -> UUID:
     """Insert a phone_number + queued call against a synthetic org_id."""
     org_id = UUID("11111111-2222-3333-4444-555555555555")
@@ -415,7 +352,7 @@ async def test_attach_event_handlers_ignores_non_message_items() -> None:
     session = _FakeSession()
     call_id = UUID("11111111-1111-1111-1111-111111111111")
 
-    event_tasks, _ = attach_event_handlers(session, call_id)
+    event_tasks = attach_event_handlers(session, call_id)
     on_item = session.handlers["conversation_item_added"]
 
     on_item(SimpleNamespace(item=SimpleNamespace()))
@@ -435,7 +372,7 @@ async def test_call_event_written_for_user_turn(async_session: AsyncSession) -> 
     fake_llm = FakeLLM(reply="ack")
 
     async with AgentSession(llm=fake_llm) as session:
-        event_tasks, _ = attach_event_handlers(session, call_id)
+        event_tasks = attach_event_handlers(session, call_id)
         agent = Agent(instructions="test")
         await session.start(agent=agent)
         await session.run(user_input="hello")
@@ -1207,9 +1144,7 @@ async def test_agent_turn_tool_syntax_not_recorded(
 
     monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", _fake_write)
     session = _FakeSession()
-    tasks, _ = attach_event_handlers(
-        session, UUID("11111111-1111-1111-1111-111111111111")
-    )
+    tasks = attach_event_handlers(session, UUID("11111111-1111-1111-1111-111111111111"))
     on_item = session.handlers["conversation_item_added"]
 
     on_item(
@@ -1244,9 +1179,7 @@ async def test_tool_call_event_records_arguments(
 
     monkeypatch.setattr("hailhq.voicebot.agent.write_call_event", _fake_write)
     session = _FakeSession()
-    tasks, _ = attach_event_handlers(
-        session, UUID("11111111-1111-1111-1111-111111111111")
-    )
+    tasks = attach_event_handlers(session, UUID("11111111-1111-1111-1111-111111111111"))
     on_tools = session.handlers["function_tools_executed"]
 
     on_tools(
