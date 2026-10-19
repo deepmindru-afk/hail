@@ -78,7 +78,7 @@ from hailhq.voicebot.amd import (
     ivr_navigation_instructions,
     run_amd,
 )
-from hailhq.voicebot.audio import room_options
+from hailhq.voicebot.audio import prewarm_audio, room_options
 from hailhq.voicebot.pipeline import (
     ProviderKeyError,
     build_session,
@@ -944,12 +944,13 @@ logger = logging.getLogger("hailhq.voicebot")
 
 
 def prewarm(proc: JobProcess) -> None:
-    """Load Silero VAD once per worker process.
+    """Load VAD and the native input filter before accepting a call.
 
-    ``WorkerOptions.prewarm_fnc`` runs in the parent of each forked job
-    process; the loaded VAD is cached in ``proc.userdata`` and reused by
-    every session this process serves.
+    The SDK runs this hook during job-process initialization. VAD is cached
+    in ``proc.userdata`` for the session; the filter's native library is loaded
+    before the event loop starts handling live audio.
     """
+    prewarm_audio()
     proc.userdata["vad"] = silero.VAD.load()
 
 
@@ -1503,7 +1504,7 @@ async def on_call_end(
 
 def attach_event_handlers(
     session: AgentSession, call_id: UUID
-) -> tuple[set[asyncio.Task[None]], Callable[[], None]]:
+) -> set[asyncio.Task[None]]:
     """Wire AgentSession events to ``call_events`` row writes.
 
     Returns the set of pending row-write tasks so the caller can ``gather``
@@ -1512,10 +1513,9 @@ def attach_event_handlers(
     via ``asyncio.ensure_future`` because LiveKit's EventEmitter dispatches
     sync callbacks.
 
-    Also returns ``flush``: ``voice_metrics`` timings are merged per agent
-    speech (one row per turn, not one per metric) and a speech's row is
-    written when the next speech starts. ``flush`` writes the last one; call
-    it at shutdown before gathering the tasks.
+    Per-turn timings come from committed ChatMessage.metrics, so they stay
+    associated with the correct user or assistant turn, including the last one.
+    https://docs.livekit.io/testing/observability/data/#per-turn-latency
     """
     tasks: set[asyncio.Task[None]] = set()
 
@@ -1523,43 +1523,6 @@ def attach_event_handlers(
         task = asyncio.ensure_future(write_call_event(call_id, kind, payload))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
-
-    # speech_id -> merged timings of the turn that is still reporting.
-    pending_metrics: dict[str, dict[str, Any]] = {}
-
-    def _flush_metrics(speech_id: str) -> None:
-        payload = pending_metrics.pop(speech_id, None)
-        if payload:
-            _spawn("voice_metrics", payload)
-
-    def flush() -> None:
-        for speech_id in list(pending_metrics):
-            _flush_metrics(speech_id)
-
-    @session.on("metrics_collected")
-    def _on_metrics(ev: Any) -> None:
-        metric = ev.metrics
-        kind = getattr(metric, "type", "")
-        if kind not in ("llm_metrics", "tts_metrics", "eou_metrics"):
-            return
-        # Numeric timing only: no transcript, prompts, tool arguments, or keys.
-        timings: dict[str, Any] = {}
-        for key in ("ttft", "ttfb", "end_of_utterance_delay", "transcription_delay"):
-            value = getattr(metric, key, None)
-            if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
-                timings[key] = value
-        speech_id = getattr(metric, "speech_id", None)
-        if not speech_id:
-            if timings:
-                _spawn("voice_metrics", {"type": kind, **timings})
-            return
-        # A metric for a new speech means the previous turn is over.
-        for other in [s for s in pending_metrics if s != speech_id]:
-            _flush_metrics(other)
-        row = pending_metrics.setdefault(speech_id, {"speech_id": speech_id})
-        for key, value in timings.items():
-            # First value wins: a later TTS segment must not overwrite ttfb.
-            row.setdefault(key, value)
 
     @session.on("conversation_item_added")
     def _on_item(ev: Any) -> None:
@@ -1584,9 +1547,35 @@ def attach_event_handlers(
         # These are speech wall times, not the time a delayed STT event reached DB.
         for key in ("started_speaking_at", "stopped_speaking_at"):
             value = metrics.get(key)
-            if isinstance(value, (int, float)) and value > 0:
+            if type(value) in (int, float) and math.isfinite(value) and value > 0:
                 payload[key] = value
         _spawn(kind, payload)
+
+        # Keep the existing timing keys, and only persist numeric measurements.
+        fields = (
+            {
+                "transcription_delay": "transcription_delay",
+                "end_of_turn_delay": "end_of_utterance_delay",
+                "on_user_turn_completed_delay": "on_user_turn_completed_delay",
+            }
+            if role == "user"
+            else {
+                "llm_node_ttft": "ttft",
+                "tts_node_ttfb": "ttfb",
+                "e2e_latency": "e2e_latency",
+                "playback_latency": "playback_latency",
+            }
+        )
+        timings = {}
+        for source, target in fields.items():
+            value = metrics.get(source)
+            if type(value) in (int, float) and math.isfinite(value) and value >= 0:
+                timings[target] = value
+        if timings:
+            _spawn(
+                "voice_metrics",
+                {"message_id": item.id, "role": role, **timings},
+            )
 
     @session.on("function_tools_executed")
     def _on_tools(ev: Any) -> None:
@@ -1622,7 +1611,7 @@ def attach_event_handlers(
     def _on_error(ev: Any) -> None:
         _spawn("error", {"error": str(ev.error)[:500]})
 
-    return tasks, flush
+    return tasks
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -1879,7 +1868,7 @@ async def _run_call(
         )
         ctx.shutdown(reason="provider_key_error")
         return
-    event_tasks, flush_voice_metrics = attach_event_handlers(session, call_id)
+    event_tasks = attach_event_handlers(session, call_id)
 
     # AgentSession-level close events that aren't already covered by the SIP
     # participant_disconnected handler above: `error` (LLM/STT/TTS crash) and
@@ -1937,7 +1926,13 @@ async def _run_call(
     # Explicitly prevent LiveKit project observability from silently retaining
     # audio outside Hail's workspace choice and storage lifecycle.
     await session.start(
-        agent=agent, room=ctx.room, record=False, room_options=room_options()
+        agent=agent,
+        room=ctx.room,
+        record=False,
+        room_options=room_options(),
+        # Hail controls calls through its API/tools, with no RemoteSession client.
+        # https://docs.livekit.io/reference/python/livekit/agents/
+        session_host=False,
     )
 
     async def record_answered_call() -> None:
@@ -2040,7 +2035,6 @@ async def _run_call(
             if text_watch_task is not None and not text_watch_task.done():
                 text_watch_task.cancel()
                 await asyncio.gather(text_watch_task, return_exceptions=True)
-            flush_voice_metrics()
             if event_tasks:
                 await asyncio.gather(*list(event_tasks), return_exceptions=True)
             if answer_tasks:

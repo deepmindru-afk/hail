@@ -107,6 +107,8 @@ async def stop_recording(call_id: UUID, lkapi, room_name: str | None = None) -> 
         async with session_scope() as db:
             call = await db.get(Call, call_id)
             meta = (call.metadata_ or {}) if call else {}
+            if meta.get("recording_status") in {"ready", "failed"}:
+                return
             egress_id = meta.get("recording_egress_id")
             if not egress_id and meta.get("recording_status") == "starting":
                 # The start was cancelled before LiveKit answered. LiveKit may
@@ -120,10 +122,38 @@ async def stop_recording(call_id: UUID, lkapi, room_name: str | None = None) -> 
                 await db.commit()
         if not egress_id:
             return
-        info = await asyncio.wait_for(
-            lkapi.egress.stop_egress(api.StopEgressRequest(egress_id=egress_id)),
-            timeout=5,
-        )
+        try:
+            info = await asyncio.wait_for(
+                lkapi.egress.stop_egress(api.StopEgressRequest(egress_id=egress_id)),
+                timeout=5,
+            )
+        except api.ServerError as exc:
+            if exc.code != api.ServerErrorCode.FAILED_PRECONDITION:
+                raise
+            # Room deletion may have completed Egress before this stop request.
+            # Reconcile its terminal result; don't hide unrelated stop failures.
+            # https://docs.livekit.io/reference/other/egress/api/
+            result = await asyncio.wait_for(
+                lkapi.egress.list_egress(api.ListEgressRequest(egress_id=egress_id)),
+                timeout=3,
+            )
+            info = next(
+                (
+                    item
+                    for item in result.items
+                    if item.egress_id == egress_id
+                    and item.status
+                    in {
+                        api.EGRESS_COMPLETE,
+                        api.EGRESS_LIMIT_REACHED,
+                        api.EGRESS_FAILED,
+                        api.EGRESS_ABORTED,
+                    }
+                ),
+                None,
+            )
+            if info is None:
+                raise
         async with session_scope() as db:
             call = await db.get(Call, call_id)
             if call:

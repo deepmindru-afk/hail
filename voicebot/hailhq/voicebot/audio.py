@@ -6,10 +6,18 @@ https://docs.livekit.io/transport/media/noise-cancellation/
 
 from __future__ import annotations
 
+from importlib import import_module
+
 from hailhq.core.config import settings
 from livekit import rtc
 from livekit.agents import room_io
 from livekit.agents.utils.misc import is_cloud
+
+
+def prewarm_audio() -> None:
+    """Load the native Cloud filter before the job's event loop serves a call."""
+    if is_cloud(settings.livekit_url):
+        import_module("livekit.plugins.noise_cancellation")
 
 
 def room_options() -> room_io.RoomOptions:
