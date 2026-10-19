@@ -32,6 +32,7 @@ export function Mascot({
       />
       <path d="M120 55L148 65L123 79Z" fill="#F6B858" />
       <path
+        data-mascot-part="wing"
         d="M53 82C45 91 49 105 64 108C79 109 87 98 85 85"
         stroke="#183A8F"
         strokeWidth="6"
@@ -47,22 +48,24 @@ export function Mascot({
         strokeWidth="5"
         strokeLinecap="round"
       />
-      <rect
-        x="36"
-        y="100"
-        width="51"
-        height="34"
-        rx="5"
-        transform="rotate(-12 36 100)"
-        fill="#FFFDF6"
-      />
-      <path
-        d="M40 104L65 115L87 94"
-        stroke="#5284FF"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <g data-mascot-part="letter">
+        <rect
+          x="36"
+          y="100"
+          width="51"
+          height="34"
+          rx="5"
+          transform="rotate(-12 36 100)"
+          fill="#FFFDF6"
+        />
+        <path
+          d="M40 104L65 115L87 94"
+          stroke="#5284FF"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
     </svg>
   );
 }
