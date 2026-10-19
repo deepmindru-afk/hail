@@ -108,6 +108,26 @@ async def test_sms_uses_messaging_api_and_no_mutation_retry():
     assert len(seen) == 1
 
 
+async def test_sender_id_send_names_the_messaging_profile():
+    seen = []
+
+    def respond(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"data": {"id": "message-id", "to": [{"status": "queued"}]}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        provider = TelnyxSmsProvider(TelnyxClient("secret", http))
+        assert provider.sender_id_needs_messaging_service is True
+        await provider.send_sms(
+            "ACME", "+46701234567", "hello", messaging_service_sid="profile-id"
+        )
+    assert seen[0]["from"] == "ACME"
+    assert seen[0]["messaging_profile_id"] == "profile-id"
+
+
 @pytest.mark.parametrize(
     "group_owner,group_status,expected",
     [

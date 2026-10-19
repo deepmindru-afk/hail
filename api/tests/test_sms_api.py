@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -481,6 +482,8 @@ async def test_sender_id_sms_goes_through_the_configured_carrier(
     monkeypatch.setattr(settings, "telnyx_api_key", "key")
     monkeypatch.setattr(settings, "telnyx_public_key", "public")
     monkeypatch.setattr(TelnyxSmsProvider, "send_sms", sms_mock.send_sms)
+    profiles = AsyncMock(return_value="telnyx-profile")
+    monkeypatch.setattr(TelnyxSmsProvider, "ensure_messaging_service", profiles)
     _, _, plaintext = org_and_key
     resp = await client.post(
         "/sms",
@@ -490,6 +493,15 @@ async def test_sender_id_sms_goes_through_the_configured_carrier(
     assert resp.status_code == 201, resp.text
     sms = (await async_session.execute(select(Sms))).scalar_one()
     assert sms.provider == name
+    sent = sms_mock.send_sms.call_args.kwargs
+    assert sent["from_e164"] == "HAIL"
+    if name == "telnyx":
+        # Telnyx needs the org's messaging profile on a sender-ID send.
+        assert sent["messaging_service_sid"] == "telnyx-profile"
+        assert profiles.await_args.args[0] == sms.organization_id
+    else:
+        assert sent["messaging_service_sid"] is None
+        profiles.assert_not_awaited()
 
 
 async def test_create_sms_to_india_still_requires_dedicated_number(

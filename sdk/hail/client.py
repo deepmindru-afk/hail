@@ -232,10 +232,15 @@ class _SmsResource:
     ) -> SmsResponse:
         """Send an outbound SMS.
 
-        With no ``from_``: UK (+44) and Germany (+49) destinations use the
-        org's sender ID (or ``HAIL``, the platform default); Australia (+61)
-        always uses ``HAIL``; every other destination uses the org's oldest
-        active SMS-capable number and the server 422s when there is none.
+        With no ``from_``: destinations where the sender-ID carrier delivers
+        a dynamic alphanumeric sender ID unchanged (about 110 countries,
+        one table per carrier in core/hailhq/core/sender_id_corridors.py)
+        use the org's sender ID (or
+        ``HAIL``, the platform default); Australia (+61) always uses
+        ``HAIL`` when that carrier is Twilio; every other destination,
+        including the US and Canada,
+        uses the org's oldest active SMS-capable number and the server
+        422s when there is none.
         SMS never uses the shared pool.
 
         ``recipient_consent`` is required — the server 422s without it.

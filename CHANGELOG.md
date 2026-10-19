@@ -4,6 +4,10 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Sender ID corridors cover every country Twilio documents, not six. `POST /sms` with no `from` sends from the organization's sender ID (or `HAIL`) to about 110 countries where Twilio delivers a dynamic alphanumeric sender ID unchanged (Denmark, Sweden, France, Italy, Jamaica, ...); 43 countries where operators replace the ID (Finland, Mexico, India, ...) and 68 with no dynamic sender ID, or none Twilio vouches for (US, Canada, Spain, Luxembourg, ...), keep using the organization's dedicated number. Destinations resolve by country, so +1 Jamaica no longer follows the US rule. There is one table per carrier that can send sender-ID SMS (`sender_id_sms_carrier`): Twilio (108 countries) and Telnyx (111), each generated from that carrier's own per-country documentation by `scripts/sender_id_corridors.py`; a carrier without a table requires a dedicated number everywhere. A sender-ID send on Telnyx names the organization's messaging profile (`messaging_profile_id`, required by Telnyx for an alphanumeric sender), found on the org's Telnyx numbers or created once.
+
 ### Changed
 
 - Call recording is on by default with 30 days of retention. A workspace that has not saved a choice is asked once during onboarding.

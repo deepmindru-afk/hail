@@ -1613,11 +1613,15 @@ def register_tools(
         """Send an outbound SMS.
 
         ``to`` must be E.164 (e.g. ``+14155551234``). ``body`` is the
-        message text. With no ``from_``: UK (+44) and Germany (+49)
-        destinations use your organization's sender ID (or ``HAIL``, the
-        platform default); Australia (+61) always uses ``HAIL``; every
-        other destination uses your organization's oldest active
-        SMS-capable number and the API returns 422 when there is none.
+        message text. With no ``from_``: destinations where the sender-ID
+        carrier delivers a dynamic alphanumeric sender ID unchanged (about
+        110 countries, see core/hailhq/core/sender_id_corridors.py) use
+        your organization's sender ID
+        (or ``HAIL``, the platform default); Australia (+61) always uses
+        ``HAIL`` when that carrier is Twilio; every other destination,
+        including the US and Canada,
+        uses your organization's oldest active SMS-capable number and the
+        API returns 422 when there is none.
         SMS never uses the shared voice-call pool.
 
         ``recipient_consent`` is required and must be the JSON boolean

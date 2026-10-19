@@ -80,7 +80,8 @@ class Settings(BaseSettings):
     telnyx_public_key: str = ""
     # Carrier of an SMS sent from an alphanumeric sender ID, which has no
     # number: a name listed in core/hailhq/core/carrier_routing.py CARRIERS
-    # that sends SMS.
+    # that sends SMS. Which destinations accept a sender ID is this carrier's
+    # table in core/hailhq/core/sender_id_corridors.py.
     sender_id_sms_carrier: str = "twilio"
     # DIDWW: numbers, orders and end-user registration through API v3.
     # Empty key = DIDWW offers are hidden and its verification plug-in is off.

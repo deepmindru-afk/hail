@@ -34,11 +34,14 @@ func newSmsCmd(opts *Options) *cobra.Command {
 		Short: "Send an outbound SMS (or use a subcommand)",
 		Long: `hail sms — send an outbound text message.
 
-Without --from: UK (+44) and Germany (+49) destinations use your
-organization's sender ID (or HAIL, the platform default); Australia (+61)
-always uses HAIL; every other destination uses your organization's oldest
-active SMS-capable number (422 when there is none). SMS never uses the
-shared voice pool.
+Without --from: destinations where the sender-ID carrier delivers a dynamic
+alphanumeric sender ID unchanged (about 110 countries, one table per carrier
+in core/hailhq/core/sender_id_corridors.py)
+use your organization's sender ID (or HAIL, the platform default); Australia
+(+61) always uses HAIL when that carrier is Twilio; every other destination,
+including the US and
+Canada, uses your organization's oldest active SMS-capable number (422 when
+there is none). SMS never uses the shared voice pool.
 
 Example (minimal):
   hail sms +15551234567 --body "Hello!" --recipient-consent`,
