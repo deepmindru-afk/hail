@@ -86,6 +86,17 @@ async def recording_state(db: AsyncSession, call_id: UUID, **values) -> None:
     )
 
 
+# Egress states after which LiveKit writes no more audio.
+EGRESS_TERMINAL = frozenset(
+    {
+        api.EGRESS_COMPLETE,
+        api.EGRESS_LIMIT_REACHED,
+        api.EGRESS_FAILED,
+        api.EGRESS_ABORTED,
+    }
+)
+
+
 async def apply_egress_info(db: AsyncSession, call: Call, info: api.EgressInfo) -> None:
     """Idempotent reconciliation. Never use a vendor-supplied object key."""
     meta = call.metadata_ or {}
@@ -96,12 +107,7 @@ async def apply_egress_info(db: AsyncSession, call: Call, info: api.EgressInfo) 
         return
     if meta.get("recording_status") == "erased":
         # Uploads can finish after a deletion request. Remove that object too.
-        if info.status in {
-            api.EGRESS_COMPLETE,
-            api.EGRESS_LIMIT_REACHED,
-            api.EGRESS_FAILED,
-            api.EGRESS_ABORTED,
-        }:
+        if info.status in EGRESS_TERMINAL:
             await delete_recording(call)
         return
     if meta.get("recording_status") in {"ready", "failed"}:

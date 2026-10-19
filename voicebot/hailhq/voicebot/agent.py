@@ -1502,6 +1502,23 @@ async def on_call_end(
         notify_usage_event_recorded(usage_event_id)
 
 
+# ChatMessage.metrics key -> voice_metrics payload key, per turn role. The
+# payload keeps the timing names older voice_metrics rows used.
+_TURN_TIMINGS: dict[str, dict[str, str]] = {
+    "user": {
+        "transcription_delay": "transcription_delay",
+        "end_of_turn_delay": "end_of_utterance_delay",
+        "on_user_turn_completed_delay": "on_user_turn_completed_delay",
+    },
+    "assistant": {
+        "llm_node_ttft": "ttft",
+        "tts_node_ttfb": "ttfb",
+        "e2e_latency": "e2e_latency",
+        "playback_latency": "playback_latency",
+    },
+}
+
+
 def attach_event_handlers(
     session: AgentSession, call_id: UUID
 ) -> set[asyncio.Task[None]]:
@@ -1551,23 +1568,9 @@ def attach_event_handlers(
                 payload[key] = value
         _spawn(kind, payload)
 
-        # Keep the existing timing keys, and only persist numeric measurements.
-        fields = (
-            {
-                "transcription_delay": "transcription_delay",
-                "end_of_turn_delay": "end_of_utterance_delay",
-                "on_user_turn_completed_delay": "on_user_turn_completed_delay",
-            }
-            if role == "user"
-            else {
-                "llm_node_ttft": "ttft",
-                "tts_node_ttfb": "ttfb",
-                "e2e_latency": "e2e_latency",
-                "playback_latency": "playback_latency",
-            }
-        )
+        # Only persist numeric measurements.
         timings = {}
-        for source, target in fields.items():
+        for source, target in _TURN_TIMINGS[role].items():
             value = metrics.get(source)
             if type(value) in (int, float) and math.isfinite(value) and value >= 0:
                 timings[target] = value

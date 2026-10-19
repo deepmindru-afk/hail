@@ -10,6 +10,7 @@ from hailhq.core.config import settings
 from hailhq.core.db import session_scope
 from hailhq.core.models import Call
 from hailhq.core.recordings import (
+    EGRESS_TERMINAL,
     apply_egress_info,
     recording_retention_days,
     recording_state,
@@ -141,14 +142,7 @@ async def stop_recording(call_id: UUID, lkapi, room_name: str | None = None) -> 
                 (
                     item
                     for item in result.items
-                    if item.egress_id == egress_id
-                    and item.status
-                    in {
-                        api.EGRESS_COMPLETE,
-                        api.EGRESS_LIMIT_REACHED,
-                        api.EGRESS_FAILED,
-                        api.EGRESS_ABORTED,
-                    }
+                    if item.egress_id == egress_id and item.status in EGRESS_TERMINAL
                 ),
                 None,
             )
