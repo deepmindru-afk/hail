@@ -1502,8 +1502,8 @@ async def on_call_end(
         notify_usage_event_recorded(usage_event_id)
 
 
-# ChatMessage.metrics key -> voice_metrics payload key, per turn role. The
-# payload keeps the timing names older voice_metrics rows used.
+# ChatMessage.metrics key -> turn payload key, per turn role. The payload
+# keeps the timing names older voice_metrics rows used.
 _TURN_TIMINGS: dict[str, dict[str, str]] = {
     "user": {
         "transcription_delay": "transcription_delay",
@@ -1551,34 +1551,34 @@ def attach_event_handlers(
             kind = "agent_turn"
         else:
             return
-        text = getattr(item, "text_content", "") or ""
-        if kind == "agent_turn":
-            # Mirror the TTS sanitizer: a turn that was never spoken
-            # (tool-syntax leakage, "..." placeholders) is not part of the
-            # conversation and must not be recorded as one.
-            text = speech_text(text)
-            if not text:
-                return
-        payload = {"role": role, "text": text}
         metrics = getattr(item, "metrics", {}) or {}
-        # These are speech wall times, not the time a delayed STT event reached DB.
-        for key in ("started_speaking_at", "stopped_speaking_at"):
-            value = metrics.get(key)
-            if type(value) in (int, float) and math.isfinite(value) and value > 0:
-                payload[key] = value
-        _spawn(kind, payload)
-
         # Only persist numeric measurements.
         timings = {}
         for source, target in _TURN_TIMINGS[role].items():
             value = metrics.get(source)
             if type(value) in (int, float) and math.isfinite(value) and value >= 0:
                 timings[target] = value
-        if timings:
-            _spawn(
-                "voice_metrics",
-                {"message_id": item.id, "role": role, **timings},
-            )
+        text = getattr(item, "text_content", "") or ""
+        if kind == "agent_turn":
+            # Mirror the TTS sanitizer: a turn that was never spoken
+            # (tool-syntax leakage, "..." placeholders) is not part of the
+            # conversation and must not be recorded as one. Its timings
+            # still go in a voice_metrics row.
+            text = speech_text(text)
+            if not text:
+                if timings:
+                    _spawn(
+                        "voice_metrics",
+                        {"message_id": item.id, "role": role, **timings},
+                    )
+                return
+        payload = {"role": role, "text": text, **timings}
+        # These are speech wall times, not the time a delayed STT event reached DB.
+        for key in ("started_speaking_at", "stopped_speaking_at"):
+            value = metrics.get(key)
+            if type(value) in (int, float) and math.isfinite(value) and value > 0:
+                payload[key] = value
+        _spawn(kind, payload)
 
     @session.on("function_tools_executed")
     def _on_tools(ev: Any) -> None:
