@@ -36,7 +36,7 @@ Database migrations run on deploy.
 - The key check for your own Cartesia key uses `sonic-3.6`. `sonic-2` is retired on 2026-10-20.
 - Self-host docs and the Terraform output use `aws ses set-active-receipt-rule-set` to activate the receipt rule set.
 
-## [0.28.0] — 2026-10-13
+## [0.28.0] (2026-10-13)
 
 A public webhook event catalog, and multi-org users land in their oldest
 workspace by default.
@@ -53,7 +53,7 @@ Component versions cut alongside this release:
 - **Behavior change.** A user in more than one workspace now resolves to their oldest membership when the request names no workspace. This applies to API keys and to console tokens without an active workspace. Before, the API picked the lowest workspace id, which could differ from the console's default workspace. A multi-org user's API key can now act in a different workspace than before.
 - CLI: the generated API client is rebuilt from `openapi/openapi.yaml`. Go callers of the internal client see `WebhookEventType` in place of `WebhookSubscriptionCreateEventTypes` and `WebhookSubscriptionPatchEventTypes`. No `hail` command changes.
 
-## [0.27.0] — 2026-10-13
+## [0.27.0] (2026-10-13)
 
 An agent can buy numbers, manage agents and pass carrier verification over
 MCP, with a server-checked price lock. An agent can hand a live call to a person.
@@ -79,7 +79,7 @@ Migrations `0052` to `0056`.
 - Forwards and Hail's own confirm mails are sent from `noreply+<org>@mail.hail.so`. `noreply` and `forwarder` are reserved user prefixes: minting or renaming to them returns 422, and migration `0056` adds the matching CHECK.
 - API, voicebot, and MCP deployments report their deployed commit SHA in telemetry. Backend images roll through the existing deployment workflow; no CLI or SDK release is required for these changes.
 
-## [0.26.0] — 2026-10-06
+## [0.26.0] (2026-10-06)
 
 Agents that answer calls and texts on a number, inbound calls on Twilio,
 Telnyx and DIDWW, and SMS that sets itself up.
@@ -137,7 +137,7 @@ answering on behalf of {org}.`; workspace default in
 - `organization_call_settings.max_duration_seconds` is nullable (null = service default).
 - `POST /v1/calls` 422 text: "either system_prompt, llm or agent_id must be provided".
 
-## [0.25.0] — 2026-09-28
+## [0.25.0] (2026-09-28)
 
 Hardening after the `/v1` move: rate-limit buckets key on the parsed token,
 deprecation headers only go on real legacy routes, MCP discovery no longer
@@ -222,7 +222,7 @@ Component versions cut alongside this release:
   US/CA emergency-address capability, not an outbound-calling requirement,
   and most numbers outside North America lack it.
 
-## [0.24.0] — 2026-09-25
+## [0.24.0] (2026-09-25)
 
 Numbers now come from a live comparison of carriers: Hail quotes Twilio and
 Telnyx inventory, prices and verification requirements, buys the offer you
@@ -233,7 +233,7 @@ holder verified get a carrier-neutral verification API.
 Component versions cut alongside this release:
 **`sdk-v0.17.0`** (PyPI: `hail-sdk==0.17.0`), **`cli-v0.23.0`** (Homebrew + GitHub Releases).
 
-### Changed — BREAKING: buying a number needs a quote
+### Changed (breaking): buying a number needs a quote
 
 - **`POST /v1/numbers` now requires `quote_id`.** A request without one
   returns 422. The old no-quote purchase (the Twilio catalog path) is removed.
@@ -294,7 +294,7 @@ carrier_route_failed` before any LiveKit room exists when the number's
   internal `http://api:8080`, so agents got links they could not open. Both
   are now built from `HAIL_API_URL` and point at `/v1`.
 
-## [0.23.0] — 2026-09-21
+## [0.23.0] (2026-09-21)
 
 Email goes out exactly as you wrote it: no Hail footer, full react-email HTML
 documents pass through unchanged, and custom-domain setup now tells you which
@@ -303,7 +303,7 @@ DNS records Hail can already see.
 Component versions cut alongside this release:
 **`sdk-v0.16.0`** (PyPI: `hail-sdk==0.16.0`), **`cli-v0.22.0`** (Homebrew + GitHub Releases).
 
-### Changed — Hail no longer adds a footer to email
+### Changed: Hail no longer adds a footer to email
 
 - **Behaviour change for every org.** Sent email no longer ends with
   "Sent via Hail.so (https://hail.so), an AI communication platform.", and
@@ -320,24 +320,24 @@ Component versions cut alongside this release:
 - A full `<!DOCTYPE html>…</html>` document in `body_html` reaches SES
   unchanged, on both the simple and the raw-MIME (attachments) path. Before
   this release the footer was appended after `</html>`.
-- New guide: [docs/public/react-email.md](docs/public/react-email.md) — render
+- New guide: [docs/public/react-email.md](docs/public/react-email.md), render
   with `react-email`, send the strings as `body_html` and `body_text`. Hail does
   not render React and does not store templates.
 
-### Custom domains — DNS check
+### Custom domains: DNS check
 
 - New read-only route `GET /v1/email-domains/{id}/dns-check`. It returns:
-  - `kind` — `custom` or `hail_mail`. A `hail_mail` address has no records to
+  - `kind`: `custom` or `hail_mail`. A `hail_mail` address has no records to
     check.
-  - `dns_provider` — the DNS host found from the domain's nameservers, with a
+  - `dns_provider`: the DNS host found from the domain's nameservers, with a
     link to its DNS page (13 hosts; `null` when not recognised).
-  - `records[].observed` — `true` when Hail saw the record in public DNS,
+  - `records[].observed`: `true` when Hail saw the record in public DNS,
     `false` when it looked and did not, `null` when that one lookup failed.
     SES stays the authority for `verification_status`.
-  - `dmarc` — whether a DMARC record exists at `_dmarc.<domain>` or at the
+  - `dmarc`: whether a DMARC record exists at `_dmarc.<domain>` or at the
     organizational domain, and a suggested `v=DMARC1; p=none;` record when
     none does.
-  - `lookup_ok` — `false` when the zone or DMARC lookup failed or the check hit
+  - `lookup_ok`: `false` when the zone or DMARC lookup failed or the check hit
     its 8 s deadline. Every `observed` is then `null`. Clients must not report
     records as missing in that case.
 - The zone search stops at the organizational domain (`acme.co.uk`), so Hail
@@ -356,7 +356,7 @@ Component versions cut alongside this release:
   Docker Hub and Quay (`quay.io/minio/minio` returns 401), which blocked a
   deploy. Call recordings are not stored yet, so nothing used it.
 
-## [0.22.0] — 2026-08-31
+## [0.22.0] (2026-08-31)
 
 An agent-ready API surface: `/v1` URLs, rate-limit headers on every response,
 a fully described OpenAPI spec, and MCP capability discovery without auth.
@@ -364,7 +364,7 @@ a fully described OpenAPI spec, and MCP capability discovery without auth.
 Component versions cut alongside this release:
 **`sdk-v0.15.1`** (PyPI: `hail-sdk==0.15.1`), **`cli-v0.21.0`** (Homebrew + GitHub Releases).
 
-### API versioning — `/v1`
+### API versioning: `/v1`
 
 - Every customer-facing route is now canonical under `/v1/<resource>`, and
   `/v1` is the only mount in the OpenAPI schema. The legacy unprefixed paths
@@ -403,7 +403,7 @@ Component versions cut alongside this release:
 - `GET /email-domains` reports `default_from: null` when the hail-mail
   address the org would mint is already claimed by another tenant. A pinned
   `HAIL_MAIL_FROM` is one address per deployment, so the first org to send
-  takes it and every other org's send 409s — the preview promised an
+  takes it and every other org's send 409s, the preview promised an
   address the send path refuses.
 - Every surface that mentions opens or clicks now says that open and click
   tracking only works for emails with an HTML body: a plain-text-only email
@@ -436,23 +436,23 @@ Component versions cut alongside this release:
   pointed at older code. `release-cli.yml` now fails when the stripped tag
   already exists on another commit, and the runbook documents the rule.
 
-## [0.21.0] — 2026-08-13
+## [0.21.0] (2026-08-13)
 
 No more guessing which address your mail goes out as, and a `whoami` on every surface.
 
 Component versions cut alongside this release:
 **`sdk-v0.15.0`** (PyPI: `hail-sdk==0.15.0`), **`cli-v0.20.0`** (Homebrew + GitHub Releases).
 
-### Email sender resolution — breaking
+### Email sender resolution (breaking)
 
 - `POST /emails` no longer guesses a sender. An org with **two or more**
   verified identities and no `from` now gets a `422` listing every address
-  it can send from, instead of silently using the oldest one — that pick
+  it can send from, instead of silently using the oldest one, that pick
   changed the sending identity whenever a domain was added or deleted.
   One verified identity (or none, which auto-mints hail-mail) behaves as
   before. The voicebot's internal send route keeps the old pick: a voice
   agent has no way to name a domain mid-call.
-- `GET /email-domains` gained `default_from` — the address a `from`-less
+- `GET /email-domains` gained `default_from`, the address a `from`-less
   send goes out as, `null` when the caller must choose. With no rows at all
   it shows the hail-mail address a first send would mint, which was
   previously unknowable until that send happened. Surfaced on the SDK
@@ -463,12 +463,12 @@ Component versions cut alongside this release:
 - New `GET /whoami` returns the caller's `auth_kind`, `organization_id`,
   `user_id`, `email`, and `name`. The user fields are `null` for a shared
   operator key. Exposed as `client.whoami()` (SDK), `hail whoami` (CLI),
-  and the `whoami` MCP tool — an agent reads `email` and passes it as
+  and the `whoami` MCP tool, an agent reads `email` and passes it as
   `reply_to` so replies reach the person, not an unattended `noreply@`.
 - New `list_email_domains` MCP tool, so an agent can discover sending
   identities instead of guessing a domain.
 
-## [0.20.0] — 2026-08-10
+## [0.20.0] (2026-08-10)
 
 Sender display names on outbound email, and a 25MB attachment cap.
 
@@ -477,17 +477,17 @@ Component versions cut alongside this release:
 
 ### Email
 
-- `POST /emails` accepts an optional `from_name` — a display name rendered
+- `POST /emails` accepts an optional `from_name`, a display name rendered
   on the `From:` header (`"Acme Billing" <billing@acme.com>`, RFC-2047-encoded
   for non-ASCII). Exposed on the SDK (`from_name=`), MCP `send_email`
   (`from_name`), and CLI (`--from-name`); persisted and returned on email
   reads. Control characters are rejected (422).
 - The per-send attachment cap (body + all attachments, pre-encoding) rose
-  from 10MB to 25MB — SESv2 allows 40MB post-base64, and 25MB raw ≈ 34MB
+  from 10MB to 25MB, SESv2 allows 40MB post-base64, and 25MB raw ≈ 34MB
   encoded leaves headroom. Same cap applies to `POST /email-attachments`
   single-file uploads.
 
-## [0.19.0] — 2026-07-27
+## [0.19.0] (2026-07-27)
 
 The voice agent never speaks tool-call syntax again, and call events say
 what tools actually did. `cli-v0.18.0` cut alongside; the SDK is unchanged
@@ -495,7 +495,7 @@ and stays at `hail-sdk==0.13.0`.
 
 ### Voicebot speech sanitizer
 
-- LLM turns that are tool-call syntax (code fences, bare JSON — seen when
+- LLM turns that are tool-call syntax (code fences, bare JSON, seen when
   fast-tier models leak arguments as text during IVR navigation) are no
   longer spoken or recorded as agent turns; the IVR prompt now names an
   explicit nothing-to-say reply instead of the impossible "say nothing".
@@ -516,7 +516,7 @@ and stays at `hail-sdk==0.13.0`.
   rule ignores for FastAPI and resilience idioms); `.claude` excluded from
   lint walks.
 
-## [0.18.0] — 2026-07-23
+## [0.18.0] (2026-07-23)
 
 Readable call tails in the CLI. `cli-v0.17.0` cut alongside; the SDK is
 unchanged and stays at `hail-sdk==0.13.0`.
@@ -530,7 +530,7 @@ unchanged and stays at `hail-sdk==0.13.0`.
   accepts a bare call UUID or a 4+ char hex prefix (`hail tail df10f471`),
   resolved like git short hashes.
 
-## [0.17.0] — 2026-07-23
+## [0.17.0] (2026-07-23)
 
 Optional AI disclosure and a voice agent that opens the call itself.
 
@@ -540,21 +540,21 @@ Component versions cut alongside this release:
 ### Self-opening voice agent
 
 - `first_message` is now truly optional: without one the agent opens the
-  conversation itself with a generated first turn — reacting to how the
+  conversation itself with a generated first turn, reacting to how the
   call was answered (the AMD pickup transcript) or introducing itself
-  after silence — instead of waiting mute for the callee to speak.
+  after silence, instead of waiting mute for the callee to speak.
 
 ### Optional AI disclosure
 
 - `POST /calls` gains `ai_disclosure` (default `true`): set `false` to skip
   the spoken "this is an AI assistant" line at the start of the call. The
   line stays non-customizable, the agent still identifies as an AI when
-  asked, and the opt-out is recorded in the audit log — disabling is the
+  asked, and the opt-out is recorded in the audit log, disabling is the
   caller's responsibility (47 CFR 64.1200(b)(1) and state AI bot-disclosure
   laws may require it). Exposed via SDK `calls.create(ai_disclosure=...)`,
   CLI `hail call --ai-disclosure=false`, MCP `place_call(ai_disclosure=...)`.
 
-## [0.16.0] — 2026-07-23
+## [0.16.0] (2026-07-23)
 
 Multi-language calls and a more natural-sounding voice agent.
 
@@ -565,8 +565,8 @@ Component versions cut alongside this release:
 
 - `POST /calls` accepts `voice_config.language` (lowercase ISO 639-1, e.g.
   `"fr"`). The voicebot pins both STT (Deepgram) and TTS (Cartesia /
-  ElevenLabs) to the requested language on every instance it builds — BYO
-  and house fallbacks alike — so a provider failover never flips the call
+  ElevenLabs) to the requested language on every instance it builds, BYO
+  and house fallbacks alike, so a provider failover never flips the call
   back to English. Omitted: English defaults, as before.
 - Exposed end to end: SDK `calls.create(language=...)`, CLI
   `hail call --language fr`, MCP `place_call(language=...)`. OpenAPI spec
@@ -579,11 +579,11 @@ Component versions cut alongside this release:
   Conversational flow / Tools / Guardrails): natural fillers and
   punctuation-driven pauses, occasional mid-sentence self-corrections,
   varied turn openers, a calm emotion baseline, automated-menu (IVR)
-  keypad guidance, and first-class tool rules — confirm before sending
+  keypad guidance, and first-class tool rules, confirm before sending
   SMS/email, state failures once, summarize tool results instead of
   reciting raw data.
 
-## [0.15.0] — 2026-07-18
+## [0.15.0] (2026-07-18)
 
 Multi-country numbers milestone, contacts from the CLI, and a public SMS
 pricing dataset.
@@ -607,13 +607,13 @@ national`.
 
 ### Contacts CLI
 
-- `hail contacts list|create|update|delete|set-phone|clear-phone` — manage
+- `hail contacts list|create|update|delete|set-phone|clear-phone`: manage
   the org contact directory, including member phone numbers, from the CLI.
   OpenAPI client regenerated for the contacts + member-phone endpoints.
 
 ### SMS pricing dataset
 
-- `costs/sms.json` — provider base rates for US outbound SMS per segment
+- `costs/sms.json`: provider base rates for US outbound SMS per segment
   (Twilio, Vonage, Plivo, AWS End User Messaging, Telnyx) with per-row
   provenance and a JSON Schema; validated in CI and staleness-checked like
   the other costs files. Rates verified against official provider sources
@@ -627,11 +627,11 @@ national`.
   (code review follow-ups to the multi-country work).
 - Costs page and contacts CLI code-review fixes.
 
-## [0.14.0] — 2026-07-17
+## [0.14.0] (2026-07-17)
 
-Voicebot agent tools milestone. The voice agent can now act mid-call — text
+Voicebot agent tools milestone. The voice agent can now act mid-call, text
 the person it's talking to, email a directory contact, and hang up on its
-own — through a channel-agnostic tool registry that picks up new modalities
+own, through a channel-agnostic tool registry that picks up new modalities
 automatically. Alongside: agent workspace self-signup with platform abuse
 guardrails, and the contacts directory.
 
@@ -642,15 +642,15 @@ Component versions cut alongside this release:
 
 - Four in-call tools, on by default per configured channel: `send_sms` (call
   counterpart only), `send_email` (directory recipients only), `end_call`,
-  and `list_contacts`. The agent never handles raw addresses — tool schemas
+  and `list_contacts`. The agent never handles raw addresses, tool schemas
   accept directory names only; resolution happens server-side.
 - `POST /calls` gains an optional `tools` field (omit = all available,
-  `[]` = none, names validated against the registry) — propagated through
+  `[]` = none, names validated against the registry), propagated through
   the OpenAPI spec, SDK (`calls.create(tools=...)`), CLI
   (`hail call --tools end_call,send_sms`, `--tools none` to disable), and
   MCP `place_call`.
 - Sends execute through HMAC-signed internal routes that reuse the full
-  outbound stack — suppression/velocity gates, funds, audit
+  outbound stack, suppression/velocity gates, funds, audit
   (`agent.sms.send` / `agent.email.send`, plus `send_failed` reconciliation),
   AI-disclosure footer, and usage billing (same refs/rates as API sends).
 - Guardrails: per-call send cap (5, serialized under a row lock with
@@ -681,8 +681,8 @@ alphanumeric Sender ID with no dedicated number.
 - `POST /numbers` (idempotent acquire), `GET /numbers`, `GET /numbers/{id}`;
   `POST /numbers/{id}/enable-sms` attaches the number to the org's Twilio
   Messaging Service.
-- `GET`/`PATCH /sms/sender-id` — org-level custom alphanumeric Sender ID
-  (2–11 chars). `POST /sms` now requires a dedicated number only for
+- `GET`/`PATCH /sms/sender-id`: org-level custom alphanumeric Sender ID
+  (2 to 11 chars). `POST /sms` now requires a dedicated number only for
   destinations that need one (US/Canada/India); UK and Germany send via the
   Sender ID with no dedicated number.
 - CLI: `hail numbers acquire|list|get|enable-sms` and `hail sms sender-id
@@ -690,7 +690,7 @@ get|set`.
 - SDK: `client.numbers` (acquire/list/get/enable_sms) and
   `client.sms.sender_id` (get/set).
 
-## [0.13.1] — 2026-07-14
+## [0.13.1] (2026-07-14)
 
 Bug fix. `cli-v0.12.1` cut alongside; the SDK is unchanged and stays at
 `hail-sdk==0.9.0`.
@@ -700,7 +700,7 @@ Bug fix. `cli-v0.12.1` cut alongside; the SDK is unchanged and stays at
   the API returns a plain-string `detail` (e.g. the attachment size-cap
   rejection) instead of FastAPI's list-shaped validation-error detail.
 
-## [0.13.0] — 2026-07-14
+## [0.13.0] (2026-07-14)
 
 Outbound email attachments. Upload a file once, reference its id from as
 many sends as you like.
@@ -708,7 +708,7 @@ many sends as you like.
 Component versions cut alongside this release:
 **`sdk-v0.9.0`** (PyPI: `hail-sdk==0.9.0`), **`cli-v0.12.0`** (Homebrew + GitHub Releases).
 
-- `POST /email-attachments` — upload a file (multipart/form-data,
+- `POST /email-attachments`: upload a file (multipart/form-data,
   ≤10MB), get back a reusable id. `POST /emails` gains
   `attachment_ids` to attach one or more uploaded files; oversize
   requests (body + attachments combined, matching SES's 10MB raw-message
@@ -727,11 +727,11 @@ attachment_ids=...)`.
   outbound attachment uploads. No data migration; self-hosters recreate
   the bucket under the new prefix.
 
-## [0.12.0] — 2026-07-10
+## [0.12.0] (2026-07-10)
 
 SMS inbound & compliance milestone. Hail now receives inbound SMS, routes each
 message to the owning organization, fans it out to that org's webhook
-subscribers, and honors STOP/HELP/START opt-out signals — plus an
+subscribers, and honors STOP/HELP/START opt-out signals, plus an
 abuse-monitoring guardrail that protects the shared A2P 10DLC campaign.
 
 Component versions cut alongside this release:
@@ -739,7 +739,7 @@ Component versions cut alongside this release:
 
 ### Inbound SMS & opt-out
 
-- `POST /sms/inbound` — the Twilio inbound webhook. Verified with Twilio's own
+- `POST /sms/inbound`: the Twilio inbound webhook. Verified with Twilio's own
   `X-Twilio-Signature` (HMAC-SHA1) scheme against the configured public API
   URL, not the raw request URL, so it stays correct behind a TLS-terminating
   proxy. Returns `200` even for numbers Hail doesn't own, so Twilio never
@@ -760,7 +760,7 @@ Component versions cut alongside this release:
 ### Suppression management
 
 - `GET /sms/suppressions` (cursor-paginated, org-scoped) and
-  `DELETE /sms/suppressions/{number}` — manual review and correction of the
+  `DELETE /sms/suppressions/{number}`, manual review and correction of the
   opt-out list. No MCP tool: suppression management is account configuration,
   not an agent-facing action.
 
@@ -770,7 +770,7 @@ Component versions cut alongside this release:
   lifespan, hourly by default via `HAIL_ABUSE_MONITOR_POLL_SECONDS`). It
   computes each org's rolling SMS opt-out rate over a window and suspends the
   channel when it crosses a threshold (`HAIL_SMS_ABUSE_WINDOW_HOURS` /
-  `_MIN_SENDS` / `_MAX_OPT_OUT_RATE`) — the mitigation for the shared-campaign
+  `_MIN_SENDS` / `_MAX_OPT_OUT_RATE`), the mitigation for the shared-campaign
   risk where one org's abuse can get the whole platform throttled. A
   suspension blocks further SMS sends via `check_sms_allowed` until an operator
   lifts it. Thresholds are conservative starting values, expected to be tuned
@@ -784,10 +784,10 @@ Component versions cut alongside this release:
 
 - `client.sms.list_suppressions` / `client.sms.delete_suppression` added.
 
-## [0.11.0] — 2026-07-10
+## [0.11.0] (2026-07-10)
 
 Bring-your-own provider keys. Cloud organizations can now supply their own API
-keys and parameters for each layer of the voice pipeline — STT, LLM, and TTS —
+keys and parameters for each layer of the voice pipeline (STT, LLM, and TTS)
 instead of using Hail's bundled providers. Transport (Twilio + LiveKit) and the
 pipeline stay Hail's; the brain and voice become yours.
 
@@ -799,7 +799,7 @@ OpenAPI spec, CLI, and SDK are unchanged.
 
 - Per-organization provider config (`org_provider_config` table) storing keys
   **Fernet-encrypted at rest** under a dedicated `HAIL_PROVIDER_SECRET_KEY`.
-  Keys are write-only — only a last-4 and a set-at timestamp are ever read
+  Keys are write-only, only a last-4 and a set-at timestamp are ever read
   back. Providers: STT (Deepgram), LLM (OpenAI-compatible / Anthropic /
   Google), TTS (Cartesia / ElevenLabs, with voice id).
 - Managed via internal HMAC-signed routes under
@@ -819,9 +819,9 @@ OpenAPI spec, CLI, and SDK are unchanged.
   deliberately-invalid parameters, so auth **and** the specific permission are
   exercised without running (or billing) a synthesis/transcription. This
   catches granular-permission keys (common with ElevenLabs / Cartesia /
-  Deepgram) that authenticate but lack the needed capability — which a plain
+  Deepgram) that authenticate but lack the needed capability, which a plain
   auth probe silently passes.
-- Tri-state result — **valid / invalid / couldn't-verify** — so a transient
+- Tri-state result (**valid / invalid / couldn't-verify**), so a transient
   429 / 5xx / network error no longer reads as a bad key. Customer
   `openai-compatible` base URLs are SSRF-guarded (public HTTPS only, private/
   loopback/metadata ranges rejected).
@@ -833,7 +833,7 @@ OpenAPI spec, CLI, and SDK are unchanged.
   provider is a single action; the voicebot always resolves the active one.
   Existing single-provider rows are backfilled to active.
 
-## [0.10.0] — 2026-07-09
+## [0.10.0] (2026-07-09)
 
 SMS outbound milestone. Hail can now send SMS via Twilio, gated by the same
 consent, suppression, and velocity-cap infrastructure as calls and email.
@@ -845,8 +845,8 @@ Component versions cut alongside this umbrella release:
 
 - `SmsProvider` interface in `core/hailhq/core/providers/sms/` with `TwilioSmsProvider` shipping.
 - `Sms` model (`sms` table) and `SmsEvent` model (`sms_events` table, feeding the unified event stream below).
-- Requires a dedicated, SMS-capable phone number on the organization — unlike calls, SMS does **not** fall back to a shared pool number, since a pool number cannot provide unambiguous number-to-org routing for a channel with no forced voice-menu context.
-- A carrier-level rejection (e.g. an unregistered or filtered number) is recorded as a failed, unbilled send with the carrier's `error_code` — not a false "sent" status, and not charged.
+- Requires a dedicated, SMS-capable phone number on the organization, unlike calls, SMS does **not** fall back to a shared pool number, since a pool number cannot provide unambiguous number-to-org routing for a channel with no forced voice-menu context.
+- A carrier-level rejection (e.g. an unregistered or filtered number) is recorded as a failed, unbilled send with the carrier's `error_code`, not a false "sent" status, and not charged.
 - `Suppression.channel` CHECK widened to include `sms`; new `check_sms_allowed` gate mirrors the existing call/email checks. SMS velocity caps count attempted sends rather than billed sends, so a burst of carrier-rejected probing still trips the cap.
 - **Audit-log shape change (calls):** generalizing the phone-channel compliance gate to cover SMS renamed the call `audit_log.payload.checks` keys `internal_dnc_checked` / `internal_dnc_hit` to `suppression_checked` / `suppression_hit` (voice and SMS now share one destination scrub). Update any external queries or dashboards that match the old key names; existing rows are not backfilled.
 - SMS content is now covered by the existing DSAR export/delete and account-closure retention flows, on the same schedule as call transcripts and email content.
@@ -875,19 +875,19 @@ Component versions cut alongside this umbrella release:
 ### Deferred to next milestone
 
 - Inbound SMS: webhook receipt, STOP/HELP/START opt-out keyword processing.
-- Self-serve dedicated-number provisioning — today, assigning a number to an organization is a manual database operation; see `docs/public/self-host/operations.md`.
+- Self-serve dedicated-number provisioning: today, assigning a number to an organization is a manual database operation; see `docs/public/self-host/operations.md`.
 - Custom per-org Sender ID (international, outbound-only corridors).
 - Console UI for SMS activity, numbers, and suppression management.
 
 [0.10.0]: https://github.com/hail-hq/hail/releases/tag/v0.10.0
 
-## [0.9.1] — 2026-07-08
+## [0.9.1] (2026-07-08)
 
-Component version cut alongside this release: **`cli-v0.9.1`** (Homebrew + GitHub Releases). No SDK change — `sdk-v0.6.0` is unaffected and still current.
+Component version cut alongside this release: **`cli-v0.9.1`** (Homebrew + GitHub Releases). No SDK change: `sdk-v0.6.0` is unaffected and still current.
 
 - Fixed a crash in the CLI (and any other strictly-typed OpenAPI client) when
   the API rejected a request with a 422 whose `detail` was a plain string
-  instead of the OpenAPI-documented `HTTPValidationError` list shape —
+  instead of the OpenAPI-documented `HTTPValidationError` list shape,
   surfaced as `json: cannot unmarshal string into Go struct field
 HTTPValidationError.detail of type []client.ValidationError` instead of
   the actual validation message. Affected `POST /calls`, `POST /emails`
@@ -905,17 +905,17 @@ HTTPValidationError.detail of type []client.ValidationError` instead of
 - `--help` output now visually distinguishes unconditionally-required flags
   (`Required flags:`) and one-of-N groups (`Required (one of):`) from
   genuinely optional ones, instead of one undifferentiated alphabetical
-  list — falls back to the prior single `Flags:` block for every command
+  list, falls back to the prior single `Flags:` block for every command
   with neither.
 
-## [0.9.0] — 2026-07-07
+## [0.9.0] (2026-07-07)
 
 **Breaking change.** Component versions cut alongside this release:
 **`sdk-v0.6.0`** (PyPI: `hail-sdk==0.6.0`), **`cli-v0.9.0`** (Homebrew + GitHub Releases).
 
 - `POST /calls` and `POST /emails` now **require** a `recipient_consent: bool`
   field (rejected with 422 if missing or `false`). This attests that the
-  caller has obtained the lawful consent required to contact the recipient —
+  caller has obtained the lawful consent required to contact the recipient,
   Hail does not verify consent itself. Optional `consent_source` and
   `consent_obtained_at` fields record how/when consent was obtained; a
   required non-empty `consent_source` is enforced when the new optional
@@ -925,7 +925,7 @@ HTTPValidationError.detail of type []client.ValidationError` instead of
     real attestation) to its calls/emails, or requests will start failing
     with 422 the moment the API deploys this change.** The CLI (`--recipient-consent`),
     SDK (`recipient_consent=` kwarg), and MCP tools (`recipient_consent`
-    param) all already require and forward it as of this release — pin to
+    param) all already require and forward it as of this release, pin to
     `hail-sdk>=0.6.0` and `cli-v0.9.0`+ before or at the same time as
     upgrading against a Hail API instance running this change.
 - Outbound voice calls now open with a fixed, non-configurable AI-disclosure
@@ -940,7 +940,7 @@ HTTPValidationError.detail of type []client.ValidationError` instead of
 - `/legal/*` pages (Terms of Use, AUP, Privacy Policy, DPA, sub-processors,
   Cookie Policy) published on hail-website.
 
-## [0.8.1] — 2026-07-02
+## [0.8.1] (2026-07-02)
 
 Internal consolidation release. `cli-v0.8.1` cut alongside; the SDK is
 unchanged and stays at `hail-sdk==0.5.0`.
@@ -953,7 +953,7 @@ unchanged and stays at `hail-sdk==0.5.0`.
 - `hail email events --all` now emits the same walked-items stderr warning
   as `call list --all` and `email list --all`.
 
-## [0.8.0] — 2026-07-02
+## [0.8.0] (2026-07-02)
 
 Component versions cut alongside this umbrella release:
 **`sdk-v0.5.0`** (PyPI: `hail-sdk==0.5.0`), **`cli-v0.8.0`** (Homebrew + GitHub Releases).
@@ -963,11 +963,11 @@ Component versions cut alongside this umbrella release:
   `--cursor/--limit/--all`; SDK `emails.events()` and MCP `get_email_events`
   accept `cursor`/`limit`. Existing callers are unaffected (default limit 100).
 
-## [0.7.0] — 2026-07-02
+## [0.7.0] (2026-07-02)
 
 Email deliverability milestone. Every outbound email now has a tracked
-lifecycle — delivered, delayed, bounced, complained, rejected, opened,
-clicked — visible per message, aggregated per account, and pushed to
+lifecycle, delivered, delayed, bounced, complained, rejected, opened,
+clicked, visible per message, aggregated per account, and pushed to
 customer webhooks.
 
 Component versions cut alongside this umbrella release:
@@ -976,31 +976,31 @@ Component versions cut alongside this umbrella release:
 ### Deliverability tracking
 
 - New `email_events` table (append-only, migration `0020`); outbound sends write a synthetic `sent` event, and SES configuration-set events (Delivery, Bounce, Complaint, Reject, DeliveryDelay, Open, Click) are ingested via SNS → ingest Lambda → `POST /internal/ses-events`. Duplicate SNS deliveries are absorbed by a dedup constraint; status transitions are guarded so terminal states never regress. `emails.status` gains `delivered`.
-- `GET /emails/{id}/events` — per-email lifecycle timeline. `GET /emails/{id}` gains `last_event_at`.
-- `GET /emails/stats?from=&to=&bucket=hour|day` — account-level counts, rates (delivery, hard-bounce, complaint, unique open/click), and a zero-filled time series.
+- `GET /emails/{id}/events`: per-email lifecycle timeline. `GET /emails/{id}` gains `last_event_at`.
+- `GET /emails/stats?from=&to=&bucket=hour|day`: account-level counts, rates (delivery, hard-bounce, complaint, unique open/click), and a zero-filled time series.
 - Email events join the unified `GET /events` stream (`source: "email"`, `id=email:<uuid>` filter).
 - Webhooks: `email.delivered`, `email.delivery_delayed`, `email.opened`, `email.clicked` are new; `email.bounced` and `email.complained` now actually fire.
 - CLI: `hail email events <id>`, `hail email stats`. SDK: `client.emails.events()`, `client.emails.stats()`. MCP: `get_email_events`, `get_email_stats`.
 - Infra: SES configuration set (`HAIL_SES_CONFIGURATION_SET`, Terraform default `hail-events`), SNS topic with explicit SES publish policy, subscription DLQ. Open/click tracking uses the default SES tracking domain in v1.
 
-## [0.6.0] — 2026-06-28
+## [0.6.0] (2026-06-28)
 
 Custom sender domains milestone. Tenants can now send and receive on their own
 domain, with DKIM and a custom MAIL FROM configured automatically.
 
-### Custom sender domains — send and receive on your own domain
+### Custom sender domains: send and receive on your own domain
 
-- Register a tenant-controlled domain: `POST /email-domains` with `kind=custom` (or `hail email domain register --kind custom --domain acme.com`). Hail calls SES `CreateEmailIdentity` **and auto-configures a custom MAIL FROM** on `send.<domain>` via `PutEmailIdentityMailFromAttributes` — no AWS-console step for the tenant.
+- Register a tenant-controlled domain: `POST /email-domains` with `kind=custom` (or `hail email domain register --kind custom --domain acme.com`). Hail calls SES `CreateEmailIdentity` **and auto-configures a custom MAIL FROM** on `send.<domain>` via `PutEmailIdentityMailFromAttributes`, no AWS-console step for the tenant.
 - The registration response returns the full DNS record set to publish: three DKIM `_domainkey` CNAMEs **plus** the MAIL FROM `send.<domain>` MX (`feedback-smtp.<region>.amazonses.com`) and SPF TXT (`v=spf1 include:amazonses.com ~all`). `DnsRecord` gains an optional `priority` for MX rows.
-- `POST /email-domains/{id}/verify` re-polls SES for **both** DKIM and MAIL FROM, surfacing `mail_from_status` alongside `verification_status`. On-demand only — clients/console re-poll; there is no background poller.
+- `POST /email-domains/{id}/verify` re-polls SES for **both** DKIM and MAIL FROM, surfacing `mail_from_status` alongside `verification_status`. On-demand only, clients/console re-poll; there is no background poller.
 - Receive inbound mail on **verified** custom domains. Inbound is matched by the owning identity, so a message to two of an org's domains yields one inbound row + webhook **per matched domain**, with the domain name on the event payload.
-- New IAM grant `ses:PutEmailIdentityMailFromAttributes` for the production identity (`infra/terraform/iam.tf`) — required for the custom MAIL FROM call.
+- New IAM grant `ses:PutEmailIdentityMailFromAttributes` for the production identity (`infra/terraform/iam.tf`), required for the custom MAIL FROM call.
 
 ### Auth
 
-- The managed console now authenticates to the API with a short-lived Better Auth **session JWT** (carrying `sub` and the session `activeOrganizationId`) rather than a cached per-browser API key. The API resolves the request's organization from the active-org claim, validated against membership — closing a cross-tenant write path.
+- The managed console now authenticates to the API with a short-lived Better Auth **session JWT** (carrying `sub` and the session `activeOrganizationId`) rather than a cached per-browser API key. The API resolves the request's organization from the active-org claim, validated against membership, closing a cross-tenant write path.
 
-## [0.5.0] — 2026-06-12
+## [0.5.0] (2026-06-12)
 
 Inbound email milestone. Hail can now receive mail at hail-mail addresses,
 forward it, and fire webhooks on receipt and on bounce/complaint events.
@@ -1012,10 +1012,10 @@ Component versions cut alongside this umbrella release:
 
 - SES Receipt Rule → S3 (raw MIME) + Lambda (HMAC-signed JSON) → `POST /internal/ses-events` ingest pipeline.
 - `Email.direction='inbound'` rows with `message_id`, `in_reply_to`, `references_ids`, `raw_s3_key`, and SES SPF/DKIM/DMARC/spam/virus verdicts persisted.
-- `email_attachments` table — MIME attachments stored as separate S3 objects under `attachments/<email_id>/<att_id>`.
+- `email_attachments` table, MIME attachments stored as separate S3 objects under `attachments/<email_id>/<att_id>`.
 - Threading via `In-Reply-To` / `References` chains.
 - Spam/virus `FAIL` verdicts persist the row but suppress forwarding and webhook fan-out.
-- Idempotency via a partial unique index on `(organization_id, message_id) WHERE direction='inbound'` — duplicate SES deliveries short-circuit.
+- Idempotency via a partial unique index on `(organization_id, message_id) WHERE direction='inbound'`, duplicate SES deliveries short-circuit.
 
 ### Forwarding
 
@@ -1039,7 +1039,7 @@ Component versions cut alongside this umbrella release:
 ### API
 
 - `GET /emails?direction=inbound|outbound` filter.
-- `GET /emails/{id}/raw` and `GET /emails/{id}/attachments/{aid}` — 302 redirect to presigned S3 URLs (5-min TTL).
+- `GET /emails/{id}/raw` and `GET /emails/{id}/attachments/{aid}`, 302 redirect to presigned S3 URLs (5-min TTL).
 - `PATCH /email-domains/{id}` accepts inbound action fields (`inbound_enabled`, `forward_to`, `webhook_url`, `forward_rate_per_hour`). Setting `webhook_url` mints a secret returned once.
 - `POST /email-domains/{id}/rotate-webhook-secret` rotates and returns the new plaintext once.
 - Full `/webhooks` CRUD + `/rotate-secret` + `/deliveries` + `/deliveries/{id}/redeliver`.
@@ -1048,7 +1048,7 @@ Component versions cut alongside this umbrella release:
 
 - New `hail webhooks` subcommand tree (`create`, `list`, `deliveries`, `redeliver`).
 - `hail email list --direction inbound` filter.
-- `hail email sender-domain` renamed to `hail email email-domain` (alias `ed`); the legacy `sd` / `sender-domain` aliases are removed — **breaking** for users with scripts hitting the old name.
+- `hail email sender-domain` renamed to `hail email email-domain` (alias `ed`); the legacy `sd` / `sender-domain` aliases are removed, **breaking** for users with scripts hitting the old name.
 - Short-ID prefix resolution on every UUID-taking subcommand (was `call status` only): `email get`, `email-domain get/verify/delete`, `webhooks deliveries`, `webhooks redeliver` all accept the 4+ char hex prefix shown in `list` output, mirroring `git rev-parse`'s short-hash UX.
 
 ### SDK (`sdk-v0.3.0`)
@@ -1056,7 +1056,7 @@ Component versions cut alongside this umbrella release:
 - `client.webhooks.*` resource added.
 - `client.emails.list(direction=...)` parameter added.
 - `client.email_domains.patch()` accepts inbound action fields; `client.email_domains.rotate_webhook_secret(id)` added.
-- `SenderDomain*` back-compat aliases removed (deprecated since `sdk-v0.2.0`) — **breaking** for users importing the legacy names.
+- `SenderDomain*` back-compat aliases removed (deprecated since `sdk-v0.2.0`), **breaking** for users importing the legacy names.
 
 ### Infrastructure
 
@@ -1064,11 +1064,11 @@ Component versions cut alongside this umbrella release:
 - Stdlib-only `infra/ses-ingest-lambda/handler.py` bridges SES events into the HMAC-signed POST.
 - Three migrations: `0006` (rename + auxiliary objects), `0007` (Email inbound columns + `email_attachments` + `email_domains` action columns + idempotency partial unique index), `0008` (`webhook_subscriptions` + `webhook_deliveries`). See `docs/public/self-host/operations.md` → "Inbound email rollout" for the staged deploy sequence.
 - `InboundProvider` interface in `core/hailhq/core/providers/email/inbound/` with `SesInboundProvider` shipping and `SmtpInboundProvider` stubbed for a future cloud-agnostic milestone.
-- Operator-facing env vars (`HAIL_INBOUND_EMAIL_NAME_PREFIX`, `HAIL_IAM_USER_NAME`) are required in `.env` — terragrunt fails fast on missing values instead of silently using a hardcoded default. The inbound bucket name is now a single source of truth (`Settings.hail_inbound_bucket` is a computed `${prefix}-raw`), so Terraform and the API can't drift.
+- Operator-facing env vars (`HAIL_INBOUND_EMAIL_NAME_PREFIX`, `HAIL_IAM_USER_NAME`) are required in `.env`, terragrunt fails fast on missing values instead of silently using a hardcoded default. The inbound bucket name is now a single source of truth (`Settings.hail_inbound_bucket` is a computed `${prefix}-raw`), so Terraform and the API can't drift.
 
 ### Deferred to next milestone
 
-- Custom-domain inbound (tenant MX → SES) — schema is ready; the operator-side flow isn't.
+- Custom-domain inbound (tenant MX → SES): schema is ready; the operator-side flow isn't.
 - `inbound_routes` table for per-mailbox routing within custom domains.
 - `SmtpInboundProvider` implementation (cloud-agnostic / OSS-only path).
 - Reply-composition endpoint (`POST /emails/{id}/reply`).
@@ -1076,7 +1076,7 @@ Component versions cut alongside this umbrella release:
 
 [0.5.0]: https://github.com/hail-hq/hail/releases/tag/v0.5.0
 
-## [0.1.0] — 2026-04-30
+## [0.1.0] (2026-04-30)
 
 First public release. Outbound phone calls for AI agents, end-to-end.
 
