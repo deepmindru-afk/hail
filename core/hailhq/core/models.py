@@ -45,6 +45,11 @@ class OrganizationCallSettings(Base):
     max_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     recording_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     recording_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # When an owner saved the recording choice. NULL = still the default the
+    # row was created with, so onboarding asks once.
+    recording_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Workspace AI line template; ``{org}`` is the workspace name. NULL = the
     # built-in line for the call's direction (hailhq.core.disclosure).
     ai_disclosure_line: Mapped[str | None] = mapped_column(Text, nullable=True)

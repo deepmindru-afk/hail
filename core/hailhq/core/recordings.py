@@ -16,8 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def recording_enabled(workspace: bool | None, override: bool | None = None) -> bool:
-    """The workspace is the permission boundary; per-call/agent can opt out."""
-    return workspace is True and override is not False
+    """The workspace is the permission boundary; per-call/agent can opt out.
+
+    No saved choice (``None``) means the default: recording on.
+    """
+    return workspace is not False and override is not False
 
 
 def recording_call_metadata(
@@ -28,10 +31,11 @@ def recording_call_metadata(
 ) -> dict:
     """Snapshot the recording decision and retention onto a new ``Call``.
 
-    The deploy flag gates every path: a workspace that opted in on a deploy
+    The deploy flag gates every path: a workspace that records on a deploy
     that later turned recording off is neither recorded nor charged the
-    recording rate. A self-hosted deploy (shared key) consents through the
-    flag alone. Old calls keep their snapshot when the workspace changes.
+    recording rate. Recording is on unless the workspace turned it off; a
+    self-hosted deploy (shared key) consents through the flag alone. Old
+    calls keep their snapshot when the workspace changes.
     """
     permitted: bool | None = (
         True if self_hosted else (workspace.recording_enabled if workspace else None)

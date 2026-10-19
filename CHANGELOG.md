@@ -4,6 +4,10 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- Call recording is on by default with 30 days of retention. A workspace that has not saved a choice is asked once during onboarding.
+
 ## [0.29.0] (2026-10-19)
 
 Optional call recording, US SMS registration, and number search by area code
