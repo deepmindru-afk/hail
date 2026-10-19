@@ -20,7 +20,8 @@
 cli/
 docs/
 openapi/
-sdk/
+sdk/*
+!sdk/pyproject.toml
 .github/
 
 # Logfire write credentials must never enter build contexts.

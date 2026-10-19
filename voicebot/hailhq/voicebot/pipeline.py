@@ -43,17 +43,13 @@ private ``_llm_instances`` attribute (no public accessor), so the BYO+fallback
 branch below constructs the three house LLMs inline rather than reaching into
 a private attribute of ``_house_llm()``.
 
-Speechmatics plugin surface (2026-07-29, multi-language task): verified
-``speechmatics.STT`` kwargs (``language``, ``operating_point``,
-``api_key``, ``turn_detection_mode``, ``end_of_utterance_silence_trigger``)
-and ``TurnDetectionMode`` members against the installed
-livekit-plugins-speechmatics (1.6.6). All names match as expected; no
-deviations. ``TurnDetectionMode.ADAPTIVE`` constructs without error —
-``livekit-plugins-speechmatics`` pulls in ``speechmatics-voice[smart]`` as a
-hard (non-optional) dependency, so the smart-turn extra (onnxruntime,
-transformers) is already installed by a plain
-``uv sync --all-packages --all-extras``. No fallback to
-``TurnDetectionMode.FIXED`` is needed.
+Speechmatics 1.8.8 uses Agent STT's Linden-1 model. Legacy operating-point
+inputs normalize to that model; the previous service's enhanced/standard
+settings no longer apply. Audio turn detection uses the SDK's built-in
+inference.TurnDetector, with STT/VAD fallback outside its supported languages.
+Verified against current docs on 2026-10-18:
+https://docs.livekit.io/agents/models/stt/speechmatics/
+https://docs.livekit.io/agents/logic/turns/turn-detector/
 """
 
 from __future__ import annotations
@@ -75,7 +71,7 @@ from hailhq.core.languages import (
 )
 from hailhq.core.provider_config import load_org_provider_configs, provider_cipher
 from hailhq.core.url_guard import UnsafeUrlError, assert_public_https_url
-from livekit.agents import AgentSession
+from livekit.agents import AgentSession, TurnHandlingOptions, inference
 from livekit.agents import llm as agents_llm
 from livekit.agents import stt as agents_stt
 from livekit.agents import tts as agents_tts
@@ -101,7 +97,6 @@ from livekit.plugins import (
 from livekit.plugins import (
     speechmatics as speechmatics_plugin,
 )
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("hailhq.voicebot")
 
@@ -418,7 +413,7 @@ def build_stt(
     its provider matches ``provider``; a row the auto-route degraded away
     from (e.g. an unsupported-language fallback) is ignored rather than
     billed. ``stt_drives_turns`` is set when the session's turn detection
-    is ``"stt"`` — Speechmatics then runs its ADAPTIVE end-of-utterance
+    is ``"stt"`` — Speechmatics then runs its VAD end-of-utterance
     mode instead of EXTERNAL.
 
     An org row on a provider outside ``("deepgram", "speechmatics")`` fails
@@ -433,20 +428,19 @@ def build_stt(
 
     org_matches = org is not None and org.provider == provider
     if provider == "speechmatics":
-        # Must be the enum, not the string "enhanced"/"standard": the plugin
-        # stores it unconverted and its .model property does `op.value`,
-        # which raises AttributeError on a plain str at session start.
-        operating_point = speechmatics_plugin.OperatingPoint.ENHANCED
-        if org_matches and org.params.get("operating_point") == "standard":
-            operating_point = speechmatics_plugin.OperatingPoint.STANDARD
+        # Agents 1.8 uses Speechmatics Agent STT (Linden-1). The previous
+        # service's operating points have no equivalent on the new endpoint.
+        # https://docs.livekit.io/agents/models/stt/speechmatics/
+        if org_matches and org.params.get("operating_point"):
+            logger.warning("Speechmatics operating_point is retired; using Linden-1")
+        if org_matches and org.params.get("model") not in (None, "linden-1"):
+            raise ProviderKeyError("Speechmatics Agent STT supports model linden-1")
         kwargs: dict[str, Any] = {
             "language": language or "en",
-            "operating_point": operating_point,
+            "model": "linden-1",
         }
         if stt_drives_turns:
-            kwargs["turn_detection_mode"] = (
-                speechmatics_plugin.TurnDetectionMode.ADAPTIVE
-            )
+            kwargs["turn_detection_mode"] = speechmatics_plugin.TurnDetectionMode.VAD
         if org_matches and org.api_key is not None:
             kwargs["api_key"] = org.api_key
         elif not settings.speechmatics_api_key:
@@ -549,7 +543,7 @@ def build_session(
     org's BYO STT row wins (:func:`resolve_stt_provider`), else the call
     auto-routes by language. Auto-routing only picks speechmatics when a
     key exists for it (org or house) — a deepgram-only self-host keeps
-    working (tenet 4). Turn detection: semantic MultilingualModel for its
+    working (tenet 4). Turn detection: semantic inference.TurnDetector for its
     14 languages, "stt" when speechmatics serves the call, "vad" as the
     floor.
 
@@ -615,11 +609,11 @@ def build_session(
         )
         provider = "deepgram"
     mode = turn_mode_for(language, provider)
-    turn_detection: Any = MultilingualModel() if mode == "semantic" else mode
+    turn_detection: Any = inference.TurnDetector() if mode == "semantic" else mode
     return AgentSession(
         vad=vad,
         stt=build_stt(org_stt, language, provider, stt_drives_turns=(mode == "stt")),
         tts=build_tts(org_cfgs.get("tts"), voice_id_override, language),
         llm=build_llm(llm_cfg, org_cfgs.get("llm")),
-        turn_detection=turn_detection,
+        turn_handling=TurnHandlingOptions(turn_detection=turn_detection),
     )

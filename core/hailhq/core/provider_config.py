@@ -86,15 +86,21 @@ class STTParams(BaseModel):
 
     provider: Literal["deepgram", "speechmatics"]
     model: str | None = None
-    # Speechmatics transcription tier. None -> enhanced. Ignored on deepgram
-    # rows (accepted-but-unused would violate "no hidden behavior", so the
-    # validator below rejects it there).
+    # Legacy Speechmatics inputs normalize to Agent STT's actual model so the
+    # API response reflects what will run. Existing stored rows are also handled
+    # by the worker; no migration is needed for old configurations.
     operating_point: Literal["enhanced", "standard"] | None = None
 
     @model_validator(mode="after")
     def _operating_point_is_speechmatics_only(self) -> STTParams:
         if self.provider != "speechmatics" and self.operating_point is not None:
             raise ValueError("operating_point only applies to speechmatics")
+        if self.provider == "speechmatics":
+            if self.model not in (None, "linden-1"):
+                raise ValueError("Speechmatics Agent STT supports model linden-1")
+            if self.operating_point is not None:
+                self.model = "linden-1"
+                self.operating_point = None
         return self
 
 

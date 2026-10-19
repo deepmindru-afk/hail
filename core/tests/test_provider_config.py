@@ -19,6 +19,13 @@ from hailhq.core.secret_cipher import SecretKeyMissing, generate_key
 from pydantic import ValidationError
 
 
+@pytest.mark.parametrize("legacy", ["standard", "enhanced"])
+def test_speechmatics_legacy_tiers_resolve_to_the_actual_model(legacy):
+    params = STTParams(provider="speechmatics", operating_point=legacy)
+    assert params.model == "linden-1"
+    assert params.operating_point is None
+
+
 def test_llm_params_openai_compatible_requires_base_url() -> None:
     with pytest.raises(ValidationError):
         LLMParams(provider="openai-compatible", model="gpt-5.4-mini")
