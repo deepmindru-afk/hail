@@ -1,4 +1,5 @@
 .primary {
+  composes: brand-action-direct from "./brand-actions.module.css";
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -28,26 +29,9 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
-/* The arrow slides and draws a line on hover. The form buttons in globals.css use the same motion. */
+/* Shared motion lives in brand-actions.css. Flex gap supplies the arrow spacing here. */
 .primary::after {
-  content: "›";
-  display: inline-block;
-  width: 1.2em;
-  text-align: right;
-  background: linear-gradient(currentColor, currentColor) left 55%/0 1px
-    no-repeat;
-  transition:
-    background-size 0.22s ease,
-    transform 0.22s ease;
-}
-.primary:is(:hover, :focus-visible):not(:disabled)::after {
-  background-size: 0.72em 1px;
-  transform: translateX(0.12em);
-}
-@media (prefers-reduced-motion: reduce) {
-  .primary::after {
-    transition: none;
-  }
+  margin-left: 0;
 }
 
 .primary:is(:hover, :focus-visible, :active),

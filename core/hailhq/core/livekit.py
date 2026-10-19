@@ -17,7 +17,9 @@ v1.1 (December 2025).
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from hailhq.core.config import settings
@@ -25,7 +27,25 @@ from hailhq.core.telemetry import telemetry_enabled
 from hailhq.core.telemetry_identity import get_identity
 from livekit import api
 from livekit.protocol.models import ListUpdate
+from livekit.protocol.webhook import WebhookEvent
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+VOICE_READY_ATTRIBUTE = "hail.voice.ready"
+
+
+class WorkerGaveUp(Exception):
+    """The worker finalized the call and left before signalling readiness."""
+
+
+def verify_webhook_event(body: str, auth_token: str) -> WebhookEvent:
+    """Parse a LiveKit webhook body after checking its signature.
+
+    Raises on a missing, forged or stale ``Authorization`` token.
+    """
+    receiver = api.WebhookReceiver(
+        api.TokenVerifier(settings.livekit_api_key, settings.livekit_api_secret)
+    )
+    return receiver.receive(body, auth_token)
 
 
 class LiveKitClient:
@@ -53,6 +73,13 @@ class LiveKitClient:
         Safe to call multiple times; ``LiveKitAPI.aclose`` is idempotent.
         """
         await self._lkapi.aclose()
+
+    async def list_egress(self, egress_id: str) -> list[api.EgressInfo]:
+        """Current state of one Egress, or ``[]`` when LiveKit no longer has it."""
+        result = await self._lkapi.egress.list_egress(
+            api.ListEgressRequest(egress_id=egress_id)
+        )
+        return list(result.items)
 
     async def create_room(self, call_id: UUID) -> str:
         """Provision a LiveKit room named ``hail-<call_id>``.
@@ -139,6 +166,38 @@ class LiveKitClient:
                 headers=headers or {},
             )
         )
+
+    async def wait_for_agent_ready(
+        self,
+        room_name: str,
+        *,
+        timeout: float = 20.0,
+        poll_interval: float = 0.25,
+        gave_up: Callable[[], Awaitable[bool]] | None = None,
+    ) -> None:
+        """Do not dial until the worker's session and AMD audio input are armed.
+
+        A dispatch response only means that the job was queued. The participant
+        attribute is published by the worker after AMD enters its listening setup.
+        ``gave_up`` is polled between attribute checks. When it returns True the
+        worker has already finalized the call (for example a BYO key that does
+        not work) and left, so waiting out ``timeout`` would only delay the
+        answer: :class:`WorkerGaveUp` is raised instead.
+        https://docs.livekit.io/reference/python/livekit/api/room_service.html
+        """
+        async with asyncio.timeout(timeout):
+            while True:
+                result = await self._lkapi.room.list_participants(
+                    api.ListParticipantsRequest(room=room_name)
+                )
+                if any(
+                    p.attributes.get(VOICE_READY_ATTRIBUTE) == "true"
+                    for p in result.participants
+                ):
+                    return
+                if gave_up is not None and await gave_up():
+                    raise WorkerGaveUp(room_name)
+                await asyncio.sleep(poll_interval)
 
     async def add_inbound_number(self, trunk_id: str, e164: str) -> None:
         """Register ``e164`` on an inbound trunk so LiveKit accepts calls to it.

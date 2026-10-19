@@ -54,6 +54,50 @@ async def test_create_room_uses_hail_call_id_naming(client: LiveKitClient) -> No
     assert req.name == f"hail-{CALL_ID}"
 
 
+async def test_wait_for_agent_readiness_requires_an_explicit_audio_ready_signal(client):
+    from hailhq.core.livekit import VOICE_READY_ATTRIBUTE
+
+    client._lkapi.room.list_participants = AsyncMock(
+        side_effect=[
+            api.ListParticipantsResponse(
+                participants=[api.ParticipantInfo(identity="agent")]
+            ),
+            api.ListParticipantsResponse(
+                participants=[
+                    api.ParticipantInfo(
+                        identity="agent", attributes={VOICE_READY_ATTRIBUTE: "true"}
+                    )
+                ]
+            ),
+        ]
+    )
+    await client.wait_for_agent_ready("room", poll_interval=0)
+    assert client._lkapi.room.list_participants.await_count == 2
+
+
+async def test_agent_readiness_has_a_deadline(client):
+    client._lkapi.room.list_participants = AsyncMock(
+        return_value=api.ListParticipantsResponse()
+    )
+    with pytest.raises(TimeoutError):
+        await client.wait_for_agent_ready("room", timeout=0.01, poll_interval=0.001)
+
+
+async def test_agent_readiness_stops_when_the_worker_gave_up(client):
+    from hailhq.core.livekit import WorkerGaveUp
+
+    client._lkapi.room.list_participants = AsyncMock(
+        return_value=api.ListParticipantsResponse()
+    )
+
+    async def gave_up() -> bool:
+        return True
+
+    with pytest.raises(WorkerGaveUp):
+        await client.wait_for_agent_ready("room", poll_interval=0, gave_up=gave_up)
+    assert client._lkapi.room.list_participants.await_count == 1
+
+
 async def test_dispatch_agent_serializes_metadata_and_returns_id(
     client: LiveKitClient,
 ) -> None:
@@ -64,7 +108,7 @@ async def test_dispatch_agent_serializes_metadata_and_returns_id(
     )
     client._lkapi.agent_dispatch.create_dispatch.return_value = fake_dispatch
 
-    # org_name is None on every lookup failure — pin that None survives the
+    # org_name is None on every lookup failure, pin that None survives the
     # real json.dumps round-trip the dispatch channel performs (the api
     # tests mock dispatch_agent, so this is the only place it runs).
     metadata = {
@@ -84,7 +128,7 @@ async def test_dispatch_agent_serializes_metadata_and_returns_id(
     assert isinstance(req, api.CreateAgentDispatchRequest)
     assert req.room == f"hail-{CALL_ID}"
     assert req.agent_name == "hail-voicebot"
-    # The proto field is a string — we must serialize the dict ourselves.
+    # The proto field is a string, we must serialize the dict ourselves.
     assert req.metadata == json.dumps(metadata)
     assert json.loads(req.metadata)["org_name"] is None
 

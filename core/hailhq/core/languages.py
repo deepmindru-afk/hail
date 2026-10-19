@@ -13,7 +13,7 @@ STT/TTS provider serves each one. Derived from official provider docs on
   https://docs.cartesia.ai/build-with-cartesia/tts-models/latest
 * ElevenLabs eleven_turbo_v2_5 languages —
   https://elevenlabs.io/docs/models
-* LiveKit MultilingualModel turn-detector languages —
+* LiveKit audio TurnDetector languages:
   https://docs.livekit.io/agents/build/turns/turn-detector/
 
 Supported = (nova-3 ∪ Speechmatics STT) ∩ sonic-3.5. Excluded for
@@ -123,9 +123,11 @@ _NAMES: dict[str, str] = {
     "zh": "Chinese",
 }
 
-# LiveKit MultilingualModel semantic turn detector coverage.
+# LiveKit audio TurnDetector coverage (2026-10-18).
+# Arabic is supported; Russian retains STT/VAD turn handling.
+# https://docs.livekit.io/agents/logic/turns/turn-detector/
 _SEMANTIC_TURN = frozenset(
-    {"en", "es", "fr", "de", "it", "pt", "nl", "zh", "ja", "ko", "id", "tr", "ru", "hi"}
+    {"en", "es", "fr", "de", "it", "pt", "nl", "zh", "ja", "ko", "id", "tr", "ar", "hi"}
 )
 # Languages Speechmatics real-time STT does NOT cover (nova-3 only).
 # "zh" is here not because Speechmatics lacks Mandarin but because its code
@@ -200,7 +202,7 @@ def tts_providers_for(language: str | None) -> frozenset[str]:
 def turn_mode_for(language: str | None, stt_provider: str) -> str:
     """Pick the turn-detection strategy for one call.
 
-    "semantic" — LiveKit MultilingualModel (best; 14 languages, any STT).
+    "semantic": LiveKit audio TurnDetector (14 languages, any STT).
     "stt" — Speechmatics drives end-of-turn from the transcript stream.
     "vad" — silence-gap only; the floor when nothing better exists.
     """

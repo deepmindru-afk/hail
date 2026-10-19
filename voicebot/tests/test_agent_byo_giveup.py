@@ -334,12 +334,13 @@ async def _drive_entrypoint(
             return {"llm": object()}
         return {}
 
-    async def _no_amd(_session: object, _call_id: UUID) -> None:
+    async def _no_amd(_session: object, _call_id: UUID, **kwargs) -> None:
         return None
 
     monkeypatch.setattr(agent_mod, "resolve_org_configs", _org_cfgs)
     monkeypatch.setattr(agent_mod, "build_session", lambda *a, **k: session)
     monkeypatch.setattr(agent_mod, "run_amd", _no_amd)
+    monkeypatch.setattr(agent_mod, "build_amd_models", lambda *a, **k: None)
     # The per-call base_url is re-resolved off the event loop at call time;
     # keep the test off the network.
     monkeypatch.setattr(agent_mod, "assert_public_https_url", lambda url: url)

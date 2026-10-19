@@ -1,17 +1,17 @@
 """LiveKit Agents entrypoint + lifecycle for the Hail voicebot.
 
-CallEvent dedupe — known limitation: if the LiveKit dispatcher redispatches
+CallEvent dedupe, known limitation: if the LiveKit dispatcher redispatches
 the worker for the same call, duplicate ``call_events`` rows are accepted.
 v1 does not constrain this; tracked as a follow-up.
 
 Verified 2026-04-28 against:
 
-* ``livekit-agents/livekit/agents/job.py`` — ``JobContext.connect``,
+* ``livekit-agents/livekit/agents/job.py``, ``JobContext.connect``,
   ``ctx.job.metadata`` (``str``), ``ctx.add_shutdown_callback``,
   ``ctx.proc.userdata``.
-* ``livekit-agents/livekit/agents/voice/agent_session.py`` — ``start()``
+* ``livekit-agents/livekit/agents/voice/agent_session.py``, ``start()``
   and ``on()`` (inherits ``rtc.EventEmitter``).
-* ``livekit-agents/livekit/agents/voice/events.py`` — event type strings
+* ``livekit-agents/livekit/agents/voice/events.py``, event type strings
   (``conversation_item_added``, ``function_tools_executed``, ``error``).
 
 Verified 2026-08-06 against livekit-agents 1.6.6 for the mode B give-up
@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -45,6 +46,7 @@ from hailhq.core.disclosure import disclosure_text
 from hailhq.core.handover import HANDOVER_DEFAULT_MAX_SECONDS
 from hailhq.core.inbound_calls import Rejected, SipAttributes, open_inbound_call
 from hailhq.core.internal_webhook import notify_usage_event_recorded
+from hailhq.core.livekit import VOICE_READY_ATTRIBUTE
 from hailhq.core.models import Call, CallEvent, UsageEvent
 from hailhq.core.pool import release_pool_reservation
 from hailhq.core.prompts import (
@@ -72,16 +74,19 @@ from hailhq.voicebot.amd import (
     MACHINE_HANGUP_CATEGORIES,
     MACHINE_IVR_CATEGORY,
     amd_end_reason,
+    build_amd_models,
     ivr_navigation_instructions,
     run_amd,
 )
+from hailhq.voicebot.audio import room_options
 from hailhq.voicebot.pipeline import (
     ProviderKeyError,
     build_session,
     decrypt_llm_metadata,
     resolve_org_configs,
 )
-from hailhq.voicebot.recording import upload_recording
+from hailhq.voicebot.recording import start_recording, stop_recording
+from hailhq.voicebot.recovery import ConversationRecovery
 from hailhq.voicebot.telemetry import connect_livekit_tracing
 from hailhq.voicebot.tools import build_agent_tools
 from livekit import rtc
@@ -101,7 +106,7 @@ def speech_text(text: str) -> str:
     """The speakable part of one LLM turn; "" when there is nothing to say.
 
     Fast-tier models occasionally emit tool-call syntax as content instead
-    of a real function call — observed on call d8f4743f as spoken turns of
+    of a real function call, observed on call d8f4743f as spoken turns of
     '```json\\n{}' and '{"digits":"2"}' during IVR navigation. Rules:
     truncate from the first code fence or newline-opening JSON (the
     session's default ``filter_markdown`` TTS transform strips fences
@@ -126,7 +131,7 @@ def speech_text(text: str) -> str:
 def _syntax_cut(text: str) -> int:
     """Index of the first tool-syntax marker in ``text``; -1 when clean.
 
-    Markers: a code fence, or a newline that opens a JSON object/array —
+    Markers: a code fence, or a newline that opens a JSON object/array,
     speech never continues past either.
     """
     cut = -1
@@ -160,7 +165,7 @@ async def _sanitize_tts_stream(source: Any) -> Any:
                 return
             if not any(ch.isalnum() for ch in stripped):
                 # Punctuation so far ("...", the sanctioned nothing-to-say
-                # reply) — hold until a real character arrives or the turn
+                # reply), hold until a real character arrives or the turn
                 # ends, mirroring speech_text's punctuation-only drop.
                 carry = buf
                 continue
@@ -183,7 +188,7 @@ async def _sanitize_tts_stream(source: Any) -> Any:
 class SpeechSanitizingAgent(Agent):
     """Agent whose TTS input passes through :func:`_sanitize_tts_stream`.
 
-    Every synthesis flows through ``tts_node`` — LLM turns *and*
+    Every synthesis flows through ``tts_node``, LLM turns *and*
     ``session.say`` (``AgentActivity._tts_task_impl`` routes say() text
     through the agent's node too). So a caller-supplied ``first_message``
     opening with ``{``, ``[``, or a backtick would be dropped; Hail's own
@@ -211,13 +216,13 @@ def has_thread_tool(tools: list[Any]) -> bool:
     return any(getattr(t.info, "name", None) == "thread_history" for t in tools)
 
 
-# Proactive AI disclosure — spoken by default as the first thing on every
+# Proactive AI disclosure, spoken by default as the first thing on every
 # call, immediately after session.start(). Unlike VOICE_PREAMBLE (LLM
 # instructions the model could ignore), this is a literal session.say() so
 # it is a real, enforced disclosure, not a prompt hope. When the API
-# resolved the requesting organization's display name, the line names it —
+# resolved the requesting organization's display name, the line names it,
 # 47 CFR 64.1200(b)(1) requires identifying the initiating business at the
-# start of an artificial-voice call — otherwise it falls back to generic
+# start of an artificial-voice call, otherwise it falls back to generic
 # wording. The template (``hailhq.core.disclosure``) is set by workspace
 # admins on the agent or in call settings and arrives in the server-built
 # dispatch metadata as ``ai_disclosure_line``, never from
@@ -233,7 +238,7 @@ def disclosure_line(
     direction: str | None = None,
     template: str | None = None,
 ) -> str:
-    """The exact disclosure to speak — named when the org name resolved."""
+    """The exact disclosure to speak, named when the org name resolved."""
     return disclosure_text(
         "inbound" if direction == "inbound" else "outbound", org_name, template
     )
@@ -250,7 +255,7 @@ def make_agent_hangup(
     (registered in ``entrypoint``) maps a bare ``job_shutdown`` reason to
     ``worker_shutdown``/``failed``, which would mis-record a deliberate,
     successful agent-initiated hangup. Status is left untouched (``None``)
-    so ``on_call_end`` falls back to its ``"completed"`` default — matching
+    so ``on_call_end`` falls back to its ``"completed"`` default, matching
     a normal, callee-initiated hangup.
 
     Deletes the room, not just the job: ``ctx.shutdown()`` alone ends the
@@ -260,7 +265,7 @@ def make_agent_hangup(
     ``ROOM_DELETED`` disconnect is in ``_SDK_AUTO_CLOSE_REASONS`` and is
     not mapped to a status override, so the stamped ``normal_hangup`` /
     default ``completed`` outcome is preserved. ``ctx.shutdown()`` still
-    runs afterwards as a belt-and-braces job release — and as the only
+    runs afterwards as a belt-and-braces job release, and as the only
     path to ``on_call_end`` if the delete fails (the room then dies via
     LiveKit's empty-timeout instead).
 
@@ -289,7 +294,7 @@ def make_agent_hangup(
 def make_agent_send_dtmf(ctx: JobContext) -> Callable[[str], Awaitable[None]]:
     """Build the DTMF handle wired into the ``send_dtmf`` agent tool.
 
-    One already-validated digit per call — ``core``'s tool owns the vocabulary
+    One already-validated digit per call, ``core``'s tool owns the vocabulary
     (:data:`hailhq.core.agent_tools.send_dtmf.DTMF_CODES`) and the inter-digit
     pacing; this side owns only the transport, which is what keeps ``core``
     free of ``livekit`` imports.
@@ -526,7 +531,7 @@ async def build_tools_safely(
     """Build this call's agent tools, degrading to none on any failure.
 
     A tool-layer startup failure (e.g. a DB rollback on a dead connection
-    inside ``build_agent_tools``) must never kill the call — degrade to no
+    inside ``build_agent_tools``) must never kill the call, degrade to no
     tools rather than let the exception escape ``entrypoint()`` and abort
     the session.
     """
@@ -548,7 +553,7 @@ async def build_tools_safely(
 
 # Spoken opening when the caller supplied no ``first_message``. A real LLM
 # turn, mirroring the IVR branch's reasoning: ``session.say`` is TTS-only,
-# so without this a call with no ``first_message`` opened in dead air —
+# so without this a call with no ``first_message`` opened in dead air,
 # nothing spoken beyond the disclosure and no LLM turn until the callee
 # spoke first. The AMD pickup transcript, when there is one, lets the model
 # react to how the call was answered ("Joe's Pizza, good evening") instead
@@ -566,7 +571,7 @@ def opening_instructions(pickup_transcript: str | None) -> str:
     heard = (pickup_transcript or "").strip()
     if heard:
         return (
-            f'{_OPENING_BASE} They answered the phone saying: "{heard}" — '
+            f'{_OPENING_BASE} They answered the phone saying: "{heard}", '
             "respond to that naturally."
         )
     return f"{_OPENING_BASE} They have not said anything yet."
@@ -584,18 +589,18 @@ async def speak_greeting(
     The disclosure leads by default and can only be skipped, never
     customized or reordered: its template is not reachable via
     caller-controlled fields (``body.system_prompt`` /
-    ``body.first_message``); only ``org_name`` — resolved server-side by
-    the API from the organization record — is interpolated into it, and a
+    ``body.first_message``); only ``org_name``, resolved server-side by
+    the API from the organization record, is interpolated into it, and a
     caller-supplied ``first_message`` can never precede it. The
     ``ai_disclosure`` default is ``True`` so a dispatch that predates the
     field (rolling deploy) keeps the disclosure.
 
     A caller ``first_message`` is spoken verbatim, concatenated onto the
-    disclosure as a single ``session.say()`` call — one spoken turn, not
+    disclosure as a single ``session.say()`` call, one spoken turn, not
     two back-to-back utterances that sound like the agent introducing
     itself twice. Without a ``first_message``, the LLM generates the
     opening (see :func:`opening_instructions`) so the call never opens in
-    dead air — including with ``ai_disclosure: false``; that path stays a
+    dead air, including with ``ai_disclosure: false``; that path stays a
     separate turn since a generated reply's text isn't known until the
     model produces it, so it can't be joined into the literal disclosure
     string. Call this right after ``session.start()``.
@@ -639,6 +644,7 @@ def arm_deferred_greeting(
     metadata: dict[str, Any],
     call_id: UUID,
     tasks: set[asyncio.Task[None]],
+    on_greeted: Callable[[], None] | None = None,
 ) -> None:
     """Hold the greeting until the tree hands us to someone, then say it once.
 
@@ -651,8 +657,8 @@ def arm_deferred_greeting(
     VAD is the load-bearing choice. It is driven by audio energy, not by
     transcripts, so it is **language-independent**: on call 9647b6c4 the
     clerk answered in Catalan against an ``en-US`` Deepgram, produced no
-    final transcript at all, and the previous trigger — the first
-    ``conversation_item_added`` with ``role="user"`` — never fired. The
+    final transcript at all, and the previous trigger, the first
+    ``conversation_item_added`` with ``role="user"``, never fired. The
     agent sat mute while a person said "bona tarda" twice and hung up.
     Waiting on a transcript makes the greeting hostage to STT language
     coverage; waiting on VAD does not.
@@ -661,7 +667,7 @@ def arm_deferred_greeting(
     where a transcript lands without a VAD state transition. Whichever
     arrives first wins; the latch makes the greeting exactly-once.
 
-    Registering extra listeners is fine — ``AgentSession`` inherits
+    Registering extra listeners is fine, ``AgentSession`` inherits
     ``rtc.EventEmitter``, which fans out to every registered handler, so
     this does not disturb ``attach_event_handlers``.
     """
@@ -673,7 +679,7 @@ def arm_deferred_greeting(
         state["spoken"] = True
 
         # Mark the machine→person handoff in the event stream at the
-        # handoff itself — before the greeting — so the row precedes the
+        # handoff itself, before the greeting, so the row precedes the
         # person's first transcript (STT finalizes while the greeting is
         # still playing) and consumers (CLI tail, dashboards) stop
         # attributing speech to the phone tree from this point on. Its own
@@ -689,6 +695,8 @@ def arm_deferred_greeting(
                 # just spoke, and the normal turn loop answers them. The
                 # injected opening turn is for cold-open pickups only.
                 await speak_greeting(session, metadata, generate_opening=False)
+                if on_greeted is not None:
+                    on_greeted()
             except Exception:
                 logger.exception(
                     "call_id=%s deferred greeting failed after IVR", call_id
@@ -704,7 +712,7 @@ def arm_deferred_greeting(
             return
         if any(c.name == DTMF_TOOL_NAME for c in getattr(ev, "function_calls", [])):
             logger.info(
-                "call_id=%s keys pressed — waiting for a voice to greet", call_id
+                "call_id=%s keys pressed, waiting for a voice to greet", call_id
             )
             state["armed"] = True
 
@@ -724,7 +732,7 @@ def arm_deferred_greeting(
 # caller has a moment to say their goodbyes.
 SOFT_CAP_ANNOUNCEMENT = (
     "Sorry, we've reached the time limit for this call. "
-    "Thanks for talking — I'll let you go now. Goodbye."
+    "Thanks for talking, I'll let you go now. Goodbye."
 )
 
 # Shutdown reason passed to ctx.shutdown() when the soft cap fires. Value
@@ -735,7 +743,7 @@ SOFT_CAP_END_REASON: str = CallEndReason.SOFT_CAP_REACHED.value
 # Consecutive non-recoverable LLM errors tolerated on a mode B (per-call BYO)
 # call before Hail gives up on the endpoint. Hardcoded on purpose: one
 # transient failure has to be tolerated and a persistently dead endpoint has
-# to end the call promptly — there is no operator decision between those, so
+# to end the call promptly, there is no operator decision between those, so
 # there is no env var.
 MAX_CONSECUTIVE_LLM_ERRORS = 3
 
@@ -780,7 +788,7 @@ _DISCONNECT_REASON_MAP: dict[int, tuple[str, CallEndReason]] = {
 
 
 # Only statuses that have a real data source are emittable. `ringing` and
-# `canceled` are deliberately absent — the voicebot never produces them.
+# `canceled` are deliberately absent, the voicebot never produces them.
 _STATUS_TO_CALL_EVENT: dict[str, str] = {
     "in_progress": "call.answered",
     "completed": "call.completed",
@@ -819,7 +827,7 @@ def disconnect_reason_to_status(reason: int | None) -> tuple[str | None, str | N
     """Map a LiveKit ``rtc.DisconnectReason`` to ``(call_status, end_reason)``.
 
     Returns ``(None, None)`` when the disconnect should NOT override the
-    default ``"completed"`` Call status — i.e., the callee answered and
+    default ``"completed"`` Call status, i.e., the callee answered and
     hung up normally (``CLIENT_INITIATED``) or the reason is something we
     do not specifically map. The caller's default applies in that case.
 
@@ -880,7 +888,7 @@ def handle_sip_disconnect(
     * caller leaves → today's mapping, then delete the room so the contact's
       leg (ringing or connected) is dropped too, then shut down.
     """
-    # We only care about SIP participants — the agent (this process)
+    # We only care about SIP participants, the agent (this process)
     # also fires participant_disconnected on shutdown, which we ignore.
     if participant.kind != rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
         return
@@ -894,7 +902,7 @@ def handle_sip_disconnect(
     if participant.identity == human_identity(call_id):
         if not bridge_state.get("connected"):
             return
-        logger.info("call_id=%s handover contact hung up — ending call", call_id)
+        logger.info("call_id=%s handover contact hung up, ending call", call_id)
         if captured["end_reason"] is None:
             captured["end_reason"] = CallEndReason.NORMAL_HANGUP.value
         bridge_state["ending"] = True
@@ -907,13 +915,13 @@ def handle_sip_disconnect(
         captured["status"] = status
         captured["end_reason"] = end_reason
         logger.info(
-            "call_id=%s sip participant disconnected — status=%s reason=%s",
+            "call_id=%s sip participant disconnected, status=%s reason=%s",
             call_id,
             status,
             end_reason,
         )
     if human is not None:
-        logger.info("call_id=%s caller left during handover — ending call", call_id)
+        logger.info("call_id=%s caller left during handover, ending call", call_id)
         if captured["end_reason"] is None:
             captured["end_reason"] = CallEndReason.NORMAL_HANGUP.value
         bridge_state["ending"] = True
@@ -921,7 +929,7 @@ def handle_sip_disconnect(
         ctx.shutdown(reason="caller_left")
         return
     if status is None:
-        # CLIENT_INITIATED — normal hangup after a real conversation.
+        # CLIENT_INITIATED, normal hangup after a real conversation.
         # Leave captured as-is so `_shutdown` falls back to "completed".
         return
     # For reasons the agent SDK does not auto-close on (notably
@@ -1097,7 +1105,7 @@ async def soft_cap_announce_and_hangup(
     try:
         handle = session.say(SOFT_CAP_ANNOUNCEMENT, allow_interruptions=False)
         await handle.wait_for_playout()
-    except Exception:  # pragma: no cover — best-effort; we still hang up
+    except Exception:  # pragma: no cover, best-effort; we still hang up
         logger.exception(
             "call_id=%s soft-cap announcement failed; proceeding to hangup",
             call_id,
@@ -1129,7 +1137,7 @@ def arm_byo_llm_giveup(
     not an implementation detail. A caller interrupting the agent mid-sentence
     (barge-in) cancels the in-flight LLM stream with
     :class:`asyncio.CancelledError`, which is a ``BaseException`` and so never
-    reaches the plugin's ``except Exception`` — it is never classified as an
+    reaches the plugin's ``except Exception``, it is never classified as an
     :class:`~livekit.agents.llm.LLMError` at all. A wrapper counting failures
     around ``LLM.chat()`` would see that cancellation as a failure and could
     hang up on a healthy, talkative caller. This path cannot make that
@@ -1142,13 +1150,13 @@ def arm_byo_llm_giveup(
     caller's endpoint. Recoverable errors are the plugin's own retry ladder
     and are not evidence of anything yet.
 
-    The counter resets on ``conversation_item_added`` with an assistant item —
+    The counter resets on ``conversation_item_added`` with an assistant item,
     proof that a turn actually completed. NB ``session.say()`` defaults to
     ``add_to_chat_ctx=True``, so Hail's own spoken lines (disclosure,
     ``first_message``, the deferred IVR greeting, the soft cap, the goodbye
     below) also emit assistant items and also reset the counter. Harmless in
     practice: they all happen at the start of the call (counter already 0),
-    at its very end, or — for the deferred greeting — once, right after a
+    at its very end, or, for the deferred greeting, once, right after a
     keypress.
 
     On the threshold, the fired latch is set **synchronously inside the event
@@ -1156,7 +1164,7 @@ def arm_byo_llm_giveup(
     a no-op, then the goodbye + hangup runs as a task (LiveKit dispatches
     sync callbacks). Ordering mirrors :func:`soft_cap_announce_and_hangup`:
     speak, wait for playout, stamp ``end_reason`` via ``on_fire``, *then*
-    ``ctx.shutdown()`` — the stamp has to precede shutdown or
+    ``ctx.shutdown()``, the stamp has to precede shutdown or
     ``_on_session_close`` maps the bare ``job_shutdown`` to
     ``worker_shutdown``.
 
@@ -1168,7 +1176,7 @@ def arm_byo_llm_giveup(
     ``voice/agent_activity.py::_on_error`` (LLM errors re-emitted on the
     session as ``"error"``), and ``voice/agent_session.py::_on_error``
     (the SDK's own breaker closes the session only *after*
-    ``max_unrecoverable_errors=3`` is exceeded, i.e. on the 4th — so this
+    ``max_unrecoverable_errors=3`` is exceeded, i.e. on the 4th, so this
     fires first and the call ends with a spoken goodbye and a precise
     ``llm_endpoint_failed`` instead of a silent ``agent_error``).
     """
@@ -1177,7 +1185,7 @@ def arm_byo_llm_giveup(
 
     async def _announce_and_hangup() -> None:
         logger.warning(
-            "call_id=%s BYO llm endpoint failed %d consecutive turns — ending call",
+            "call_id=%s BYO llm endpoint failed %d consecutive turns, ending call",
             call_id,
             MAX_CONSECUTIVE_LLM_ERRORS,
         )
@@ -1227,7 +1235,7 @@ async def mark_call_answered(call_id: UUID) -> bool:
 
     Called when the SIP participant's ``sip.callStatus`` reaches ``active``
     (see :func:`is_sip_answer_signal`). The ``answered_at`` stamp is the
-    pickup timestamp — distinct from ``started_at`` (dial time) — and is what
+    pickup timestamp, distinct from ``started_at`` (dial time), and is what
     :func:`on_call_end` bills from.
 
     Returns ``True`` iff this call actually transitioned a row. Idempotent and
@@ -1316,8 +1324,8 @@ async def on_call_end(
 ) -> None:
     """Finalize the ``Call`` row when the session ends.
 
-    Called from a shutdown callback registered against ``ctx``. Uploads the
-    recording (no-op in v1 — see :mod:`hailhq.voicebot.recording`), marks
+    Called from a shutdown callback registered against ``ctx``. Egress handles
+    the recording on its own (see :mod:`hailhq.voicebot.recording`). This marks
     the call with the final status (``"completed"`` by default), sets
     ``ended_at = now()``, and records one raw ``usage_events`` row with the
     call duration in milliseconds.
@@ -1331,7 +1339,7 @@ async def on_call_end(
 
     Idempotent against a row that is already terminal: the status UPDATE is
     guarded ``status NOT IN terminal``, so if the reconciler sweeper (or a
-    prior shutdown) already closed this call, this call no-ops — it does not
+    prior shutdown) already closed this call, this call no-ops, it does not
     overwrite the recorded outcome, emit a contradictory ``state_change``, or
     write a duplicate ``usage_events`` row (``usage_events.ref`` is not unique).
     The pool release still runs unconditionally (it is idempotent) so the
@@ -1343,7 +1351,6 @@ async def on_call_end(
     see ``usage_events`` accumulate as a generic analytics primitive they
     can query directly.
     """
-    recording_key = await upload_recording(call_id, room_name)
     now = datetime.now(timezone.utc)
 
     async with session_scope() as session:
@@ -1356,6 +1363,7 @@ async def on_call_end(
             Call.answered_at,
             Call.organization_id,
             Call.recording_duration_ms,
+            Call.metadata_,
             Call.direction,
             Call.from_e164,
             Call.to_e164,
@@ -1371,13 +1379,14 @@ async def on_call_end(
             answered_at,
             organization_id,
             recording_duration_ms,
+            call_metadata,
             direction,
             from_e164,
             to_e164,
             agent_id,
         ) = row
 
-        # Bill from pickup (answered_at) when we have it — ring time before the
+        # Bill from pickup (answered_at) when we have it, ring time before the
         # callee answered isn't conversation and isn't billable. Fall back to
         # started_at (dial time) for legacy rows or calls that closed without a
         # recorded answer.
@@ -1390,7 +1399,7 @@ async def on_call_end(
             duration_ms = 0
 
         final_status = status_override or "completed"
-        # Always populate end_reason — the call_end_reason ENUM + CHECK
+        # Always populate end_reason, the call_end_reason ENUM + CHECK
         # constraint requires it for terminal rows. Defaults:
         #   - status='completed' with no override → 'normal_hangup'
         #   - any other override-less terminal write → 'unknown' (defensive;
@@ -1412,13 +1421,13 @@ async def on_call_end(
                 status=final_status,
                 end_reason=final_end_reason,
                 ended_at=now,
-                recording_s3_key=recording_key,
+                # Egress writes recording metadata independently.
             )
         )
         transitioned = (result.rowcount or 0) > 0
         if transitioned:
             # Terminal state_change so observers see the full lifecycle, not
-            # just queued→dialing. Same transaction as the status UPDATE — they
+            # just queued→dialing. Same transaction as the status UPDATE, they
             # commit atomically. `prior_status` is whatever the row held coming
             # in (in_progress on a normal call, dialing on a no-answer/busy).
             session.add(
@@ -1449,7 +1458,7 @@ async def on_call_end(
                         "end_reason": final_end_reason,
                     },
                 )
-        # Idempotent and order-independent — free the pool number regardless of
+        # Idempotent and order-independent, free the pool number regardless of
         # which writer recorded the terminal status, so it is never leaked. In
         # the same transaction as the status update: a rollback (e.g. failed
         # usage_events insert) must also unwind the release so the sweeper
@@ -1463,20 +1472,24 @@ async def on_call_end(
         #     (status=no_answer) or a call that died mid-conversation
         #     (status=failed) still bill for the minutes it burned.
         #   - status='completed': the historical test, kept so a completed
-        #     call whose answer signal never landed — a DB blip inside
+        #     call whose answer signal never landed, a DB blip inside
         #     `mark_call_answered`, a missed `sip.callStatus` event, a legacy
         #     row predating `answered_at`, or the `recording_duration_ms`
-        #     fallback above — is still billed rather than silently free.
+        #     fallback above, is still billed rather than silently free.
         # A genuine no-answer satisfies neither and stays unbilled. An
-        # already-terminal row (transitioned is False) was billed — or
-        # deliberately not — by whoever closed it first.
+        # already-terminal row (transitioned is False) was billed, or
+        # deliberately not, by whoever closed it first.
         billable = answered_at is not None or final_status == "completed"
         if transitioned and billable and duration_ms > 0:
             usage = UsageEvent(
                 organization_id=organization_id,
                 channel="voice",
                 units=duration_ms,
-                ref=str(call_id),
+                ref=(
+                    f"{call_id}:recording-v1"
+                    if (call_metadata or {}).get("recording_enabled")
+                    else str(call_id)
+                ),
             )
             session.add(usage)
             await session.flush()
@@ -1490,7 +1503,7 @@ async def on_call_end(
 
 def attach_event_handlers(
     session: AgentSession, call_id: UUID
-) -> set[asyncio.Task[None]]:
+) -> tuple[set[asyncio.Task[None]], Callable[[], None]]:
     """Wire AgentSession events to ``call_events`` row writes.
 
     Returns the set of pending row-write tasks so the caller can ``gather``
@@ -1498,6 +1511,11 @@ def attach_event_handlers(
     last few events can be cut off by shutdown. Handlers schedule async work
     via ``asyncio.ensure_future`` because LiveKit's EventEmitter dispatches
     sync callbacks.
+
+    Also returns ``flush``: ``voice_metrics`` timings are merged per agent
+    speech (one row per turn, not one per metric) and a speech's row is
+    written when the next speech starts. ``flush`` writes the last one; call
+    it at shutdown before gathering the tasks.
     """
     tasks: set[asyncio.Task[None]] = set()
 
@@ -1505,6 +1523,43 @@ def attach_event_handlers(
         task = asyncio.ensure_future(write_call_event(call_id, kind, payload))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
+
+    # speech_id -> merged timings of the turn that is still reporting.
+    pending_metrics: dict[str, dict[str, Any]] = {}
+
+    def _flush_metrics(speech_id: str) -> None:
+        payload = pending_metrics.pop(speech_id, None)
+        if payload:
+            _spawn("voice_metrics", payload)
+
+    def flush() -> None:
+        for speech_id in list(pending_metrics):
+            _flush_metrics(speech_id)
+
+    @session.on("metrics_collected")
+    def _on_metrics(ev: Any) -> None:
+        metric = ev.metrics
+        kind = getattr(metric, "type", "")
+        if kind not in ("llm_metrics", "tts_metrics", "eou_metrics"):
+            return
+        # Numeric timing only: no transcript, prompts, tool arguments, or keys.
+        timings: dict[str, Any] = {}
+        for key in ("ttft", "ttfb", "end_of_utterance_delay", "transcription_delay"):
+            value = getattr(metric, key, None)
+            if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
+                timings[key] = value
+        speech_id = getattr(metric, "speech_id", None)
+        if not speech_id:
+            if timings:
+                _spawn("voice_metrics", {"type": kind, **timings})
+            return
+        # A metric for a new speech means the previous turn is over.
+        for other in [s for s in pending_metrics if s != speech_id]:
+            _flush_metrics(other)
+        row = pending_metrics.setdefault(speech_id, {"speech_id": speech_id})
+        for key, value in timings.items():
+            # First value wins: a later TTS segment must not overwrite ttfb.
+            row.setdefault(key, value)
 
     @session.on("conversation_item_added")
     def _on_item(ev: Any) -> None:
@@ -1524,13 +1579,20 @@ def attach_event_handlers(
             text = speech_text(text)
             if not text:
                 return
-        _spawn(kind, {"role": role, "text": text})
+        payload = {"role": role, "text": text}
+        metrics = getattr(item, "metrics", {}) or {}
+        # These are speech wall times, not the time a delayed STT event reached DB.
+        for key in ("started_speaking_at", "stopped_speaking_at"):
+            value = metrics.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                payload[key] = value
+        _spawn(kind, payload)
 
     @session.on("function_tools_executed")
     def _on_tools(ev: Any) -> None:
         # `calls` carries per-call arguments (FunctionCall.arguments is the
         # raw JSON string the LLM produced) so consumers can show *what* a
-        # tool did — e.g. which DTMF digit was pressed. String values are
+        # tool did, e.g. which DTMF digit was pressed. String values are
         # capped recursively (nested dicts/lists included) so a long
         # SMS/email body can't bloat the event row. The legacy `tools`
         # name list stays for older readers.
@@ -1560,7 +1622,7 @@ def attach_event_handlers(
     def _on_error(ev: Any) -> None:
         _spawn("error", {"error": str(ev.error)[:500]})
 
-    return tasks
+    return tasks, flush
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -1684,18 +1746,17 @@ async def _run_call(
     # picked up). We watch BOTH `participant_attributes_changed` (the status
     # flips after the participant already exists) and `participant_connected`
     # (covers the case where the leg is already active when we register), plus
-    # a one-shot scan of current participants — mirroring the SDK's own
+    # a one-shot scan of current participants, mirroring the SDK's own
     # `wait_for_participant_attribute`. A local flag dedupes; `mark_call_answered`
     # is idempotent regardless, so a missed dedupe is still safe.
     answer_tasks: set[asyncio.Task[None]] = set()
     answered = {"done": False}
+    answer_event = asyncio.Event()
 
     def _maybe_mark_answered(participant: rtc.Participant) -> None:
         if answered["done"] or not is_sip_answer_signal(participant):
             return
-        logger.info(
-            "call_id=%s sip participant answered — marking in_progress", call_id
-        )
+        logger.info("call_id=%s sip participant answered, marking in_progress", call_id)
 
         async def _run() -> None:
             # Latch the dedupe flag only once the row actually transitioned, so
@@ -1705,6 +1766,7 @@ async def _run_call(
             # duplicate event schedules a second task is harmless.
             if await mark_call_answered(call_id):
                 answered["done"] = True
+                answer_event.set()
 
         task = asyncio.ensure_future(_run())
         answer_tasks.add(task)
@@ -1752,12 +1814,12 @@ async def _run_call(
         # malformed org id (ValueError), a decrypt failure after a
         # HAIL_PROVIDER_SECRET_KEY rotation (InvalidToken) or an unset key
         # (SecretKeyMissing), a DB error (SQLAlchemyError), a malformed
-        # dispatch-metadata shape build_session indexes into (TypeError — e.g.
+        # dispatch-metadata shape build_session indexes into (TypeError, e.g.
         # an unhashable `voice_config.language`), and a provider ctor that
         # rejects an absent key with its own ValueError (e.g. the speechmatics
         # plugin), and the turn-detector model cache miss (MultilingualModel
-        # raises a bare RuntimeError when the HF files were never downloaded
-        # — e.g. a self-host that skipped `download-files`) are none of them
+        # raises a bare RuntimeError when the HF files were never downloaded,
+        # e.g. a self-host that skipped `download-files`) are none of them
         # ProviderKeyError, but they all mean "can't honor this call's
         # provider config". Convert them so they fail fast through the same
         # clean finalize path below instead of escaping entrypoint() raw and
@@ -1772,7 +1834,7 @@ async def _run_call(
             llm_cfg = decrypt_llm_metadata(metadata.get("llm"))
             if llm_cfg is not None:
                 # A per-call BYO base_url was only resolved once, at POST
-                # /calls time — re-check here (off the event loop) so a DNS
+                # /calls time, re-check here (off the event loop) so a DNS
                 # rebind between then and now can't slip a private/metadata
                 # address past the guard the way the org BYO path already
                 # re-checks in resolve_org_configs below.
@@ -1805,7 +1867,7 @@ async def _run_call(
         await write_call_event(call_id, "provider_key_error", {"detail": str(exc)})
         # `ctx.add_shutdown_callback(_shutdown)` below (which is what normally
         # drives `on_call_end` -> status/end_reason write + pool release) has
-        # not been registered yet at this point in entrypoint — session build
+        # not been registered yet at this point in entrypoint, session build
         # fails before we ever reach that line. Finalize directly here so a
         # BYO build failure still releases the pool reservation and closes
         # out the Call row, exactly like every other terminal path does.
@@ -1817,7 +1879,7 @@ async def _run_call(
         )
         ctx.shutdown(reason="provider_key_error")
         return
-    event_tasks = attach_event_handlers(session, call_id)
+    event_tasks, flush_voice_metrics = attach_event_handlers(session, call_id)
 
     # AgentSession-level close events that aren't already covered by the SIP
     # participant_disconnected handler above: `error` (LLM/STT/TTS crash) and
@@ -1839,10 +1901,11 @@ async def _run_call(
         captured["end_reason"] = CallEndReason.SOFT_CAP_REACHED.value
         # Status stays None → on_call_end falls back to "completed".
 
+    agent_hangup = make_agent_hangup(ctx, captured, bridge_state)
     agent_tools, agent_api = await build_tools_safely(
         metadata,
         call_id,
-        make_agent_hangup(ctx, captured, bridge_state),
+        agent_hangup,
         make_agent_send_dtmf(ctx),
         make_agent_bridge(
             ctx,
@@ -1871,7 +1934,31 @@ async def _run_call(
         ),
         tools=agent_tools,
     )
-    await session.start(agent=agent, room=ctx.room)
+    # Explicitly prevent LiveKit project observability from silently retaining
+    # audio outside Hail's workspace choice and storage lifecycle.
+    await session.start(
+        agent=agent, room=ctx.room, record=False, room_options=room_options()
+    )
+
+    async def record_answered_call() -> None:
+        # Do not consume recording allowance during ringing or on unanswered calls.
+        await answer_event.wait()
+        await start_recording(call_id, ctx.room.name, ctx.api)
+
+    recording_task = asyncio.create_task(record_answered_call())
+
+    async def finish_recording() -> None:
+        # Runs after _shutdown (chained below): billing never waits on upload.
+        if not answered["done"]:
+            recording_task.cancel()
+            await asyncio.gather(recording_task, return_exceptions=True)
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(recording_task), timeout=6)
+        except (TimeoutError, asyncio.CancelledError):
+            recording_task.cancel()
+        await stop_recording(call_id, ctx.api, ctx.room.name)
+
     room_name = ctx.room.name
 
     soft_cap_seconds = metadata.get(
@@ -1902,14 +1989,14 @@ async def _run_call(
         bridge_state["soft_cap_task"] = soft_cap_task
 
     if llm_cfg is not None:
-        # Mode B (per-call BYO endpoint) only — see arm_byo_llm_giveup. Mode A
+        # Mode B (per-call BYO endpoint) only, see arm_byo_llm_giveup. Mode A
         # fails over across the house chain; mode C either falls back or
         # already failed fast above as provider_key_error.
         #
         # status='failed' alongside the reason, matching every other member of
         # the agent-failure group (agent_error, worker_shutdown,
         # provider_key_error): the call ended because the brain never worked.
-        # Billing is unaffected — on_call_end bills on `answered_at`.
+        # Billing is unaffected, on_call_end bills on `answered_at`.
         def _on_byo_llm_giveup() -> None:
             captured["end_reason"] = CallEndReason.LLM_ENDPOINT_FAILED.value
             captured["status"] = "failed"
@@ -1924,11 +2011,23 @@ async def _run_call(
     # has run (both run on the same event loop, so the check is atomic).
     text_watch_task: asyncio.Task[None] | None = None
     shutting_down = False
+    recovery = ConversationRecovery(
+        session,
+        on_exhausted=agent_hangup,
+        can_recover=lambda: (
+            not shutting_down
+            and captured["end_reason"] is None
+            and not bridge_state.get("human")
+            and not bridge_state.get("connected")
+        ),
+        call_id=call_id,
+    )
 
     async def _shutdown_body() -> None:
         nonlocal shutting_down
         shutting_down = True
         try:
+            await recovery.aclose()
             # The bridge swaps in the handover cap once a contact answers.
             cap_task = bridge_state.get("soft_cap_task") or soft_cap_task
             if cap_task is not None and not cap_task.done():
@@ -1941,6 +2040,7 @@ async def _run_call(
             if text_watch_task is not None and not text_watch_task.done():
                 text_watch_task.cancel()
                 await asyncio.gather(text_watch_task, return_exceptions=True)
+            flush_voice_metrics()
             if event_tasks:
                 await asyncio.gather(*list(event_tasks), return_exceptions=True)
             if answer_tasks:
@@ -1968,7 +2068,15 @@ async def _run_call(
         with identity_scope(shutdown_identity):
             await _shutdown_body()
 
-    ctx.add_shutdown_callback(_shutdown)
+    async def _shutdown_then_finish_recording() -> None:
+        # Shutdown callbacks run concurrently in the agents SDK, so chain
+        # explicitly: finalizer and usage write first, recording stop after.
+        try:
+            await _shutdown()
+        finally:
+            await finish_recording()
+
+    ctx.add_shutdown_callback(_shutdown_then_finish_recording)
     if settlement_registered is not None:
         settlement_registered[0] = True
 
@@ -1979,7 +2087,7 @@ async def _run_call(
     #
     # Skipped outright when the SIP leg is already gone. `captured["status"]`
     # is only ever set by the participant-disconnect handler above, so a
-    # non-None value here means busy / no-answer / trunk failure — there is
+    # non-None value here means busy / no-answer / trunk failure, there is
     # no audio track to classify, and AMD would sit on its 30s backstop
     # before giving up (observed: a leg rejected at :20.475 still held the
     # job until :50.700, then "entrypoint did not exit in time").
@@ -1988,13 +2096,28 @@ async def _run_call(
         amd_result = None
     elif captured["status"] is not None:
         logger.info(
-            "call_id=%s sip leg already gone (%s) — skipping AMD",
+            "call_id=%s sip leg already gone (%s), skipping AMD",
             call_id,
             captured["status"],
         )
         amd_result = None
     else:
-        amd_result = await run_amd(session, call_id)
+
+        async def signal_ready() -> None:
+            if metadata.get("await_agent_ready"):
+                await ctx.room.local_participant.set_attributes(
+                    {VOICE_READY_ATTRIBUTE: "true"}
+                )
+
+        models = build_amd_models(
+            session,
+            org_cfgs=org_cfgs,
+            llm_override=llm_cfg is not None,
+            language=language,
+        )
+        amd_result = await run_amd(
+            session, call_id, models=models, on_ready=signal_ready
+        )
     if not inbound:
         await write_call_event(
             call_id,
@@ -2007,10 +2130,12 @@ async def _run_call(
                 "transcript": (
                     (amd_result.transcript or "")[:500] if amd_result else None
                 ),
+                "reason": amd_result.reason if amd_result else "detection_failed",
+                "delay": amd_result.delay if amd_result else None,
             },
         )
     if amd_result is not None and amd_result.category in MACHINE_HANGUP_CATEGORIES:
-        # Voicemail or a dead mailbox — hang up without speaking. We never
+        # Voicemail or a dead mailbox, hang up without speaking. We never
         # leave a message: a partial line on someone's voicemail is worse
         # than silence. Mirrors `make_agent_hangup`: delete_room disconnects
         # the phone leg, ctx.shutdown releases the job and drives `_shutdown`.
@@ -2018,7 +2143,7 @@ async def _run_call(
         captured["status"] = "no_answer"
         captured["end_reason"] = end_reason
         logger.info(
-            "call_id=%s answered by a machine (%s) — hanging up",
+            "call_id=%s answered by a machine (%s), hanging up",
             call_id,
             amd_result.category.value,
         )
@@ -2032,14 +2157,16 @@ async def _run_call(
     if amd_result is not None and amd_result.category == MACHINE_IVR_CATEGORY:
         # A phone tree answered. Do NOT speak the greeting here: `session.say`
         # is TTS-only and never invokes the LLM, so the model would get no
-        # turn in which to press a key — observed in production as the agent
+        # turn in which to press a key, observed in production as the agent
         # reciting its disclosure into a "press one / press two" menu while
         # the tree timed out. `generate_reply` is a real LLM turn with
         # `send_dtmf` attached, which is what actually navigates the menu.
         # The disclosure is deferred, not dropped: `_speak_deferred_greeting`
         # fires it the moment a person is on the line.
-        logger.info("call_id=%s phone tree detected — navigating", call_id)
-        arm_deferred_greeting(session, metadata, call_id, event_tasks)
+        logger.info("call_id=%s phone tree detected, navigating", call_id)
+        arm_deferred_greeting(
+            session, metadata, call_id, event_tasks, on_greeted=recovery.start
+        )
         session.generate_reply(
             instructions=ivr_navigation_instructions(amd_result.transcript)
         )
@@ -2047,7 +2174,7 @@ async def _run_call(
         # AMD holds the greeting for up to its detection window, and the
         # callee can hang up inside it. `AgentSession.say` raises
         # RuntimeError once the activity is torn down, so a greeting that
-        # arrives after the session died must not escape entrypoint — the
+        # arrives after the session died must not escape entrypoint, the
         # shutdown callback registered above already finalizes the row.
         try:
             await speak_greeting(
@@ -2055,6 +2182,7 @@ async def _run_call(
                 metadata,
                 pickup_transcript=amd_result.transcript if amd_result else None,
             )
+            recovery.start()
         except Exception:
             logger.exception(
                 "call_id=%s greeting failed; session closed during detection", call_id

@@ -444,13 +444,15 @@ func (r *tailRenderer) renderEvent(ev client.EventResponse) error {
 		// flushes as [machine], not [human].
 		r.amdResolved[res] = true
 		r.flushPending(res, true)
-	} else if ev.Kind != "state_change" || len(r.pending[res]) > 0 {
+	} else if (ev.Kind != "state_change" && ev.Kind != "voice_metrics") || len(r.pending[res]) > 0 {
 		// The voicebot writes amd_result before any agent_turn, so any
 		// post-pickup event kind means the verdict is not coming (AMD
 		// skipped or failed, or the tail joined mid-call) — whoever speaks
 		// from here is presumed a person, with no buffering delay.
 		// state_change alone doesn't resolve: queued/ringing transitions
-		// precede pickup in --from-start replays.
+		// precede pickup in --from-start replays. voice_metrics doesn't
+		// either: its first row (eou timing) lands at the end of the
+		// greeting, before the voicebot writes amd_result.
 		r.amdResolved[res] = true
 		r.flushPending(res, false)
 	}
@@ -680,7 +682,7 @@ func colorFor(kind string) string {
 		return colorCyan
 	case "user_turn":
 		return colorYellow
-	case "state_change", "amd_result", "person_detected":
+	case "state_change", "amd_result", "person_detected", "voice_metrics":
 		return colorDim
 	case "error":
 		return colorRed

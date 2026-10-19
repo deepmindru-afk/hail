@@ -28,6 +28,7 @@ def house_keys(monkeypatch):
     monkeypatch.setattr(settings, "cartesia_voice_id", "house-voice")
     monkeypatch.setattr(settings, "eleven_api_key", "")
     monkeypatch.setattr(settings, "deepgram_model", "nova-3")
+    monkeypatch.setattr(settings, "speechmatics_model", "linden-1")
     monkeypatch.setattr(settings, "openai_model", "gpt-5.4-mini")
     monkeypatch.setattr(settings, "google_model", "gemini-3-flash")
     monkeypatch.setattr(settings, "anthropic_model", "claude-sonnet-4-6")
@@ -45,7 +46,7 @@ def captured_plugins(monkeypatch):
     The stub also carries the minimal attribute surface the real
     ``livekit.agents.tts.FallbackAdapter``/``stt.FallbackAdapter`` validate at
     construction time (``num_channels``, ``sample_rate``, ``capabilities``,
-    ``label``, ``.on()``) — ``test_fallback_enabled_wraps_house_after_byo``
+    ``label``, ``.on()``), ``test_fallback_enabled_wraps_house_after_byo``
     exercises the real (unmocked) ``FallbackAdapter``, which reads these off
     each wrapped instance before ``build_tts``/``build_stt`` ever calls
     ``.synthesize()``/``.recognize()``.
@@ -183,7 +184,6 @@ def test_stt_org_speechmatics_key_used(captured_plugins) -> None:
 
 def test_stt_org_speechmatics_operating_point_standard(captured_plugins) -> None:
     from hailhq.voicebot.pipeline import ResolvedLayer, build_stt
-    from livekit.plugins import speechmatics as speechmatics_plugin
 
     org = ResolvedLayer(
         provider="speechmatics",
@@ -192,24 +192,19 @@ def test_stt_org_speechmatics_operating_point_standard(captured_plugins) -> None
         fallback_enabled=False,
     )
     stt = build_stt(org=org, language="sv", provider="speechmatics")
-    assert (
-        stt._stt_options.operating_point == speechmatics_plugin.OperatingPoint.STANDARD
-    )
+    assert stt._stt_options.model == "linden-1"
 
 
 def test_stt_org_speechmatics_operating_point_defaults_enhanced(
     captured_plugins,
 ) -> None:
     from hailhq.voicebot.pipeline import ResolvedLayer, build_stt
-    from livekit.plugins import speechmatics as speechmatics_plugin
 
     org = ResolvedLayer(
         provider="speechmatics", api_key="sm-org-key", params={}, fallback_enabled=False
     )
     stt = build_stt(org=org, language="sv", provider="speechmatics")
-    assert (
-        stt._stt_options.operating_point == speechmatics_plugin.OperatingPoint.ENHANCED
-    )
+    assert stt._stt_options.model == "linden-1"
 
 
 def test_stt_org_row_ignored_when_pinned_to_other_provider(
@@ -233,7 +228,7 @@ def test_build_tts_org_incapable_with_fallback_uses_house_only(
     captured_plugins,
 ) -> None:
     """Org elevenlabs row can't speak 'th' (Cartesia-only); fallback_enabled
-    is consent to reroute — the BYO instance is skipped entirely and the
+    is consent to reroute, the BYO instance is skipped entirely and the
     house chain (Cartesia only, for 'th') is returned."""
     org = ResolvedLayer(
         provider="elevenlabs", api_key="org-key", params={}, fallback_enabled=True
@@ -270,7 +265,7 @@ def test_fallback_enabled_wraps_house_after_byo(captured_plugins) -> None:
 
 async def test_resolve_org_configs_rejects_unsafe_llm_base_url(async_session) -> None:
     """The call-time SSRF guard runs inside resolve_org_configs (off the event
-    loop), not inside _org_llm — a stored base_url pointing at cloud metadata
+    loop), not inside _org_llm, a stored base_url pointing at cloud metadata
     must raise ProviderKeyError rather than build an LLM against it."""
     org_id = uuid.uuid4()
     async_session.add(

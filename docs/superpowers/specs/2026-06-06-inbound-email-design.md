@@ -478,7 +478,7 @@ Then:
 
 SES has **one active receipt rule set per region per AWS account.** The Terraform module _creates_ the rule set; it does not activate it (activation is destructive when an account already has one running).
 
-- **Greenfield account:** `aws sesv2 set-active-receipt-rule-set --rule-set-name hail-inbound`.
+- **Greenfield account:** `aws ses set-active-receipt-rule-set --rule-set-name hail-inbound`.
 - **Account with existing rules:** import the existing rule set into Terraform state and merge the Hail rule into it, or skip the module's rule resource and add the rule manually via the AWS console.
 
 Documented in `docs/setup/aws-ses.md` under a new "Inbound" section.

@@ -5693,12 +5693,12 @@ output "lambda_function_arn" {
 }
 
 output "receipt_rule_set_name" {
-  description = "Activate manually: aws sesv2 set-active-receipt-rule-set --rule-set-name <this>"
+  description = "Activate manually: aws ses set-active-receipt-rule-set --rule-set-name <this>"
   value       = aws_ses_receipt_rule_set.hail.rule_set_name
 }
 
 output "activate_command" {
-  value = "aws sesv2 set-active-receipt-rule-set --rule-set-name ${aws_ses_receipt_rule_set.hail.rule_set_name}"
+  value = "aws ses set-active-receipt-rule-set --rule-set-name ${aws_ses_receipt_rule_set.hail.rule_set_name}"
 }
 ```
 
@@ -6063,7 +6063,7 @@ terraform apply
 ````
 
 Outputs include the MX record you publish at DNS, the bucket name, and
-the `aws sesv2 set-active-receipt-rule-set` command you need to run.
+the `aws ses set-active-receipt-rule-set` command you need to run.
 
 ### 10.2 Activate the receipt rule set (manual)
 
@@ -6071,7 +6071,7 @@ SES has **one active receipt rule set per region per AWS account**. The
 module creates a rule set but does **not** activate it (activation is
 destructive when an account already has one running).
 
-- **Greenfield AWS account**: `aws sesv2 set-active-receipt-rule-set --rule-set-name hail-inbound-rules`
+- **Greenfield AWS account**: `aws ses set-active-receipt-rule-set --rule-set-name hail-inbound-rules`
 - **Account with existing rules**: import the existing rule set into Terraform state and merge Hail's rule into it, or skip the module's rule resource and add it manually via the AWS console.
 
 ### 10.3 Publish the MX record

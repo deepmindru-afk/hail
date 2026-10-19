@@ -48,7 +48,7 @@ from hailhq.core.db import get_session
 from hailhq.core.handover import HANDOVER_DEFAULT_MAX_SECONDS, handover_targets
 from hailhq.core.internal_webhook import fetch_organization_name
 from hailhq.core.languages import SUPPORTED_LANGUAGES
-from hailhq.core.livekit import LiveKitClient
+from hailhq.core.livekit import LiveKitClient, WorkerGaveUp
 from hailhq.core.models import (
     Agent,
     Call,
@@ -62,6 +62,7 @@ from hailhq.core.pool import (
     release_pool_reservation,
 )
 from hailhq.core.provider_config import load_org_provider_configs, provider_cipher
+from hailhq.core.recordings import recording_call_metadata
 from hailhq.core.schemas import (
     TERMINAL_CALL_STATUSES,
     CallCreate,
@@ -87,6 +88,7 @@ _AGENT_FIELDS = (
     "system_prompt",
     "first_message",
     "ai_disclosure",
+    "recording_enabled",
     "voice_config",
     "tools",
 )
@@ -225,7 +227,7 @@ async def create_call(
     recipient_consent=true on the request body; Hail does not verify lawful
     basis to contact the recipient, the caller warrants it.
     """
-    # Replay before any DB or LiveKit work — a retry must not re-dispatch.
+    # Replay before any DB or LiveKit work, a retry must not re-dispatch.
     if idem is not None and idem.is_replay:
         cached_id, cached = replay_cached(
             idem, response, request, resource_prefix="/calls"
@@ -281,7 +283,7 @@ async def create_call(
             )
         body = apply_agent_defaults(body, agent)
 
-    # SSRF guard for a per-call BYO llm.base_url — the full resolving check
+    # SSRF guard for a per-call BYO llm.base_url, the full resolving check
     # (DNS + private/loopback/link-local/reserved address rejection), off the
     # event loop so a slow-resolving attacker domain can't stall the worker.
     # LLMConfig's pydantic validator only does cheap https/host syntax checks;
@@ -294,7 +296,7 @@ async def create_call(
                 assert_public_https_url, body.llm.base_url
             )
         except UnsafeUrlError as exc:
-            # Deterministic failure — cache it so a same-key retry replays the
+            # Deterministic failure, cache it so a same-key retry replays the
             # 422 rather than 409ing on the in-flight sentinel idempotency_dep
             # committed on acquire (matches the consent/compliance/funds/number
             # gates below).
@@ -306,7 +308,7 @@ async def create_call(
                 ),
             ) from exc
 
-    # Consent attestation gate — reject before any Call row is created.
+    # Consent attestation gate, reject before any Call row is created.
     try:
         enforce_consent(
             recipient_consent=body.recipient_consent,
@@ -316,7 +318,7 @@ async def create_call(
     except HTTPException as exc:
         raise await cache_failure(idem, exc) from None
 
-    # Tool allowlist gate — reject unknown tool names before any Call row is
+    # Tool allowlist gate, reject unknown tool names before any Call row is
     # created. `None` (omitted) means "all tools"; `[]` means "no tools" and
     # is passed through as-is below.
     if body.tools is not None:
@@ -330,7 +332,7 @@ async def create_call(
                 ),
             )
 
-    # Language/provider compatibility gate — reject before any Call row is
+    # Language/provider compatibility gate, reject before any Call row is
     # created. Deterministic on request + org config, so failures are
     # cached for idempotent replay like the other 422 gates.
     lang = body.voice_config.language
@@ -343,11 +345,11 @@ async def create_call(
         caps = SUPPORTED_LANGUAGES[lang]
         # Both layers share one consent rule: an org BYO row (STT or TTS)
         # that can't serve the requested language 422s here UNLESS the org
-        # set fallback_enabled — that flag is consent to house-provider
+        # set fallback_enabled, that flag is consent to house-provider
         # rerouting, so a consenting org sails through and the mismatch is
         # handled downstream in the voicebot (STT degrades to house
         # deepgram; TTS skips the incapable BYO instance for the house
-        # chain). Neither layer has a per-call provider override — the
+        # chain). Neither layer has a per-call provider override, the
         # org's BYO row (or its absence) is the sole source of truth, so
         # this is checked here regardless of voice_config contents.
         stt_row = org_rows.get("stt")
@@ -381,7 +383,7 @@ async def create_call(
                 ),
             )
 
-    # Compliance gate — suppression/DNC, premium-rate prefix, velocity cap.
+    # Compliance gate, suppression/DNC, premium-rate prefix, velocity cap.
     # Also before any Call row is created, so a denial has no resource to
     # clean up; the audit entry below carries resource_id=None.
     gate = await check_call_allowed(db, principal.organization_id, body.to)
@@ -431,7 +433,7 @@ async def create_call(
             # idempotency sentinel so a same-key retry can succeed once the
             # pool frees up. Without this, the sentinel idempotency_dep
             # committed on acquire would 409 "still processing" on every retry
-            # until the 24h TTL — the opposite of the intended behavior.
+            # until the 24h TTL, the opposite of the intended behavior.
             if idem is not None:
                 await idem.release()
             raise HTTPException(
@@ -449,12 +451,19 @@ async def create_call(
         call_metadata[CALL_META_FROM_POOL] = True
     # Billed unless this is the unbilled self-hosted shared key. Both real API
     # keys and console/website JWTs are billed, so the mid-call agent funds
-    # re-check (internal/agent._shared_denial) applies to them — keying on
+    # re-check (internal/agent._shared_denial) applies to them, keying on
     # ``api_key_id is not None`` would wrongly exempt every JWT-placed call.
     call_metadata[CALL_META_BILLED] = principal.auth_kind != "shared"
 
     org_call_settings = await db.get(
         OrganizationCallSettings, principal.organization_id
+    )
+    call_metadata.update(
+        recording_call_metadata(
+            org_call_settings,
+            override=body.recording_enabled,
+            self_hosted=principal.auth_kind == "shared",
+        )
     )
     max_duration_seconds = (
         (agent.max_duration_seconds if agent else None)
@@ -522,9 +531,10 @@ async def create_call(
         fetch_organization_name(str(call.organization_id))
     )
 
-    # 4. External calls — best-effort with status reconciliation.
+    # 4. External calls, best-effort with status reconciliation.
     room_name: str | None = None
     dispatch_id: str | None = None
+    participant = None
     setup_stage = "carrier_route"
     try:
         # Resolve the carrier route first: a carrier with no trunk configured
@@ -556,6 +566,7 @@ async def create_call(
             metadata={
                 "call_id": str(call.id),
                 "direction": "outbound",
+                "await_agent_ready": True,
                 "agent_id": str(agent.id) if agent else None,
                 "max_duration_seconds": call.max_duration_seconds,
                 "organization_id": str(call.organization_id),
@@ -576,6 +587,15 @@ async def create_call(
                 "org_name": await org_name_task,
             },
         )
+        setup_stage = "agent_ready"
+
+        async def worker_gave_up() -> bool:
+            # The worker finalizes the row itself when it cannot build the
+            # session (provider_key_error) and never signals readiness.
+            status = await db.scalar(select(Call.status).where(Call.id == call.id))
+            return status in TERMINAL_CALL_STATUSES
+
+        await lk.wait_for_agent_ready(room_name, gave_up=worker_gave_up)
         setup_stage = "sip_participant"
         participant = await lk.create_sip_participant(
             room_name=room_name,
@@ -585,6 +605,12 @@ async def create_call(
             participant_identity=f"caller-{call.id}",
             **({"headers": sip_headers} if sip_headers else {}),
         )
+    except WorkerGaveUp:
+        # The worker wrote status, end_reason and the pool release before it
+        # left. Nothing to dial: the row below is returned as the worker left
+        # it (the `status == "queued"` guard skips the dialing transition).
+        logger.info("worker finalized call_id=%s before the dial", call.id)
+        await _cleanup_partial_livekit(lk, room_name, dispatch_id)
     except Exception as exc:
         logger.warning(
             "call setup failed for call_id=%s stage=%s",
@@ -596,7 +622,11 @@ async def create_call(
         now = datetime.now(timezone.utc)
         # Coerce via CallEndReason so an unrecognized stage name fails here
         # rather than at the DB ENUM boundary.
-        failure_code = CallEndReason(f"{setup_stage}_failed").value
+        failure_code = (
+            CallEndReason.AGENT_DISPATCH_FAILED.value
+            if setup_stage == "agent_ready"
+            else CallEndReason(f"{setup_stage}_failed").value
+        )
         # Guard on a non-terminal status: the voicebot's own dispatch can race
         # this LiveKit-failure path and already finalize the row (e.g.
         # provider_key_error on a BYO session-build failure). This write must
@@ -634,7 +664,7 @@ async def create_call(
         await release_pool_reservation(db, call_id=call.id)
         await db.commit()
         if idem is not None:
-            # Cache failures too — Stripe-style retries replay rather than
+            # Cache failures too, Stripe-style retries replay rather than
             # re-dispatching. A fresh attempt requires a new Idempotency-Key.
             await idem.store(
                 status_code=http_status.HTTP_502_BAD_GATEWAY,

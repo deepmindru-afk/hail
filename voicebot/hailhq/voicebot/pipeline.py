@@ -4,27 +4,27 @@ Centralizes the ``AgentSession`` construction so :mod:`hailhq.voicebot.agent`
 stays focused on lifecycle (connect, parse metadata, attach event handlers,
 clean up). Three LLM modes are supported:
 
-* **Mode A — Hail fallback chain** (``llm`` is ``None`` and no org BYO llm
+* **Mode A, Hail fallback chain** (``llm`` is ``None`` and no org BYO llm
   config): assemble a :class:`livekit.agents.llm.FallbackAdapter` over
   OpenAI → Google → Anthropic fast-tier models so a single provider outage
   doesn't take the call down.
-* **Mode B — caller-provided endpoint** (dispatch metadata's ``llm`` is a
+* **Mode B, caller-provided endpoint** (dispatch metadata's ``llm`` is a
   dict with ``base_url``/``api_key``/``model``, possibly decrypted from
   ``api_key_enc``): a single :class:`livekit.plugins.openai.LLM` pointed at
-  the OpenAI-compatible endpoint the caller supplied. No fallback — the
+  the OpenAI-compatible endpoint the caller supplied. No fallback, the
   caller chose this brain explicitly. Takes precedence over mode C.
-* **Mode C — per-org BYO provider config** (``resolve_org_configs`` finds a
+* **Mode C, per-org BYO provider config** (``resolve_org_configs`` finds a
   row for the org): the org's own key/provider is used for the layer, with
   Hail's own key used as a fallback only if the org opted in
   (``fallback_enabled``). Absent a per-call override, this is the org's
   standing choice.
 
-Precedence per layer: per-call (mode B; LLM only — TTS/STT have no per-call
+Precedence per layer: per-call (mode B; LLM only, TTS/STT have no per-call
 override) > org BYO (mode C) > house default (mode A). STT provider
 selection is console-BYO-only: the org's BYO row (mode C) wins, else the
 call auto-routes by language (see ``hailhq.core.languages``). A BYO layer
 that cannot be built (no key, unknown provider, unsafe URL) and has
-fallback disabled raises :class:`ProviderKeyError` — deliberately
+fallback disabled raises :class:`ProviderKeyError`, deliberately
 fail-fast, since silently substituting Hail's keys would defeat the point
 of BYO unless the org opted into the fallback.
 
@@ -43,17 +43,13 @@ private ``_llm_instances`` attribute (no public accessor), so the BYO+fallback
 branch below constructs the three house LLMs inline rather than reaching into
 a private attribute of ``_house_llm()``.
 
-Speechmatics plugin surface (2026-07-29, multi-language task): verified
-``speechmatics.STT`` kwargs (``language``, ``operating_point``,
-``api_key``, ``turn_detection_mode``, ``end_of_utterance_silence_trigger``)
-and ``TurnDetectionMode`` members against the installed
-livekit-plugins-speechmatics (1.6.6). All names match as expected; no
-deviations. ``TurnDetectionMode.ADAPTIVE`` constructs without error —
-``livekit-plugins-speechmatics`` pulls in ``speechmatics-voice[smart]`` as a
-hard (non-optional) dependency, so the smart-turn extra (onnxruntime,
-transformers) is already installed by a plain
-``uv sync --all-packages --all-extras``. No fallback to
-``TurnDetectionMode.FIXED`` is needed.
+Speechmatics 1.8.8 uses Agent STT's Linden-1 model. Legacy operating-point
+inputs normalize to that model; the previous service's enhanced/standard
+settings no longer apply. Audio turn detection uses the SDK's built-in
+inference.TurnDetector, with STT/VAD fallback outside its supported languages.
+Verified against current docs on 2026-10-18:
+https://docs.livekit.io/agents/models/stt/speechmatics/
+https://docs.livekit.io/agents/logic/turns/turn-detector/
 """
 
 from __future__ import annotations
@@ -75,7 +71,7 @@ from hailhq.core.languages import (
 )
 from hailhq.core.provider_config import load_org_provider_configs, provider_cipher
 from hailhq.core.url_guard import UnsafeUrlError, assert_public_https_url
-from livekit.agents import AgentSession
+from livekit.agents import AgentSession, TurnHandlingOptions, inference
 from livekit.agents import llm as agents_llm
 from livekit.agents import stt as agents_stt
 from livekit.agents import tts as agents_tts
@@ -101,7 +97,6 @@ from livekit.plugins import (
 from livekit.plugins import (
     speechmatics as speechmatics_plugin,
 )
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("hailhq.voicebot")
 
@@ -151,7 +146,7 @@ async def resolve_org_configs(
     funnels straight into clean provider_key_error finalization.
 
     ``skip_llm`` is set when a per-call llm override (mode B) is already
-    present — mode B always wins over the org's llm config (see
+    present, mode B always wins over the org's llm config (see
     ``build_llm``), so decrypting/re-validating it here would be wasted
     work, and worse, could fail an otherwise-valid override call on an
     unrelated, unused org llm config problem (a stale base_url, or a key a
@@ -221,7 +216,7 @@ def _house_llm() -> agents_llm.LLM:
 def _org_llm(org: ResolvedLayer) -> agents_llm.LLM:
     model = org.params.get("model", "")
     if org.provider == "openai-compatible":
-        # openai-compatible has no house equivalent — base_url is inherently
+        # openai-compatible has no house equivalent, base_url is inherently
         # customer-specific, so a missing org key always fails fast here.
         if org.api_key is None:
             raise ProviderKeyError("org llm config has no stored api key")
@@ -343,14 +338,14 @@ def build_tts(
 
     ``org`` present (mode C): the org's provider is used, with Hail's house
     TTS instances appended as a fallback only if ``org.fallback_enabled``.
-    ``org`` absent (mode A): Cartesia primary, ElevenLabs fallback — a
+    ``org`` absent (mode A): Cartesia primary, ElevenLabs fallback, a
     provider is included only when its API key is configured, so a
     single-key self-host still works (tenet 4). With both keys set the two
     are wrapped in a ``FallbackAdapter`` with Cartesia first. With one key
     set that provider is used directly with no adapter.
 
     ``language`` is the per-call ``voice_config.language`` (ISO 639-1); it is
-    applied to every instance built here — BYO and house fallbacks alike —
+    applied to every instance built here, BYO and house fallbacks alike,
     so a provider failover never silently switches the call's language back
     to English. ``None`` keeps each plugin's default (English).
 
@@ -359,7 +354,7 @@ def build_tts(
     consent means skip the incapable BYO instance and build the house
     chain only (this recurses into the ``org is None`` branch below, so it
     shares that branch's single-instance/adapter shape and its
-    empty-chain ``ProviderKeyError``). Without consent it's a hard error —
+    empty-chain ``ProviderKeyError``). Without consent it's a hard error,
     the API gate (``routes/calls.py``) is meant to catch this before the
     voicebot ever sees it; this is defense-in-depth for direct LiveKit
     dispatches that bypass the API.
@@ -414,11 +409,11 @@ def build_stt(
     """Construct the STT for one call.
 
     ``provider`` arrives already resolved (org BYO row > language
-    auto-route — ``resolve_stt_provider``). The org row is used only when
+    auto-route, ``resolve_stt_provider``). The org row is used only when
     its provider matches ``provider``; a row the auto-route degraded away
     from (e.g. an unsupported-language fallback) is ignored rather than
     billed. ``stt_drives_turns`` is set when the session's turn detection
-    is ``"stt"`` — Speechmatics then runs its ADAPTIVE end-of-utterance
+    is ``"stt"``: Speechmatics then runs its VAD end-of-utterance
     mode instead of EXTERNAL.
 
     An org row on a provider outside ``("deepgram", "speechmatics")`` fails
@@ -433,20 +428,22 @@ def build_stt(
 
     org_matches = org is not None and org.provider == provider
     if provider == "speechmatics":
-        # Must be the enum, not the string "enhanced"/"standard": the plugin
-        # stores it unconverted and its .model property does `op.value`,
-        # which raises AttributeError on a plain str at session start.
-        operating_point = speechmatics_plugin.OperatingPoint.ENHANCED
-        if org_matches and org.params.get("operating_point") == "standard":
-            operating_point = speechmatics_plugin.OperatingPoint.STANDARD
+        # Agents 1.8 uses Speechmatics Agent STT (Linden-1). The previous
+        # service's operating points have no equivalent on the new endpoint.
+        # https://docs.livekit.io/agents/models/stt/speechmatics/
+        model = settings.speechmatics_model
+        if not model:
+            raise ProviderKeyError("SPEECHMATICS_MODEL is empty")
+        if org_matches and org.params.get("operating_point"):
+            logger.warning("Speechmatics operating_point is retired; using %s", model)
+        if org_matches and org.params.get("model") not in (None, model):
+            raise ProviderKeyError(f"Speechmatics Agent STT supports model {model}")
         kwargs: dict[str, Any] = {
             "language": language or "en",
-            "operating_point": operating_point,
+            "model": model,
         }
         if stt_drives_turns:
-            kwargs["turn_detection_mode"] = (
-                speechmatics_plugin.TurnDetectionMode.ADAPTIVE
-            )
+            kwargs["turn_detection_mode"] = speechmatics_plugin.TurnDetectionMode.VAD
         if org_matches and org.api_key is not None:
             kwargs["api_key"] = org.api_key
         elif not settings.speechmatics_api_key:
@@ -542,20 +539,20 @@ def build_session(
     :func:`hailhq.voicebot.agent.prewarm`. ``org_cfgs`` is the org's resolved
     BYO layers (from :func:`resolve_org_configs`); ``voice_id_override`` and
     ``language`` are the per-call ``voice_config.voice_id`` /
-    ``voice_config.language`` from dispatch metadata — the voice beats any
+    ``voice_config.language`` from dispatch metadata, the voice beats any
     org-level default, the language pins both STT and TTS.
 
     STT provider selection is console-BYO-only (no per-call knob): the
     org's BYO STT row wins (:func:`resolve_stt_provider`), else the call
     auto-routes by language. Auto-routing only picks speechmatics when a
-    key exists for it (org or house) — a deepgram-only self-host keeps
-    working (tenet 4). Turn detection: semantic MultilingualModel for its
+    key exists for it (org or house), a deepgram-only self-host keeps
+    working (tenet 4). Turn detection: semantic inference.TurnDetector for its
     14 languages, "stt" when speechmatics serves the call, "vad" as the
     floor.
 
     ``language`` arrives raw from dispatch metadata (a direct LiveKit
     dispatch can carry any string, bypassing the API's request-validation
-    gate) — a code outside :data:`SUPPORTED_LANGUAGES` is degraded to
+    gate), a code outside :data:`SUPPORTED_LANGUAGES` is degraded to
     ``None`` (provider defaults / English) rather than raising, so a
     malformed dispatch never crashes the call.
     """
@@ -574,7 +571,7 @@ def build_session(
         # language. ``fallback_enabled`` on that row is consent to
         # house-provider rerouting: with consent, degrade to deepgram
         # (which covers every supported language); without it, this is a
-        # hard error naming the provider and language — the API gate
+        # hard error naming the provider and language, the API gate
         # (routes/calls.py) is meant to catch this before the voicebot ever
         # sees it, so this is defense-in-depth for direct LiveKit dispatches
         # that bypass the API.
@@ -602,7 +599,7 @@ def build_session(
         # or an org row that consented via fallback_enabled, degrade to
         # deepgram + VAD turn detection (tenet 4: a deepgram-only self-host
         # keeps working). An org row with fallback_enabled=False has NOT
-        # consented to this reroute — leave provider="speechmatics" so this
+        # consented to this reroute, leave provider="speechmatics" so this
         # falls through to build_stt(), which raises ProviderKeyError
         # ("no org or house speechmatics key available") instead of
         # silently substituting deepgram.
@@ -615,11 +612,16 @@ def build_session(
         )
         provider = "deepgram"
     mode = turn_mode_for(language, provider)
-    turn_detection: Any = MultilingualModel() if mode == "semantic" else mode
+    turn_detection: Any = inference.TurnDetector() if mode == "semantic" else mode
     return AgentSession(
         vad=vad,
         stt=build_stt(org_stt, language, provider, stt_drives_turns=(mode == "stt")),
         tts=build_tts(org_cfgs.get("tts"), voice_id_override, language),
         llm=build_llm(llm_cfg, org_cfgs.get("llm")),
-        turn_detection=turn_detection,
+        turn_handling=TurnHandlingOptions(
+            turn_detection=turn_detection,
+            # Only the setting that differs from the SDK defaults: a transcribed
+            # word, not VAD energy alone, is needed to interrupt the agent.
+            interruption={"min_words": 1},
+        ),
     )

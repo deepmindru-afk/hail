@@ -27,6 +27,15 @@ async def get_call_settings(
     default = settings.hail_voice_max_duration_seconds
     seconds = override.max_duration_seconds if override else None
     return {
+        # Effective value: on unless the workspace turned it off.
+        "recording_enabled": (override.recording_enabled if override else None)
+        is not False,
+        "recording_available": settings.hail_recording_enabled,
+        "recording_confirmed": bool(override and override.recording_confirmed_at),
+        "recording_retention_days": (
+            override.recording_retention_days if override else None
+        )
+        or settings.hail_recording_retention_days,
         "max_duration_seconds": seconds or default,
         "default_max_duration_seconds": default,
         "uses_default": seconds is None,
