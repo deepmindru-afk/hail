@@ -21,6 +21,7 @@ async def test_reads_current_service_default(monkeypatch):
     assert result["recording_retention_days"] == settings.hail_recording_retention_days
     assert result["ai_disclosure_line"] is None
     assert result["recording_confirmed"] is False
+    assert result["recording_enabled"] is True
     assert result["default_ai_disclosure_lines"]["inbound"].startswith(
         "Hi, this is an AI"
     )

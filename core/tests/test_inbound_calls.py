@@ -253,7 +253,7 @@ async def test_accepted_call_rings_and_returns_dispatch_metadata(async_session) 
         "billed": True,
         "recording_enabled": False,
         "recording_status": "disabled",
-        "recording_retention_days": 365,
+        "recording_retention_days": 30,
     }
     assert call.voice_config == {"voice_id": "v1", "language": "fr"}
 
