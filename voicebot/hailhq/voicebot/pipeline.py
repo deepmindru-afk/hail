@@ -65,6 +65,7 @@ from hailhq.core.db import session_scope
 from hailhq.core.languages import (
     SUPPORTED_LANGUAGES,
     default_stt_for,
+    elevenlabs_language,
     resolve_stt_provider,
     tts_providers_for,
     turn_mode_for,
@@ -293,7 +294,7 @@ def _house_tts(
             "model": settings.elevenlabs_model,
         }
         if language:
-            kwargs["language"] = language
+            kwargs["language"] = elevenlabs_language(language)
         instances.append(elevenlabs_plugin.TTS(**kwargs))
     return instances
 
@@ -324,7 +325,7 @@ def _org_tts(
         if voice:
             kwargs["voice_id"] = voice
         if language:
-            kwargs["language"] = language
+            kwargs["language"] = elevenlabs_language(language)
         return elevenlabs_plugin.TTS(**kwargs)
     raise ProviderKeyError(f"unknown org tts provider '{org.provider}'")
 
@@ -556,6 +557,9 @@ def build_session(
     ``None`` (provider defaults / English) rather than raising, so a
     malformed dispatch never crashes the call.
     """
+    org_cfgs = org_cfgs or {}
+    org_tts = org_cfgs.get("tts")
+    language = language or (org_tts.params.get("language") if org_tts else None)
     if language is not None and language not in SUPPORTED_LANGUAGES:
         logger.warning(
             "unsupported language %r from dispatch metadata; falling back to "
@@ -563,7 +567,6 @@ def build_session(
             language,
         )
         language = None
-    org_cfgs = org_cfgs or {}
     org_stt = org_cfgs.get("stt")
     provider = resolve_stt_provider(org_stt.provider if org_stt else None, language)
     if language is not None and provider not in SUPPORTED_LANGUAGES[language].stt:
