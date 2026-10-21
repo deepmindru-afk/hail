@@ -36,7 +36,12 @@ from hailhq.core import sms_registration_fees, sms_setup
 from hailhq.core.billing import get_balance_cents
 from hailhq.core.config import settings
 from hailhq.core.db import get_session, org_lock
-from hailhq.core.models import AccountCredit, CarrierVerification, PhoneNumber
+from hailhq.core.models import (
+    AccountCredit,
+    CarrierVerification,
+    NumberOffer,
+    PhoneNumber,
+)
 from hailhq.core.providers.verification import (
     Address,
     DocumentInput,
@@ -106,30 +111,82 @@ def _resolve_provider_name(name: str | None, default: str | None) -> str:
     return resolved
 
 
-async def _sms_provider_name(
-    db: AsyncSession, organization_id: UUID, name: str | None, where: str
+async def _quote_provider_name(
+    db: AsyncSession,
+    organization_id: UUID,
+    quote_id: UUID,
+    name: str | None,
+    country_code: str,
+    number_type: str,
+    where: str,
 ) -> str:
-    """The carrier for an SMS registration: the one named, else the carrier
-    of the org's active US long codes that can text."""
-    if name:
-        return name
-    carriers = (
-        (
-            await db.execute(
-                select(PhoneNumber.provider)
-                .where(
-                    PhoneNumber.organization_id == organization_id,
-                    PhoneNumber.provisioning_state == "active",
-                    PhoneNumber.country_code == "US",
-                    PhoneNumber.number_type == "local",
-                    PhoneNumber.capabilities.any("sms"),
-                )
-                .distinct()
+    """The carrier of a number quote, so a client can verify for an offer
+    without knowing which carrier backs it. The quote must be for the same
+    country and number type as the request."""
+    offer = (
+        await db.execute(
+            select(NumberOffer.offer).where(
+                NumberOffer.id == quote_id,
+                NumberOffer.organization_id == organization_id,
             )
         )
-        .scalars()
-        .all()
+    ).scalar_one_or_none()
+    if offer is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Number quote not found; quote again and pass the new quote_id",
+        )
+    if (
+        offer.get("country_code", "").upper() != country_code.upper()
+        or offer.get("number_type") != number_type
+    ):
+        raise unprocessable(
+            "quote_id is for a different country_code or number_type",
+            loc=[where, "quote_id"],
+        )
+    carrier = offer["provider"]
+    if name and name != carrier:
+        raise unprocessable(
+            "provider does not match the quote", loc=[where, "provider"]
+        )
+    return carrier
+
+
+async def _sms_provider_name(
+    db: AsyncSession,
+    organization_id: UUID,
+    name: str | None,
+    number_id: UUID | None,
+    where: str,
+) -> str:
+    """The carrier for an SMS registration: the one named, else the carrier
+    of the number passed as ``number_id``, else the carrier of the org's
+    active US long codes that can text."""
+    query = select(PhoneNumber.provider).where(
+        PhoneNumber.organization_id == organization_id,
+        PhoneNumber.provisioning_state == "active",
+        PhoneNumber.country_code == "US",
+        PhoneNumber.number_type == "local",
+        PhoneNumber.capabilities.any("sms"),
     )
+    if number_id is not None:
+        carrier = (
+            await db.execute(query.where(PhoneNumber.id == number_id))
+        ).scalar_one_or_none()
+        if carrier is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Number not found among your active US local numbers "
+                "that can text",
+            )
+        if name and name != carrier:
+            raise unprocessable(
+                "provider does not match the number", loc=[where, "provider"]
+            )
+        return carrier
+    if name:
+        return name
+    carriers = (await db.execute(query.distinct())).scalars().all()
     if not carriers:
         raise unprocessable(
             "Buy a US number first, then register it for texting.",
@@ -137,8 +194,9 @@ async def _sms_provider_name(
         )
     if len(carriers) > 1:
         raise unprocessable(
-            "Your US numbers are with more than one carrier. Name the carrier.",
-            loc=[where, "provider"],
+            "Your US numbers are with more than one carrier. Pass number_id: "
+            "the id of the number to register.",
+            loc=[where, "number_id"],
         )
     return carriers[0]
 
@@ -165,7 +223,7 @@ def _provider_or_404(
     if provider is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
-            detail=f"no verification provider named {name!r}",
+            detail="no verification provider is configured for this carrier",
         )
     return provider
 
@@ -461,17 +519,52 @@ async def get_requirements(
     subject_type: SubjectType = "person",
     provider: str | None = None,
     purpose: str = "number",
+    quote_id: Annotated[
+        UUID | None,
+        Query(
+            description="quote_id of an offer from POST /numbers/quotes that needs "
+            "verification. The carrier is read from it."
+        ),
+    ] = None,
+    number_id: Annotated[
+        UUID | None,
+        Query(
+            description="For purpose=sms: id of one of your US numbers. The "
+            "carrier is read from it. Needed when your US numbers are with "
+            "more than one carrier."
+        ),
+    ] = None,
 ) -> Requirements:
     """What the carrier needs from you: the fields, the documents, and whether
     an address is needed. `purpose=number` (default) is for buying a number;
     `purpose=sms` is for registering to send SMS in the US; without
-    `provider` it uses the carrier of your US numbers. Build your form
+    `provider` it uses the carrier of your US numbers, or of the number
+    passed as `number_id`. For `purpose=number`,
+    pass the offer's `quote_id` to get that offer's carrier. Build your form
     from it."""
     if purpose not in PURPOSES:
         raise unprocessable("unknown purpose", loc=["query", "purpose"])
+    if purpose == "sms" and quote_id is not None:
+        raise unprocessable(
+            "quote_id is only for purpose=number", loc=["query", "quote_id"]
+        )
+    if purpose != "sms" and number_id is not None:
+        raise unprocessable(
+            "number_id is only for purpose=sms", loc=["query", "number_id"]
+        )
     if purpose == "sms":
         name = await _sms_provider_name(
-            db, principal.organization_id, provider, "query"
+            db, principal.organization_id, provider, number_id, "query"
+        )
+    elif quote_id is not None:
+        name = await _quote_provider_name(
+            db,
+            principal.organization_id,
+            quote_id,
+            provider,
+            country_code,
+            number_type,
+            "query",
         )
     else:
         name = _resolve_provider_name(provider, default_provider)
@@ -490,6 +583,8 @@ class _DocumentPart(BaseModel):
 
 class _Submission(BaseModel):
     provider: str | None = None
+    quote_id: UUID | None = None
+    number_id: UUID | None = None
     purpose: str = "number"
     country_code: str = Field(min_length=2, max_length=2)
     number_type: str
@@ -590,6 +685,9 @@ async def create_verification(
     in the US; `sms` takes `country_code=US` and `number_type=local` and charges
     the filing fee), `country_code`, `number_type`, `subject_type`, `provider`
     (optional; for `sms` it defaults to the carrier of your US numbers),
+    `quote_id` (optional, for `number`: the offer to verify for; its carrier
+    is used), `number_id` (optional, for `sms`: one of your US numbers; its
+    carrier is used),
     `fields` (JSON object), `address` (JSON object, when required), `documents`
     (JSON object: slot name to `{"option": ..., "fields": {...}}`), and one file
     part per slot named `file.<slot>`. Get the slot and field names from
@@ -604,6 +702,8 @@ async def create_verification(
     try:
         sub = _Submission(
             provider=_text_part(form, "provider") or None,
+            quote_id=_text_part(form, "quote_id") or None,
+            number_id=_text_part(form, "number_id") or None,
             purpose=_text_part(form, "purpose", "number"),
             country_code=_text_part(form, "country_code").upper(),
             number_type=_text_part(form, "number_type"),
@@ -628,9 +728,27 @@ async def create_verification(
             "SMS registration is for US local numbers", loc=["body", "country_code"]
         )
 
+    if sub.purpose == "sms" and sub.quote_id is not None:
+        raise unprocessable(
+            "quote_id is only for purpose=number", loc=["body", "quote_id"]
+        )
+    if sub.purpose != "sms" and sub.number_id is not None:
+        raise unprocessable(
+            "number_id is only for purpose=sms", loc=["body", "number_id"]
+        )
     if sub.purpose == "sms":
         provider_name = await _sms_provider_name(
-            db, principal.organization_id, sub.provider, "body"
+            db, principal.organization_id, sub.provider, sub.number_id, "body"
+        )
+    elif sub.quote_id is not None:
+        provider_name = await _quote_provider_name(
+            db,
+            principal.organization_id,
+            sub.quote_id,
+            sub.provider,
+            sub.country_code,
+            sub.number_type,
+            "body",
         )
     else:
         provider_name = _resolve_provider_name(sub.provider, default_provider)
