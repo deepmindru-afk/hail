@@ -185,13 +185,14 @@ curl -H "Authorization: Bearer ${HAIL_API_KEY}" http://localhost:8081/
 
 The MCP service selects its auth mode from env at boot. For the full env-var contract, refer to the [MCP modes table in the operations runbook](./self-host/operations.md#mcp-modes) (`HAIL_AUTH_URL` for cloud, `HAIL_API_KEY` for self-host, mutually exclusive).
 
-## Why remote-only (no stdio / no PyPI install)
+## Stdio
 
-We release one MCP distribution: a remote HTTP endpoint. It is bundled with every Hail deploy. We deliberately do **not** publish a stdio MCP server on PyPI. The reasons:
+For hosts that require stdio, run the entry point in the self-hosted MCP container. From your Hail checkout:
 
-1. **Web UIs cannot run stdio servers.** Claude.ai's MCP Connectors and ChatGPT's Custom Connectors accept only remote URLs. They cannot start local processes from a browser.
-2. **Every terminal client also accepts a remote URL.** Claude Code, Claude Desktop, Cursor, and Zed all connect to a URL. The URL flow works for all clients. Stdio works only for a subset.
-3. **Stdio fragments distribution.** Two artifacts (PyPI stdio wrapper + HTTP service) cause two versions to keep in sync, two install paths, and two failure modes.
-4. **Installation friction.** Stdio requires Python + pip/uv on the user's dev machine. Remote HTTP requires nothing. You only paste a URL.
+```sh
+docker compose run --rm -T mcp python -u -m hailhq.mcp.stdio
+```
 
-If a restricted client ever needs stdio, we will release a thin stdio-to-HTTP proxy on PyPI (approximately 50 LOC).
+The container reads `HAIL_API_KEY` from `.env` and calls the API at `http://api:8080`.
+`HAIL_AUTH_URL` must be empty in `.env`, not only in your shell: stdio reads `.env` and refuses to start when it is set.
+Stdio uses the same tools as the HTTP service.
