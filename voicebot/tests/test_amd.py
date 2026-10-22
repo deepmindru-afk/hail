@@ -25,7 +25,13 @@ from hailhq.voicebot.amd import (
     run_amd,
 )
 from livekit import rtc
-from livekit.agents.llm import ChatChunk, ChoiceDelta, FunctionToolCall, LLMStream
+from livekit.agents.llm import (
+    ChatChunk,
+    ChatContext,
+    ChoiceDelta,
+    FunctionToolCall,
+    LLMStream,
+)
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.voice.amd import AMDCategory, AMDPredictionEvent
 from sqlalchemy import select
@@ -381,6 +387,89 @@ def test_amd_end_reason_maps_to_call_end_reason_values() -> None:
     )
 
 
+async def test_unavailable_business_welcome_is_rechecked_before_hangup(monkeypatch):
+    original = _prediction("machine-unavailable")
+    original.transcript = "Welcome to Delta Vacations. We're so glad you called."
+    _RecordingAMD.result = original
+    monkeypatch.setattr(amd_mod, "AMD", _RecordingAMD)
+    session = _session_with_layers()
+    session.llm = _GreetingLLM("machine-ivr")
+    session._start_ivr_detection = AsyncMock()
+    result = await run_amd(session, UUID(int=1))
+    assert result.category == AMDCategory.MACHINE_IVR
+    assert result.reason == "unavailable_recheck"
+    session._start_ivr_detection.assert_awaited_once()
+
+
+async def test_explicit_unavailable_verdict_is_preserved_after_recheck(monkeypatch):
+    original = _prediction("machine-unavailable")
+    original.transcript = "This mailbox is full and cannot accept messages."
+    _RecordingAMD.result = original
+    monkeypatch.setattr(amd_mod, "AMD", _RecordingAMD)
+    session = _session_with_layers()
+    session.llm = _GreetingLLM("machine-unavailable")
+    result = await run_amd(session, UUID(int=1))
+    assert result.category == AMDCategory.MACHINE_UNAVAILABLE
+
+
+@pytest.mark.parametrize("verification", ["machine-ivr", "uncertain", "provider-error"])
+async def test_atlantis_welcome_misclassified_unavailable_keeps_late_menu_alive(
+    async_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, verification: str
+) -> None:
+    """Call 435dd50f: the menu arrived one second after the unavailable verdict.
+
+    Exercise the real AMD verification and entrypoint outcome together. A
+    missing recheck, or preserving an unverified unavailable verdict, must
+    terminate this call and fail the test.
+    """
+    welcome = (
+        "Thank you for calling Atlantis Paradise Island, Bahamas. Your call may "
+        "be recorded for quality assurance and training purposes."
+    )
+    menu = (
+        "Please listen carefully as our menu options have recently changed. "
+        "For existing reservations made directly with Atlantis, please press one. "
+        "To make a new reservation, please press two."
+    )
+    original = _prediction("machine-unavailable")
+    original.transcript = welcome
+    _RecordingAMD.result = original
+    monkeypatch.setattr(amd_mod, "AMD", _RecordingAMD)
+
+    async def detect(session, call_id, **kwargs):
+        session.stt = object()
+        session.llm = _GreetingLLM(verification)
+        if verification == "provider-error":
+            session.llm.chat = Mock(side_effect=RuntimeError("classifier failed"))
+        session._start_ivr_detection = AsyncMock()
+        return await run_amd(session, call_id)
+
+    call_id, ctx, session = await _drive_entrypoint(
+        async_session, monkeypatch, amd_result=None, run_amd_override=detect
+    )
+    assert ctx.delete_room_calls == 0
+    assert ctx.shutdown_calls == []
+    assert session.say_calls == []
+    assert welcome in session.replies[0]
+    events = await _amd_events(async_session, call_id)
+    assert events[0].payload["category"] == "machine-ivr"
+    assert events[0].payload["reason"] == "unavailable_recheck"
+
+    # The rest of the recording arrives after AMD has returned. It must stay
+    # in menu mode, without speaking a disclosure or starting a hangup.
+    agent = session.start_options["agent"]
+    agent.phone_menu.llm = _GreetingLLM("machine-ivr")
+    session.emit_vad_speaking()
+    session.emit_user_turn(menu)
+    await session.drain_turns()
+    assert agent.phone_menu.active
+    assert agent.phone_menu.can_navigate
+    assert session.say_calls == []
+    assert ctx.delete_room_calls == 0
+    assert ctx.shutdown_calls == []
+    await agent.phone_menu.aclose()
+
+
 # --------------------------------------------------------------------------- #
 # entrypoint wiring
 # --------------------------------------------------------------------------- #
@@ -394,6 +483,8 @@ class _FakeAmdSession:
         self.replies: list[str] = []
         self.started = False
         self.handlers: dict[str, list] = {}
+        self.llm = _GreetingLLM("human")
+        self.turn_tasks: set[asyncio.Task] = set()
 
     def on(self, event: str):
         def _register(fn):
@@ -406,6 +497,16 @@ class _FakeAmdSession:
         item = SimpleNamespace(role="user", text_content=text)
         for fn in self.handlers.get("conversation_item_added", []):
             fn(SimpleNamespace(item=item))
+        agent = self.start_options.get("agent")
+        if agent is not None and agent.phone_menu is not None:
+            task = asyncio.create_task(
+                agent.on_user_turn_completed(ChatContext(), item)
+            )
+            self.turn_tasks.add(task)
+            task.add_done_callback(self.turn_tasks.discard)
+
+    async def drain_turns(self):
+        await asyncio.gather(*list(self.turn_tasks))
 
     def emit_keypress(self, name: str = "send_dtmf") -> None:
         ev = SimpleNamespace(function_calls=[SimpleNamespace(name=name)])
@@ -653,6 +754,28 @@ async def test_non_hangup_categories_speak_the_disclosure(
     assert ctx.shutdown_calls == []
 
 
+async def test_failed_greeting_is_not_saved_as_no_answer(
+    async_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A say()/TTS failure after a person answered is not an unanswered call."""
+
+    def broken_say(self: Any, text: str, **kwargs: Any) -> Any:
+        raise RuntimeError("tts failed")
+
+    monkeypatch.setattr(_FakeAmdSession, "say", broken_say)
+    call_id, ctx, _session = await _drive_entrypoint(
+        async_session, monkeypatch, amd_result=_prediction("human")
+    )
+
+    assert ctx.delete_room_calls == 0
+    assert ctx.shutdown_calls == []
+    refreshed = (
+        await async_session.execute(select(Call).where(Call.id == call_id))
+    ).scalar_one()
+    await async_session.refresh(refreshed)
+    assert refreshed.status != "no_answer"
+
+
 # --------------------------------------------------------------------------- #
 # machine-ivr: the production failure this branch fixes
 # --------------------------------------------------------------------------- #
@@ -718,14 +841,10 @@ async def test_ivr_reply_carries_the_menu_and_orders_keypresses(
     assert "do not speak" in instructions.lower()
 
 
-async def test_greeting_fires_on_vad_with_no_transcript(
+async def test_vad_without_transcript_cannot_confirm_a_person(
     async_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression: call 9647b6c4. DTMF routed us to a clerk who answered in
-    Catalan against an en-US Deepgram, so no transcript ever landed and the
-    agent sat mute while a person said "bona tarda" twice. VAD does not care
-    what language it is."""
-    from hailhq.voicebot.agent import AI_DISCLOSURE_LINE
+    """VAD alone does not greet at once; PhoneMenu waits a bounded time (test_ivr.py)."""
 
     _call_id, _ctx, session = await _drive_entrypoint(
         async_session, monkeypatch, amd_result=_prediction("machine-ivr")
@@ -736,7 +855,7 @@ async def test_greeting_fires_on_vad_with_no_transcript(
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
-    assert session.say_calls == [f"{AI_DISCLOSURE_LINE} Is this a good time?"]
+    assert session.say_calls == []
 
 
 async def test_greeting_stays_held_until_keys_are_pressed(
@@ -769,7 +888,7 @@ async def test_greeting_fires_once_across_both_triggers(
         session.emit_vad_speaking()
         session.emit_user_turn("Hola?")
         await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    await session.drain_turns()
 
     assert len(session.say_calls) == 1
     assert session.say_calls[0].startswith(AI_DISCLOSURE_LINE)
@@ -788,8 +907,7 @@ async def test_ivr_greeting_is_deferred_to_the_first_person(
 
     session.emit_keypress()
     session.emit_user_turn("Hello, reception.")
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    await session.drain_turns()
 
     assert session.say_calls == [f"{AI_DISCLOSURE_LINE} Is this a good time?"]
 
