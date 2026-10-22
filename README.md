@@ -70,6 +70,39 @@ Authentication differs by deployment:
 
 Full setup guides: [self-hosting](docs/public/self-host/README.md) · [Webhooks](docs/public/webhooks.md) · [MCP](docs/public/mcp.md) · [operations](docs/public/self-host/operations.md)
 
+## Cursor plugin
+
+Give your AI assistant a phone number and an email inbox.
+
+Let your assistant handle calls, texts, and email. Building an app? Add AI
+calls, email and SMS with one API.
+
+Make and take calls, send and receive messages, and check conversation
+history from Cursor. Get phone numbers in 120+ countries, with help for
+local rules and required documents, including US A2P 10DLC registration.
+Choose a built-in voice or bring your own. Build with the API, CLI, or
+Python SDK. Open-source or cloud priced on usage.
+
+From a checkout that includes the plugin, copy its files into Cursor's
+local plugin directory:
+
+```bash
+mkdir -p ~/.cursor/plugins/local/hail
+git archive HEAD .cursor-plugin mcp.json README.md LICENSE \
+  docs/assets/hail-messenger.svg | tar -x -C ~/.cursor/plugins/local/hail
+```
+
+Reload Cursor and open Customize to find the Hail MCP server.
+Enterprise administrators must allow local plugin imports first.
+The plugin connects to `https://mcp.hail.so`
+using OAuth. Sign in to Hail when Cursor asks. No API key or local MCP
+runtime is needed. Start with a read-only request:
+
+```text
+Find call-capable Hail numbers in the UK, France, and Canada. Compare
+monthly fees, setup fees, and registration requirements.
+```
+
 ## Install the CLI
 
 On macOS or Linux with [Homebrew](https://brew.sh):
