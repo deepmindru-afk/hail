@@ -42,6 +42,7 @@ class TwilioVoiceProvider(VoiceProvider):
         account_sid: str | None = None,
         auth_token: str | None = None,
         client: TwilioClient | None = None,
+        timeout: float | None = None,
     ) -> None:
         self.account_sid = account_sid or settings.twilio_account_sid
         token = auth_token or settings.twilio_auth_token
@@ -53,7 +54,15 @@ class TwilioVoiceProvider(VoiceProvider):
                     "twilio_auth_token (set them in settings or pass them "
                     "explicitly)."
                 )
-            client = TwilioClient(self.account_sid, token)
+            client = TwilioClient(
+                self.account_sid,
+                token,
+                http_client=(
+                    TwilioHttpClient(timeout=timeout, max_retries=0)
+                    if timeout is not None
+                    else None
+                ),
+            )
         self._client = client
 
     async def release_number(self, provider_resource_id: str) -> None:
@@ -97,6 +106,16 @@ class TwilioVoiceProvider(VoiceProvider):
             answered_at=answered_at,
             ended_at=ended_at,
             duration_seconds=duration_seconds,
+        )
+
+    async def get_call_error_code(self, provider_call_sid: str) -> str | None:
+        """Call errors live on Notifications, not the Call resource itself."""
+        notifications = await asyncio.to_thread(
+            self._client.calls(provider_call_sid).notifications.list, log=0, limit=20
+        )
+        codes = [str(n.error_code) for n in notifications if n.error_code]
+        return next(
+            (code for code in codes if code == "32205"), codes[0] if codes else None
         )
 
     async def hangup_call(self, provider_call_sid: str) -> None:

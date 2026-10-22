@@ -28,6 +28,7 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 - Numbers: an approved verification as a person now buys numbers that accept one. Before, only a business verification was used.
 - MCP: every tool now sets `annotations.title`, and `submit_verification` declares types for `fields`, `documents`, `files` and `address`, so MCP directories list them correctly.
+- Voice: carrier-confirmed rejections finish as `failed` instead of `busy`. Call responses and failure webhooks include a readable `failure_message`; blocked destinations explain that calling the destination is disabled. Genuine busy responses keep their status.
 
 ## [0.30.0] (2026-10-20)
 
