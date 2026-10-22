@@ -21,11 +21,13 @@ class OfferVerification(BaseModel):
     )
 
 
-class CarrierOffer(BaseModel):
-    provider: Literal["twilio", "telnyx", "didww"] = Field(
-        description="Carrier supplying this exact number."
+class QuoteOffer(BaseModel):
+    """One number offer as the public API shows it. It never names the
+    carrier or carries a carrier-issued id: Hail picks the carrier."""
+
+    e164: str | None = Field(
+        description="Available phone number in E.164 format. Null for a by-request offer: support picks the number when it orders it."
     )
-    e164: str = Field(description="Available phone number in E.164 format.")
     country_code: str = Field(description="ISO alpha-2 country code of the number.")
     number_type: NumberType = Field(
         description="Local, mobile, national, or toll-free number type."
@@ -55,14 +57,6 @@ class CarrierOffer(BaseModel):
         default_factory=list,
         description="Carrier regulatory requirement labels associated with this offer.",
     )
-    verification_id: str | None = Field(
-        default=None,
-        description="Server-selected organization-bound approved bundle or requirement-group identifier, if any.",
-    )
-    address_id: str | None = Field(
-        default=None,
-        description="Server-selected verified address identifier, when supported; null otherwise.",
-    )
     locality: str | None = Field(
         default=None,
         description="City or area the carrier lists for this number, such as Phoenix or London; null when unknown.",
@@ -77,7 +71,29 @@ class CarrierOffer(BaseModel):
     )
     verification: OfferVerification | None = Field(
         default=None,
-        description="Your organization's verification for this offer's country, number type and carrier that is not cancelled or rejected; null when there is none.",
+        description="Your organization's verification for this offer's country and number type that is not cancelled or rejected; null when there is none.",
+    )
+    by_request: bool = Field(
+        default=False,
+        description="True when support orders this number by hand: it cannot be bought with POST /numbers. Ask support for it. Its quote_id still works for verification.",
+    )
+
+
+class CarrierOffer(QuoteOffer):
+    """Internal offer: the public fields plus the carrier and its ids. Stored
+    in ``number_offers.offer`` and read back by the purchase flow. Never
+    returned by the public API (see ``QuoteOffer``)."""
+
+    provider: Literal["twilio", "telnyx", "didww"] = Field(
+        description="Carrier supplying this exact number."
+    )
+    verification_id: str | None = Field(
+        default=None,
+        description="Server-selected organization-bound approved bundle or requirement-group identifier, if any.",
+    )
+    address_id: str | None = Field(
+        default=None,
+        description="Server-selected verified address identifier, when supported; null otherwise.",
     )
 
 
@@ -94,17 +110,13 @@ def cents(value) -> int:
 
 
 class NumberQuotesResponse(BaseModel):
-    offers: list[CarrierOffer] = Field(
-        description="Live carrier offers ordered by readiness, remaining verification effort, monthly price and setup price. On a tie the first carrier listed wins."
+    offers: list[QuoteOffer] = Field(
+        description="Live offers ordered by readiness, remaining verification effort, monthly price and setup price."
     )
     recommended_quote_id: UUID | None = Field(
-        description="Recommended ready offer matching the requested carrier preference, or null if none qualifies."
-    )
-    unavailable_providers: list[str] = Field(
-        description="Carriers whose inventory, price, or regulatory lookup failed; comparison may be incomplete."
+        description="Recommended ready offer, or null if none qualifies."
     )
     incomplete: bool = Field(
-        default=False,
         description="True when some carriers did not answer, so the offers may not be complete. Search again later for a full comparison.",
     )
     expires_at: datetime = Field(

@@ -41,7 +41,6 @@ async def client() -> HailClient:
 def _verification(vid: str | None = None, state: str = "submitted", **extra) -> dict:
     return {
         "id": vid or str(uuid4()),
-        "provider": "didww",
         "country_code": "GB",
         "number_type": "mobile",
         "subject_type": "person",
@@ -58,7 +57,6 @@ def _verification(vid: str | None = None, state: str = "submitted", **extra) -> 
 
 def _requirements() -> dict:
     return {
-        "provider": "didww",
         "country_code": "GB",
         "number_type": "mobile",
         "subject_type": "person",
@@ -119,11 +117,15 @@ def _sized(n: int, ct: str = "application/pdf") -> bytes:
     return head + b"a" * (n - len(head))
 
 
+_QUOTE = "8b1f0c2e-0000-4000-8000-000000000001"
+
+
 def _kwargs(client: HailClient, **over) -> dict:
     base = {
         "client": client,
         "country_code": "GB",
         "number_type": "mobile",
+        "quote_id": _QUOTE,
         "fields": {"first_name": _FIELD_VALUE},
         "documents": {"identity": {"option": "passport", "fields": {}}},
         "files": [_file()],
@@ -158,7 +160,7 @@ async def test_requirements_sends_query(client: HailClient) -> None:
         return_value=httpx.Response(200, json=_requirements())
     )
     result = await tools.get_verification_requirements(
-        client=client, country_code="GB", number_type="mobile"
+        client=client, country_code="GB", number_type="mobile", quote_id=_QUOTE
     )
     params = dict(route.calls[0].request.url.params)
     assert params == {
@@ -166,6 +168,7 @@ async def test_requirements_sends_query(client: HailClient) -> None:
         "number_type": "mobile",
         "subject_type": "person",
         "purpose": "number",
+        "quote_id": _QUOTE,
     }
     assert result["required"] is True
     assert result["documents"][0]["needs_input"] is True
@@ -217,7 +220,11 @@ async def test_requirements_sends_number_id(client: HailClient) -> None:
 
 async def test_requirements_rejects_a_bad_number_id(client: HailClient) -> None:
     result = await tools.get_verification_requirements(
-        client=client, country_code="US", number_type="local", number_id="nope"
+        client=client,
+        country_code="US",
+        number_type="local",
+        purpose="sms",
+        number_id="nope",
     )
     assert "number_id" in result["error"]
 
@@ -228,7 +235,7 @@ async def test_requirements_hide_the_carrier(client: HailClient) -> None:
         return_value=httpx.Response(200, json=_requirements())
     )
     result = await tools.get_verification_requirements(
-        client=client, country_code="GB", number_type="mobile"
+        client=client, country_code="GB", number_type="mobile", quote_id=_QUOTE
     )
     assert "provider" not in result
 
@@ -244,9 +251,19 @@ async def test_requirements_maps_422(client: HailClient) -> None:
         )
     )
     result = await tools.get_verification_requirements(
-        client=client, country_code="GB", number_type="bogus"
+        client=client, country_code="GB", number_type="bogus", quote_id=_QUOTE
     )
     assert "error" in result
+
+
+async def test_number_verification_needs_a_quote_id(client: HailClient) -> None:
+    result = await tools.get_verification_requirements(
+        client=client, country_code="GB", number_type="mobile"
+    )
+    assert "quote_id is required" in result["error"]
+    result = await tools.submit_verification(**_kwargs(client, quote_id=None))
+    assert "quote_id is required" in result["error"]
+    assert "Nothing was sent" in result["error"]
 
 
 # --------------------------------------------------------------------------- #
@@ -445,7 +462,6 @@ async def test_submit_omits_optional_parts(client: HailClient) -> None:
     await tools.submit_verification(**_kwargs(client, address=None))
     assert "address" not in captured["parts"]
     assert "provider" not in captured["parts"]
-    assert "quote_id" not in captured["parts"]
     assert "number_id" not in captured["parts"]
 
 
@@ -820,6 +836,7 @@ def _tool_args(**over) -> dict:
     args = {
         "country_code": "GB",
         "number_type": "mobile",
+        "quote_id": _QUOTE,
         "fields": {"first_name": _FIELD_VALUE},
         "documents": {"identity": {"option": "passport", "fields": {}}},
         "files": [_file()],

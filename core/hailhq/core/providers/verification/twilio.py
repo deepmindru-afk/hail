@@ -15,6 +15,9 @@ import re
 import requests
 from hailhq.core.config import settings
 from hailhq.core.providers.verification.base import (
+    DETAILS_REJECTED,
+    NOT_ACCEPTED,
+    VALUE_NOT_ACCEPTED,
     Address,
     DocumentInput,
     DocumentOption,
@@ -366,7 +369,8 @@ class TwilioVerificationProvider(VerificationProvider):
             self._discard_sync(refs)
             if exc.status == 400:
                 return DraftResult(
-                    refs={}, problems=[Problem(field="", message=exc.msg)]
+                    refs={},
+                    problems=[Problem(field="", message=NOT_ACCEPTED, raw=exc.msg)],
                 )
             raise VerificationProviderError("Twilio request failed") from exc
         except Exception:
@@ -424,20 +428,19 @@ class TwilioVerificationProvider(VerificationProvider):
                 problems.append(
                     Problem(
                         field=field,
-                        message=bad.get("failure_reason")
-                        or f"{bad.get('friendly_name', 'A value')} is not valid.",
+                        message=VALUE_NOT_ACCEPTED if field else NOT_ACCEPTED,
+                        raw=bad.get("failure_reason") or bad.get("friendly_name"),
                     )
                 )
             if not result.get("invalid"):
                 problems.append(
                     Problem(
                         field=slot,
-                        message=f"{result.get('requirement_friendly_name', 'A requirement')} is missing.",
+                        message="This is missing." if slot else NOT_ACCEPTED,
+                        raw=result.get("requirement_friendly_name"),
                     )
                 )
-        return problems or [
-            Problem(field="", message="The carrier did not accept the details.")
-        ]
+        return problems or [Problem(field="", message=NOT_ACCEPTED)]
 
     async def check(self, refs: dict) -> list[Problem]:
         return await asyncio.to_thread(self._evaluate, refs)
@@ -454,10 +457,10 @@ class TwilioVerificationProvider(VerificationProvider):
         if bundle.status == "twilio-approved":
             return ProviderStatus(state="approved")
         if bundle.status == "twilio-rejected":
-            reason = getattr(bundle, "failure_reason", None)
             return ProviderStatus(
                 state="rejected",
-                reason=reason or "The carrier rejected the details. Start again.",
+                reason=DETAILS_REJECTED,
+                raw_reason=getattr(bundle, "failure_reason", None),
             )
         return ProviderStatus(state="pending")
 

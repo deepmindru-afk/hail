@@ -562,8 +562,8 @@ async def create_agent(*, client: HailClient, **fields: Any) -> dict[str, Any]:
 
 
 # Hail does not tell agents which carrier backs a number, an offer or a
-# verification. The carrier is read server-side from the quote instead.
-# Carrier-issued ids are dropped too: their format names the carrier.
+# verification. The public API no longer returns these keys; this stays as a
+# guard against an older API that still does.
 _CARRIER_KEYS = frozenset(
     {
         "provider",
@@ -631,7 +631,6 @@ async def quote_numbers(
     fields: dict[str, Any] = {
         "country_code": country_code,
         "capabilities": ["voice", "sms"] if capabilities is None else capabilities,
-        "provider": "auto",
     }
     if number_type is not None:
         fields["number_type"] = number_type
@@ -668,7 +667,6 @@ async def acquire_number(
             quote_id=quote_id_,
             country_code=country_code,
             number_type=number_type,
-            provider="auto",
             expected_total_cents=confirm_total_cents,
             idempotency_key=idempotency_key,
         )
@@ -793,6 +791,10 @@ def _is_str_map(value: Any) -> bool:
 
 _VERIFICATION_PURPOSES = ("number", "sms")
 _PURPOSE_ERROR = "purpose must be 'number' or 'sms'"
+_QUOTE_REQUIRED = (
+    "quote_id is required for purpose='number': pass the quote_id of the "
+    "offer from quote_numbers"
+)
 
 
 # Typed in the JSON schema only. Validation stays ``Any`` so FastMCP never
@@ -915,6 +917,8 @@ async def get_verification_requirements(
 ) -> dict[str, Any]:
     if purpose not in _VERIFICATION_PURPOSES:
         return {"error": f"{_PURPOSE_ERROR}."}
+    if purpose == "number" and quote_id is None:
+        return {"error": f"{_QUOTE_REQUIRED}."}
     if quote_id is not None and _as_uuid(quote_id) is None:
         return _not_uuid("quote_id")
     if number_id is not None and _as_uuid(number_id) is None:
@@ -1024,6 +1028,8 @@ async def submit_verification(
 ) -> dict[str, Any]:
     if purpose not in _VERIFICATION_PURPOSES:
         return {"error": f"{_PURPOSE_ERROR}. Nothing was sent."}
+    if purpose == "number" and quote_id is None:
+        return {"error": f"{_QUOTE_REQUIRED}. Nothing was sent."}
     if quote_id is not None and _as_uuid(quote_id) is None:
         return {"error": "quote_id must be a UUID. Nothing was sent."}
     if number_id is not None and _as_uuid(number_id) is None:
@@ -2261,6 +2267,10 @@ def register_tools(
         ``readiness`` is ``"ready"``; ``recommended_quote_id`` points at the
         best one, or is null if none is ready.
 
+        An offer with ``by_request: true`` has no ``e164``: support orders
+        that number by hand. acquire_number refuses it; tell the user to ask
+        support. Its ``quote_id`` still works for verification.
+
         Errors come back as ``{"error": "<message>"}``."""
         try:
             async with _client_for(ctx, mode=mode, singleton=singleton) as client:
@@ -2477,8 +2487,8 @@ def register_tools(
         is ``local``, ``mobile``, ``national`` or ``toll_free``.
         ``subject_type`` is ``person`` (default) or ``business``; the result's
         ``subject_types`` lists what the carrier accepts. ``quote_id`` is the
-        offer's ``quote_id`` from quote_numbers: pass it for
-        ``purpose='number'`` so the form matches that offer.
+        offer's ``quote_id`` from quote_numbers. It is required for
+        ``purpose='number'``: the form is the one for that offer.
 
         ``purpose`` is ``number`` (default, to buy a number) or ``sms``.
         ``purpose='sms'`` registers the organization to text US numbers from a

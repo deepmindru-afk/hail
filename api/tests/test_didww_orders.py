@@ -61,9 +61,7 @@ async def buy(db, org, quote, monkeypatch, offer, *, kind="national"):
         "hailhq.api.number_orders.discover_offers",
         AsyncMock(return_value=([offer], [])),
     )
-    return await acquire_offer(
-        db, org, quote.id, country="PT", kind=kind, provider="auto", billed=True
-    )
+    return await acquire_offer(db, org, quote.id, country="PT", kind=kind, billed=True)
 
 
 @pytest.fixture(autouse=True)
@@ -232,8 +230,14 @@ async def _seed_approved_verification(db, org, *, number_type="national"):
     return row
 
 
+NEUTRAL_REJECTION = (
+    "the carrier rejected the end-user registration; "
+    "start a new verification with corrected details"
+)
+
+
 async def test_didww_registration_rejected_revokes_approval(
-    async_session, org_and_key, monkeypatch
+    async_session, org_and_key, monkeypatch, caplog
 ):
     org, _, _ = org_and_key
     verification = await _seed_approved_verification(async_session, org)
@@ -254,12 +258,22 @@ async def test_didww_registration_rejected_revokes_approval(
     monkeypatch.setattr("hailhq.core.providers.voice.didww.revoke_registration", revoke)
     number = await buy(async_session, org, row, monkeypatch, offer)
     outcome.return_value = ("rejected_registration", DID, ORDER)
-    await reconcile_order(async_session, number, force=True)
+    with caplog.at_level("WARNING", logger="hailhq.api.number_orders"):
+        await reconcile_order(async_session, number, force=True)
     revoke.assert_awaited_once_with("addr-1", org, "PT", "national")
-    assert number.provisioning_metadata["failure_reason"] == "Document is blurry"
+    # The buyer reads Hail's wording; the carrier's text stays server-side.
+    assert number.provisioning_metadata["failure_reason"] == NEUTRAL_REJECTION
+    assert number.provisioning_metadata["carrier_reason"] == "Document is blurry"
+    messages = [r.getMessage() for r in caplog.records]
+    # The reviewer's note can quote personal data: kept in the DB, not logged.
+    assert not any("Document is blurry" in m for m in messages)
+    logged = [m for m in messages if "rejected the registration" in m]
+    assert len(logged) == 1
+    assert str(org) in logged[0] and str(number.id) in logged[0]
+    assert str(verification.id) in logged[0]
     await async_session.refresh(verification)
     assert verification.state == "rejected"
-    assert verification.rejection_reason == "Document is blurry"
+    assert verification.rejection_reason == NEUTRAL_REJECTION
     await async_session.refresh(other)
     assert other.state == "approved"
     assert await get_balance_cents(async_session, org) == 100000 - 350
@@ -272,7 +286,8 @@ async def test_didww_registration_rejected_revokes_approval(
         )
     ).scalar_one()
     assert audit.actor_kind == "system"
-    assert audit.payload["reason"] == "Document is blurry"
+    assert audit.payload["reason"] == NEUTRAL_REJECTION
+    assert audit.payload["carrier_reason"] == "Document is blurry"
 
 
 async def test_didww_registration_rejected_refunds_even_if_revoke_fails(
@@ -300,10 +315,8 @@ async def test_didww_registration_rejected_refunds_even_if_revoke_fails(
     outcome.return_value = ("rejected_registration", DID, ORDER)
     await reconcile_order(async_session, number, force=True)
     assert number.provisioning_state == "failed"
-    assert (
-        number.provisioning_metadata["failure_reason"]
-        == "the carrier rejected the end-user registration"
-    )
+    assert number.provisioning_metadata["failure_reason"] == NEUTRAL_REJECTION
+    assert "carrier_reason" not in number.provisioning_metadata
     await async_session.refresh(verification)
     assert verification.state == "rejected"
     assert await get_balance_cents(async_session, org) == 100000 - 350
@@ -959,9 +972,7 @@ async def test_quotes_take_a_city_alone_outside_us_and_ca(
     assert discover.await_args.kwargs["region"] is None
 
 
-async def test_quotes_for_one_carrier_search_only_its_kinds(
-    client, org_and_key, monkeypatch
-):
+async def test_quote_provider_is_ignored(client, org_and_key, monkeypatch):
     _, _, key = org_and_key
     discover = AsyncMock(return_value=([], []))
     monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
@@ -975,4 +986,261 @@ async def test_quotes_for_one_carrier_search_only_its_kinds(
     searched = {
         call.args[2]: call.kwargs["providers"] for call in discover.await_args_list
     }
-    assert searched == {"national": ["didww"]}
+    # ``provider`` is deprecated and ignored: every carrier is searched for
+    # the kinds its own catalog lists.
+    assert searched == {"local": ["twilio"], "national": ["didww"]}
+
+
+@pytest.fixture()
+def by_request_catalog(tmp_path):
+    """PT national: Twilio sells it with a quote, DIDWW lists it by request."""
+    row = {
+        "country_code": "PT",
+        "number_type": "national",
+        "usd_per_month": "3.50",
+        "voice": True,
+        "sms": False,
+        "mms": False,
+    }
+    (tmp_path / "twilio.json").write_text(
+        json.dumps({"numbers": [row], "a2p_10dlc": []})
+    )
+    (tmp_path / "didww.json").write_text(
+        json.dumps(
+            {"numbers": [{**row, "by_request": True, "verification_required": True}]}
+        )
+    )
+    telephony_catalog._load.cache_clear()
+
+
+@pytest.fixture()
+def didww_verification(monkeypatch):
+    """A configured DIDWW verification plug-in (a fake) for quotes and the
+    verification routes."""
+    from hailhq.api.main import app
+    from hailhq.api.routes.verifications import get_verification_registry
+
+    from .test_verifications_api import FakeCarrier
+
+    fake = FakeCarrier()
+
+    def registry(name, purpose="number"):
+        return fake if name == "didww" and purpose == "number" else None
+
+    monkeypatch.setattr("hailhq.api.routes.numbers.get_verification_provider", registry)
+    app.dependency_overrides[get_verification_registry] = lambda: registry
+    yield fake
+    app.dependency_overrides.pop(get_verification_registry, None)
+
+
+async def _quote_pt_national(client, key, monkeypatch, live: list[CarrierOffer]):
+    monkeypatch.setattr(
+        "hailhq.api.routes.numbers.discover_offers",
+        AsyncMock(return_value=(live, [])),
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={
+            "country_code": "PT",
+            "number_type": "national",
+            "capabilities": ["voice"],
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.usefixtures("by_request_catalog")
+async def test_quotes_list_a_by_request_offer_after_the_offers_to_buy(
+    client, async_session, org_and_key, monkeypatch, didww_verification
+):
+    """Twilio sells PT national with a quote and DIDWW lists it by request:
+    both come back. The by-request one has no number, is never recommended,
+    and has a stored quote with the DIDWW carrier."""
+    _, _, key = org_and_key
+    twilio = CarrierOffer(
+        provider="twilio",
+        e164="+351300000009",
+        country_code="PT",
+        number_type="national",
+        capabilities=["voice"],
+        monthly_cents=400,
+        setup_cents=0,
+        readiness="ready",
+    )
+    body = await _quote_pt_national(client, key, monkeypatch, [twilio])
+    assert [o["by_request"] for o in body["offers"]] == [False, True]
+    asked = body["offers"][1]
+    assert asked["e164"] is None
+    assert asked["readiness"] == "verification_required"
+    assert asked["monthly_cents"] == 350
+    assert asked["quote_id"]
+    assert "provider" not in asked
+    assert body["recommended_quote_id"] == body["offers"][0]["quote_id"]
+    stored = (
+        await async_session.execute(
+            select(NumberOffer.offer).where(NumberOffer.id == asked["quote_id"])
+        )
+    ).scalar_one()
+    assert stored["provider"] == "didww" and stored["by_request"] is True
+
+
+@pytest.mark.usefixtures("by_request_catalog")
+async def test_by_request_quote_files_a_verification_with_didww_and_is_not_sold(
+    client, async_session, org_and_key, monkeypatch, didww_verification
+):
+    from .test_verifications_api import _passport, _row_provider, _submission
+
+    _, _, key = org_and_key
+    auth = {"Authorization": f"Bearer {key}"}
+    body = await _quote_pt_national(client, key, monkeypatch, [])
+    (asked,) = body["offers"]
+    assert asked["by_request"] is True
+    assert body["recommended_quote_id"] is None
+    quote_id = asked["quote_id"]
+    params = {"country_code": "PT", "number_type": "national"}
+
+    resp = await client.get(
+        "/verifications/requirements",
+        params={**params, "quote_id": quote_id},
+        headers=auth,
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(
+        "/verifications",
+        data=_submission(quote_id=quote_id, provider="", **params),
+        files=_passport(),
+        headers=auth,
+    )
+    assert resp.status_code == 201, resp.text
+    assert await _row_provider(async_session, resp.json()["id"]) == "didww"
+
+    # Without the quote_id there is no carrier to pick: 422.
+    resp = await client.get("/verifications/requirements", params=params, headers=auth)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["query", "quote_id"]
+
+    # Support orders it by hand: the API never buys it.
+    resp = await client.post(
+        "/numbers",
+        json={"country_code": "PT", "number_type": "national", "quote_id": quote_id},
+        headers=auth,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Ask support" in resp.json()["detail"][0]["msg"]
+    assert resp.json()["detail"][0]["loc"] == ["body", "quote_id"]
+    assert (
+        await async_session.execute(
+            select(NumberOffer.number_id).where(NumberOffer.id == quote_id)
+        )
+    ).scalar_one() is None
+
+
+@pytest.fixture()
+def de_by_request_catalog(tmp_path):
+    """DE local: only DIDWW lists it, by request. No carrier sells it."""
+    (tmp_path / "twilio.json").write_text(json.dumps({"numbers": [], "a2p_10dlc": []}))
+    (tmp_path / "didww.json").write_text(
+        json.dumps(
+            {
+                "numbers": [
+                    {
+                        "country_code": "DE",
+                        "number_type": "local",
+                        "usd_per_month": "1.50",
+                        "voice": True,
+                        "sms": False,
+                        "mms": False,
+                        "by_request": True,
+                        "verification_required": True,
+                    }
+                ]
+            }
+        )
+    )
+    telephony_catalog._load.cache_clear()
+
+
+@pytest.mark.usefixtures("de_by_request_catalog")
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"area_code": "30", "capabilities": ["voice"]},
+        {"city": "Berlin", "capabilities": ["voice"]},
+        {"capabilities": ["voice", "sms"]},
+    ],
+)
+async def test_quotes_refuse_a_by_request_kind_when_no_offer_comes_back(
+    client, org_and_key, monkeypatch, didww_verification, extra
+):
+    """A place search or SMS leaves the by-request offer out. No carrier
+    sells DE local, so the answer is the old 422, not an empty list."""
+    _, _, key = org_and_key
+    discover = AsyncMock(return_value=([], []))
+    monkeypatch.setattr("hailhq.api.routes.numbers.discover_offers", discover)
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"country_code": "DE", "number_type": "local", **extra},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "we don't offer a local number in DE" in resp.json()["detail"][0]["msg"]
+    discover.assert_not_awaited()
+
+
+@pytest.mark.usefixtures("de_by_request_catalog")
+async def test_quotes_refuse_a_country_with_only_by_request_kinds_and_no_offer(
+    client, org_and_key, monkeypatch, didww_verification
+):
+    _, _, key = org_and_key
+    monkeypatch.setattr(
+        "hailhq.api.routes.numbers.discover_offers",
+        AsyncMock(return_value=([], [])),
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"country_code": "DE", "area_code": "30", "capabilities": ["voice"]},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "we don't offer numbers in DE" in resp.json()["detail"][0]["msg"]
+
+
+@pytest.mark.usefixtures("de_by_request_catalog")
+async def test_quotes_refuse_a_by_request_kind_when_its_carrier_is_not_configured(
+    client, org_and_key, monkeypatch
+):
+    _, _, key = org_and_key
+    monkeypatch.setattr(
+        "hailhq.api.routes.numbers.get_verification_provider", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "hailhq.api.routes.numbers.discover_offers",
+        AsyncMock(return_value=([], [])),
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"country_code": "DE", "number_type": "local", "capabilities": ["voice"]},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.usefixtures("de_by_request_catalog")
+async def test_quotes_list_a_by_request_kind_no_carrier_sells(
+    client, org_and_key, monkeypatch, didww_verification
+):
+    _, _, key = org_and_key
+    monkeypatch.setattr(
+        "hailhq.api.routes.numbers.discover_offers",
+        AsyncMock(return_value=([], [])),
+    )
+    resp = await client.post(
+        "/numbers/quotes",
+        json={"country_code": "DE", "number_type": "local", "capabilities": ["voice"]},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert resp.status_code == 200, resp.text
+    (offer,) = resp.json()["offers"]
+    assert offer["by_request"] is True and offer["e164"] is None

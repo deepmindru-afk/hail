@@ -97,9 +97,10 @@ async def finish_order(
 ):
     """Caller holds org lock. Move reservation to month fee, or refund once.
 
-    ``reason`` is stored for a failed order and shown to the buyer; it must
-    never contain carrier payloads beyond the carrier's own human-readable
-    rejection wording. ``keep_setup`` charges the setup fee even on failure:
+    ``reason`` is stored for a failed order and shown to the buyer; it is
+    Hail's own wording, never the carrier's text (``rejected_registration``
+    keeps that as ``carrier_reason`` in the metadata).
+    ``keep_setup`` charges the setup fee even on failure:
     the carrier already billed it and does not refund (the number was
     bought, then its registration was rejected or never cleared)."""
     if number.provisioning_state != "pending":
@@ -164,6 +165,14 @@ async def finish_order(
             )
 
 
+# Shown to the buyer when the carrier refuses the end-user registration of a
+# bought number. Hail's own wording, never the carrier's.
+REGISTRATION_REJECTED = (
+    "the carrier rejected the end-user registration; "
+    "start a new verification with corrected details"
+)
+
+
 async def give_back(number: PhoneNumber, resource_id: str) -> None:
     """Release a bought number the order will not keep. Never raises. When
     the carrier call fails, the resource id is kept on the row as
@@ -189,7 +198,11 @@ async def rejected_registration(
 ) -> str:
     """The carrier refused the end-user registration of a bought number.
     Releases the number, takes the approval back and marks the Hail
-    verification rejected. Returns the reason shown to the buyer.
+    verification rejected. Returns the reason shown to the buyer: Hail's own
+    wording. The carrier's text is kept in the DB only (the audit row's
+    ``carrier_reason`` and the number's
+    ``provisioning_metadata['carrier_reason']``): never logged, never shown.
+    The log line names the carrier and the org, number and verification ids.
 
     Caller holds the org lock and fails the order. The carrier calls run
     under that lock on purpose: two concurrent reconciles must never both
@@ -199,11 +212,11 @@ async def rejected_registration(
         await give_back(number, resource_id)
     # Take the approval back, so the next quote asks for new papers
     # instead of filing the same rejected ones again.
-    reason = None
+    raw = None
     revoke = carrier(number.provider).revoke_registration
     if revoke is not None:
         try:
-            reason = await revoke(
+            raw = await revoke(
                 CarrierOffer.model_validate(number.provisioning_metadata["offer"]), org
             )
         except Exception:
@@ -212,7 +225,7 @@ async def rejected_registration(
                 "approval back by hand: number=%s",
                 number.id,
             )
-    reason = reason or "the carrier rejected the end-user registration"
+    reason = REGISTRATION_REJECTED
     verification = (
         await db.execute(
             select(CarrierVerification).where(
@@ -225,8 +238,25 @@ async def rejected_registration(
             )
         )
     ).scalar_one_or_none()
+    # Not the carrier's text: a reviewer's note can quote the customer's
+    # papers, and logs leave this server. It is kept in the DB below.
+    logger.warning(
+        "carrier %s rejected the registration of number %s (org %s, "
+        "verification %s)",
+        number.provider,
+        number.id,
+        org,
+        verification.id if verification is not None else None,
+    )
+    if raw:
+        number.provisioning_metadata = {
+            **number.provisioning_metadata,
+            "carrier_reason": raw,
+        }
     if verification is not None:
         verification.state = "rejected"
+        # Hail's wording for the customer; the carrier's text is in the
+        # audit row below.
         verification.rejection_reason = reason
         verification.updated_at = datetime.now(timezone.utc)
         # Same audit trail as every other system-driven rejection
@@ -237,7 +267,7 @@ async def rejected_registration(
             "verification.reject",
             "carrier_verification",
             verification.id,
-            {"rejected_by": None, "reason": reason},
+            {"rejected_by": None, "reason": reason, "carrier_reason": raw},
             actor_user_id=None,
             actor_kind="system",
         )
@@ -424,7 +454,6 @@ async def acquire_offer(
     *,
     country: str,
     kind: str | None,
-    provider: str,
     billed: bool,
     expected_total_cents: int | None = None,
 ) -> PhoneNumber:
@@ -433,13 +462,18 @@ async def acquire_offer(
     await org_lock(db, org)
     row = await load_quote(db, org, quote_id)
     offer = CarrierOffer.model_validate(row.offer)
-    if (
-        offer.country_code != country
-        or (kind is not None and offer.number_type != kind)
-        or provider not in ("auto", offer.provider)
+    if offer.by_request:
+        # Support orders it by hand: no carrier order here, ever.
+        raise unprocessable(
+            "This number is set up by our team, not bought through the API. "
+            "Ask support for it. Its quote_id still works for verification.",
+            loc=["body", "quote_id"],
+        )
+    if offer.country_code != country or (
+        kind is not None and offer.number_type != kind
     ):
         raise unprocessable(
-            "Quote does not match the selected country, type or provider",
+            "Quote does not match the selected country or type",
             loc=["body", "quote_id"],
         )
     kind = offer.number_type
@@ -656,7 +690,6 @@ async def purchase_number(
         country=body.country_code,
         # An omitted type comes from the quote; only an explicit one can conflict.
         kind=body.number_type if "number_type" in body.model_fields_set else None,
-        provider=body.provider,
         billed=principal.auth_kind != "shared",
         expected_total_cents=body.expected_total_cents,
     )
