@@ -24,12 +24,11 @@ import base64
 import os
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from typing_extensions import Self
 
 from hail._errors import HailConfigError, HailError
 from hail._http import _HailHTTP, generate_idempotency_key
@@ -632,6 +631,7 @@ class _NumbersResource:
         city: str | None = None,
         region: str | None = None,
         subject_type: Literal["person", "business"] | None = None,
+        verification_id: str | UUID | None = None,
     ) -> PhoneNumberResponse:
         """Buy a dedicated number from a live quote.
 
@@ -646,9 +646,12 @@ class _NumbersResource:
         :meth:`quotes`. ``expected_total_cents`` is the monthly plus setup price you
         expect to pay now; the order is refused with 409 if the quote differs.
         ``idempotency_key`` defaults to a fresh UUIDv4 and covers the
-        purchase only. ``subject_type`` (``"person"`` or ``"business"``)
-        picks which approved verification buys a number that needs one. It
-        is needed only when you are verified as both (422 without it).
+        purchase only. ``verification_id`` picks which approved
+        verification buys a number that needs one: the ``id`` of one of the
+        offer's ``verifications`` (each has the person's or company's
+        ``subject_name``). It is needed only when more than one is approved
+        (422 without it). ``subject_type`` (``"person"`` or ``"business"``)
+        keeps only that kind.
         """
         if quote_id is None:
             offers = await self.quotes(
@@ -664,6 +667,14 @@ class _NumbersResource:
                 o
                 for o in offers.offers
                 if o.readiness == "ready" and o.quote_id and not o.by_request
+                # A verification belongs to one carrier's offers.
+                and (
+                    verification_id is None
+                    or any(
+                        str(v.id) == str(verification_id) and v.state == "approved"
+                        for v in o.verifications
+                    )
+                )
             ]
             if not ready and offers.offers and all(o.by_request for o in offers.offers):
                 raise HailError(
@@ -686,6 +697,8 @@ class _NumbersResource:
             body["expected_total_cents"] = expected_total_cents
         if subject_type is not None:
             body["subject_type"] = subject_type
+        if verification_id is not None:
+            body["verification_id"] = str(verification_id)
         key = idempotency_key or generate_idempotency_key()
         data = await self._http.request(
             "POST",

@@ -62,6 +62,7 @@ type numberAcquireFlags struct {
 	idemKey    string
 	expected   int
 	subject    string
+	verifyID   string
 }
 
 func newNumberAcquireCmd(opts *Options) *cobra.Command {
@@ -94,8 +95,10 @@ Examples:
   # Buy one exact offer from an earlier quote:
   hail numbers acquire --country US --quote-id 8b1f0c2e-...
 
-  # Verified as a person and as a company for this number? Pick one:
-  hail numbers acquire --country GB --type mobile --subject-type business`,
+  # More than one approved verification for this number? Pick one by its id
+  # (from the quote's verifications, each with the person's or company's name):
+  hail numbers acquire --country GB --type mobile --quote-id 8b1f0c2e-... \
+    --verification-id 3c9a7d10-...`,
 		Args:    cobra.NoArgs,
 		PreRunE: requireMarkedFlags,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -112,7 +115,8 @@ Examples:
 	cmd.Flags().BoolVar(&f.sms, "sms-only", false, "Require SMS only (default: voice and SMS)")
 	cmd.Flags().StringVar(&f.idemKey, "idempotency-key", "", "Defaults to a fresh UUID")
 	cmd.Flags().IntVar(&f.expected, "expected-total-cents", 0, "Refuse the order (409) if the quoted monthly plus setup price differs from this many cents")
-	cmd.Flags().StringVar(&f.subject, "subject-type", "", "Which approved verification buys the number: person or business. Needed only when you are verified as both")
+	cmd.Flags().StringVar(&f.subject, "subject-type", "", "Buy only with an approved verification of this kind: person or business")
+	cmd.Flags().StringVar(&f.verifyID, "verification-id", "", "Which approved verification buys the number (an id from the quote's verifications). Needed only when more than one is approved")
 	cmd.MarkFlagRequired("country")
 	return cmd
 }
@@ -132,6 +136,15 @@ func runNumberAcquire(ctx context.Context, cmd *cobra.Command, opts *Options, f 
 	if f.subject != "" && f.subject != "person" && f.subject != "business" {
 		return helpAndFail(cmd, "--subject-type must be 'person' or 'business'")
 	}
+	var verificationID *openapi_types.UUID
+	if f.verifyID != "" {
+		parsed, err := uuid.Parse(f.verifyID)
+		if err != nil {
+			return helpAndFail(cmd, "--verification-id must be a UUID")
+		}
+		id := openapi_types.UUID(parsed)
+		verificationID = &id
+	}
 
 	var quoteID openapi_types.UUID
 	if f.quoteID != "" {
@@ -141,7 +154,7 @@ func runNumberAcquire(ctx context.Context, cmd *cobra.Command, opts *Options, f 
 		}
 		quoteID = openapi_types.UUID(parsed)
 	} else {
-		id, err := cheapestQuoteID(ctx, opts, f)
+		id, err := cheapestQuoteID(ctx, opts, f, verificationID)
 		if err != nil {
 			return err
 		}
@@ -162,6 +175,7 @@ func runNumberAcquire(ctx context.Context, cmd *cobra.Command, opts *Options, f 
 		st := client.NumberAcquireRequestSubjectType(f.subject)
 		body.SubjectType = &st
 	}
+	body.VerificationId = verificationID
 	// An explicit --type is checked against the quote; without --quote-id the
 	// quote was already requested for this type.
 	if f.quoteID != "" && cmd.Flags().Changed("type") {
@@ -189,8 +203,9 @@ func runNumberAcquire(ctx context.Context, cmd *cobra.Command, opts *Options, f 
 
 // cheapestQuoteID requests live offers and returns the ready offer with the
 // lowest monthly plus setup price. The first such offer wins a tie, which is
-// the API's own ranking.
-func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags) (openapi_types.UUID, error) {
+// the API's own ranking. With verificationID, only offers that list it as
+// approved count: a verification belongs to one carrier's offers.
+func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags, verificationID *openapi_types.UUID) (openapi_types.UUID, error) {
 	caps := []client.NumberQuoteRequestCapabilities{
 		client.NumberQuoteRequestCapabilities("voice"),
 		client.NumberQuoteRequestCapabilities("sms"),
@@ -244,6 +259,9 @@ func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags) 
 		if o.QuoteId == nil || o.Readiness != client.QuoteOfferReadiness("ready") || (o.ByRequest != nil && *o.ByRequest) {
 			continue
 		}
+		if verificationID != nil && !listsApproved(o, *verificationID) {
+			continue
+		}
 		if best == nil || o.MonthlyCents+o.SetupCents < best.MonthlyCents+best.SetupCents {
 			best = o
 		}
@@ -255,6 +273,19 @@ func cheapestQuoteID(ctx context.Context, opts *Options, f *numberAcquireFlags) 
 		return openapi_types.UUID{}, fmt.Errorf("no number ready to buy in %s (%s); complete regulatory verification or try another --type", f.country, f.numberType)
 	}
 	return *best.QuoteId, nil
+}
+
+// listsApproved reports whether the offer lists id as an approved verification.
+func listsApproved(o *client.QuoteOffer, id openapi_types.UUID) bool {
+	if o.Verifications == nil {
+		return false
+	}
+	for _, v := range *o.Verifications {
+		if v.Id == id && v.State == "approved" {
+			return true
+		}
+	}
+	return false
 }
 
 // --------------------------------------------------------------------------- //
@@ -406,7 +437,15 @@ func printPhoneNumber(opts *Options, n *client.PhoneNumberResponse, banner bool)
 	fmt.Fprintf(opts.Stdout, "  Capabilities: %s\n", strings.Join(n.Capabilities, ", "))
 	fmt.Fprintf(opts.Stdout, "  State:        %s\n", n.ProvisioningState)
 	if n.SubjectType != nil {
-		fmt.Fprintf(opts.Stdout, "  Verified as:  %s\n", *n.SubjectType)
+		kind := string(*n.SubjectType)
+		if kind == "business" {
+			kind = "company"
+		}
+		if n.SubjectName != nil && *n.SubjectName != "" {
+			fmt.Fprintf(opts.Stdout, "  Verified for: %s (%s)\n", *n.SubjectName, kind)
+		} else {
+			fmt.Fprintf(opts.Stdout, "  Verified as:  %s\n", kind)
+		}
 	}
 	if n.VoiceAgentId != nil {
 		fmt.Fprintf(opts.Stdout, "  Calls:        agent %s\n", n.VoiceAgentId.String())
