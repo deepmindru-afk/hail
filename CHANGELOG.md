@@ -4,9 +4,16 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ## [Unreleased]
 
-### Changed
+## [0.31.0] (2026-10-23)
 
-- Calls: `recording_enabled` on a call or agent now wins in both directions. `true` records even when the workspace has recording off, and `false` turns it off.
+The API stops naming the carrier behind numbers, quotes and verifications.
+Verifications are kept per person or company, and a call's own recording
+choice wins over the workspace setting.
+
+Component versions cut alongside this release:
+**`cli-v0.30.0`** (Homebrew + GitHub Releases) and **`sdk-v0.21.0`** (PyPI).
+`hail-sdk` 0.20.0 cannot read quotes from this API; upgrade to 0.21.0.
+Database migrations run on deploy.
 
 ### Added
 
@@ -17,6 +24,7 @@ All notable changes to Hail are documented here. The format is based on [Keep a 
 
 ### Changed
 
+- Calls: `recording_enabled` on a call or agent now wins in both directions. `true` records even when the workspace has recording off, and `false` turns it off.
 - MCP: number, quote and verification tools no longer show which carrier backs a number. Verification tools take `quote_id` or `number_id` instead of `provider`.
 - **Breaking.** API responses no longer name the carrier or carry carrier ids or carrier error text. `provider` in requests is ignored; see the OpenAPI spec.
 - **Breaking.** Number verifications need the offer's `quote_id` (422 without it). Quotes also list numbers support orders by hand (`by_request: true`).
