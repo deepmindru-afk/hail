@@ -16,6 +16,7 @@ from livekit.agents.voice.amd import AMDCategory, AMDPredictionEvent
 
 logger = logging.getLogger("hailhq.voicebot")
 
+# Cap on the whole recheck: transcription and classification together.
 RECHECK_TIMEOUT_SECONDS = 5.0
 MIN_SPEECH_SECONDS = 1.0
 SAMPLE_RATE = 16000
@@ -132,8 +133,6 @@ async def recheck_greeting(
             )
             if not transcript:
                 return result
-            # classify_speech keeps the >=10s provider deadline Google BYO
-            # needs. The outer five-second budget still bounds the recheck.
             category = await classify_speech(llm, prompt + RECHECK_NOTE, transcript)
         if category is None or category == AMDCategory.UNCERTAIN:
             return result
