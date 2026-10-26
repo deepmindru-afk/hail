@@ -236,6 +236,11 @@ class SpeechSanitizingAgent(Agent):
         return heard or None
 
     async def on_user_turn_completed(self, turn_ctx: Any, new_message: Any) -> None:
+        if new_message is not None and not (new_message.text_content or "").strip():
+            # An empty turn has nothing to answer. speak_greeting clears the
+            # pickup turn and cancels its end of turn. This is the backup if
+            # that cancel misses (LiveKit's "ignore empty turns" pattern).
+            raise StopResponse()
         if self._opening_pending:
             # AMD pauses playback, but still allows automatic replies to queue.
             # The explicit introduction owns the first turn, including when a
@@ -861,15 +866,42 @@ async def speak_greeting(
         else None
     )
     first_message = metadata.get("first_message")
+    inbound = metadata.get("direction") == "inbound"
+    if generate_opening and not inbound:
+        # The turn detector can wait up to max_delay (2.5 s) on a bare pickup
+        # "Hello?". If that turn ends after this opening starts, it cuts the
+        # opening off, so drop the unfinished turn. Its words reach the
+        # generated opening only through pickup_transcript (AMD's transcript
+        # at the verdict). A first_message opening does not answer them. Not
+        # when a person just spoke on the menu path (generate_opening=False):
+        # there the turn loop answers them.
+        try:
+            session.clear_user_turn()
+        except RuntimeError:
+            # The callee hung up and the session stopped.
+            pass
+        except Exception:
+            logger.exception("could not clear the pickup turn")
+        # clear_user_turn leaves the running end-of-turn wait alone. If that
+        # wait ends while no speech is current (before the scheduler picks up
+        # the opening), LiveKit interrupts the opening before
+        # on_user_turn_completed can drop the empty turn. Cancel the wait, as
+        # LiveKit does on new speech. Cancel even when the clear raised: it
+        # empties the transcript first. A turn whose end already fired is not
+        # stopped here. Private in livekit-agents 1.8.8; test_opening_order.py
+        # fails if it moves.
+        recognition = getattr(
+            getattr(session, "_activity", None), "_audio_recognition", None
+        )
+        eou_task = getattr(recognition, "_end_of_turn_task", None)
+        if eou_task is not None:
+            eou_task.cancel()
     try:
         if first_message:
             interruptible = True
             if not disclosure:
                 greeting = first_message
-            elif (
-                metadata.get("direction") == "inbound"
-                and not (metadata.get("ai_disclosure_line") or "").strip()
-            ):
+            elif inbound and not (metadata.get("ai_disclosure_line") or "").strip():
                 greeting = greeting_with_ai_line(
                     first_message, after_greeting_text(metadata.get("org_name"))
                 )
@@ -889,7 +921,7 @@ async def speak_greeting(
     # for them to speak (the documented ``first_message: null`` behavior). The
     # generated opening is written for a call Hail placed ("say why you are
     # calling") and would tell the caller the agent called them.
-    if generate_opening and metadata.get("direction") != "inbound":
+    if generate_opening and not inbound:
         session.generate_reply(
             instructions=opening_instructions(
                 " ".join(filter(None, (pickup_transcript, heard))),

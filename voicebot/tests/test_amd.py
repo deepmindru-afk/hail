@@ -627,6 +627,9 @@ class _FakeAmdSession:
         self.started = True
         self.start_options = _kwargs
 
+    def clear_user_turn(self) -> None:
+        pass
+
     def say(self, text: str, *, allow_interruptions: bool = True) -> Any:
         self.say_calls.append(text)
 
